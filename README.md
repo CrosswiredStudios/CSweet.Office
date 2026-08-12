@@ -10,8 +10,10 @@ The headquarters gateway, scheduling, enrollment approval, certificates, artifac
 
 ```powershell
 dotnet build CSweet.SatelliteOffice.slnx -c Release
-dotnet build CSweet.SatelliteOffice.slnx -c Release -p:UseLocalSatelliteOfficeContracts=false
+dotnet build CSweet.SatelliteOffice.Independent.slnx -c Release -p:UseLocalSatelliteOfficeContracts=false
 ```
+
+The primary solution loads the sibling `CSweet.SatelliteOffice.Contracts` project for Visual Studio development. The independent solution intentionally excludes that project and verifies the published package boundary used by CI and releases.
 
 Install Satellite Office independently, create a one-use enrollment in C-Sweet, connect it to the gateway, verify its fingerprint, and approve it. C-Sweet AppHost does not launch Satellite Office.
 

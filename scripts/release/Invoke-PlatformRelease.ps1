@@ -12,7 +12,7 @@ $version = $Matches.version
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $output = Join-Path $root 'artifacts\release'
 New-Item -ItemType Directory -Force $output | Out-Null
-dotnet test (Join-Path $root 'CSweet.SatelliteOffice.slnx') -c Release -p:UseLocalSatelliteOfficeContracts=false
+dotnet test (Join-Path $root 'CSweet.SatelliteOffice.Independent.slnx') -c Release -p:UseLocalSatelliteOfficeContracts=false
 if ($LASTEXITCODE -ne 0) { throw 'Release tests failed.' }
 $symbols = Get-ChildItem (Join-Path $root 'src') -Recurse -Filter '*.pdb' -File | Where-Object FullName -Match '\\Release\\'
 if ($symbols) { Compress-Archive -Path $symbols.FullName -DestinationPath (Join-Path $output "csweet-satellite-office-$version-$OperatingSystem-$Architecture-symbols.zip") -Force }
