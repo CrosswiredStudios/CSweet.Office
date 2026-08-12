@@ -15,6 +15,7 @@
     <Project Path="src/CSweet.SatelliteOffice.GuestProbe/CSweet.SatelliteOffice.GuestProbe.csproj" />
     <Project Path="src/CSweet.SatelliteOffice.Node/CSweet.SatelliteOffice.Node.csproj" />
     <Project Path="src/CSweet.SatelliteOffice.RuntimeHost/CSweet.SatelliteOffice.RuntimeHost.csproj" />
+    <Project Path="src/CSweet.SatelliteOffice.WindowsSmokeTest/CSweet.SatelliteOffice.WindowsSmokeTest.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CSweet.SatelliteOffice.Tests/CSweet.SatelliteOffice.Tests.csproj" />
