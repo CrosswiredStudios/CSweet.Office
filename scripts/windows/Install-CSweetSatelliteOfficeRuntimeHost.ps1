@@ -55,6 +55,62 @@ function Invoke-Sc([string[]] $Arguments) {
     }
 }
 
+function Test-PathWithinRoot([string] $Candidate, [string] $Root) {
+    if ([String]::IsNullOrWhiteSpace($Candidate)) { return $false }
+    $rootPath = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+    $candidatePath = [IO.Path]::GetFullPath($Candidate).TrimEnd('\')
+    return $candidatePath.Equals($rootPath, [StringComparison]::OrdinalIgnoreCase) -or
+        $candidatePath.StartsWith($rootPath + '\', [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Remove-LegacyHyperVResources([string] $LegacyRoot) {
+    if (-not (Test-Path -LiteralPath $LegacyRoot -PathType Container)) { return }
+    Import-Module Hyper-V -ErrorAction Stop
+    $legacyVms = @(Get-VM -ErrorAction Stop | Where-Object {
+        $vm = $_
+        $paths = [Collections.Generic.List[string]]::new()
+        foreach ($propertyName in @('Path', 'ConfigurationLocation', 'SnapshotFileLocation', 'SmartPagingFilePath')) {
+            $property = $vm.PSObject.Properties[$propertyName]
+            if ($null -ne $property -and -not [String]::IsNullOrWhiteSpace([string]$property.Value)) {
+                $paths.Add([string]$property.Value)
+            }
+        }
+        Get-VMHardDiskDrive -VM $vm -ErrorAction SilentlyContinue | ForEach-Object {
+            if (-not [String]::IsNullOrWhiteSpace($_.Path)) { $paths.Add([string]$_.Path) }
+        }
+        @($paths | Where-Object { Test-PathWithinRoot $_ $LegacyRoot }).Count -gt 0
+    })
+    foreach ($vm in $legacyVms) {
+        Write-Host "Removing legacy C-Sweet Hyper-V VM '$($vm.Name)'..."
+        if ($vm.State -ne [Microsoft.HyperV.PowerShell.VMState]::Off) {
+            Stop-VM -VM $vm -TurnOff -Force -ErrorAction Stop
+        }
+        Remove-VM -VM $vm -Force -ErrorAction Stop
+    }
+
+    Get-ChildItem -LiteralPath $LegacyRoot -Recurse -File -Include '*.vhd','*.vhdx' -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            $virtualDisk = Get-VHD -Path $_.FullName -ErrorAction SilentlyContinue
+            if ($null -ne $virtualDisk -and $virtualDisk.Attached) {
+                Dismount-VHD -Path $_.FullName -ErrorAction Stop
+            }
+        }
+}
+
+function Remove-LegacyDirectory([string] $Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    for ($attempt = 1; $attempt -le 10; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            return
+        }
+        catch [IO.IOException] {
+            if ($attempt -eq 10) { throw }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
 Assert-Administrator
 if ([String]::IsNullOrWhiteSpace($ControlPlaneUserSid)) {
     $ControlPlaneUserSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -127,12 +183,14 @@ else {
             & "$env:SystemRoot\System32\sc.exe" delete $legacyServiceName | Out-Host
         }
     }
+    $legacyAgentRuntimeRoot = "$env:ProgramData\CSweet\AgentRuntime"
+    Remove-LegacyHyperVResources $legacyAgentRuntimeRoot
     foreach ($legacyRoot in @(
         "$env:ProgramFiles\CSweet\ExecutionNode",
         "$env:ProgramFiles\CSweet\RuntimeHost",
         "$env:ProgramData\CSweet\ExecutionNode",
-        "$env:ProgramData\CSweet\AgentRuntime")) {
-        if (Test-Path -LiteralPath $legacyRoot) { Remove-Item -LiteralPath $legacyRoot -Recurse -Force }
+        $legacyAgentRuntimeRoot)) {
+        Remove-LegacyDirectory $legacyRoot
     }
 }
 

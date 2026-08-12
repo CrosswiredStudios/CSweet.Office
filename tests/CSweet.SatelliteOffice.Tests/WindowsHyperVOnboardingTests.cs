@@ -190,6 +190,23 @@ public sealed class WindowsHyperVOnboardingTests
     }
 
     [Fact]
+    public void RuntimeHostInstaller_UnregistersOnlyLegacyRootHyperVVmsBeforeDeletingTheirFiles()
+    {
+        var installer = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "scripts", "windows", "Install-CSweetSatelliteOfficeRuntimeHost.ps1"));
+
+        Assert.Contains("function Test-PathWithinRoot", installer, StringComparison.Ordinal);
+        Assert.Contains("function Remove-LegacyHyperVResources", installer, StringComparison.Ordinal);
+        Assert.Contains("Get-VMHardDiskDrive -VM $vm", installer, StringComparison.Ordinal);
+        Assert.Contains("Stop-VM -VM $vm -TurnOff -Force", installer, StringComparison.Ordinal);
+        Assert.Contains("Remove-VM -VM $vm -Force", installer, StringComparison.Ordinal);
+        Assert.Contains("$legacyAgentRuntimeRoot = \"$env:ProgramData\\CSweet\\AgentRuntime\"", installer, StringComparison.Ordinal);
+        Assert.True(
+            installer.IndexOf("Remove-LegacyHyperVResources $legacyAgentRuntimeRoot", StringComparison.Ordinal) <
+            installer.IndexOf("Remove-LegacyDirectory $legacyRoot", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void DeveloperBootstrap_ResolvesOnlyConfiguredGuidedSetupScript()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"csweet-windows-bootstrap-{Guid.NewGuid():N}");
