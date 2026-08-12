@@ -426,6 +426,20 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
     Initialize-WindowsEventLogSource -SourceName $nodeServiceName
     Start-Service -Name $nodeServiceName
     (Get-Service -Name $nodeServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+
+    $nodeStatePath = Join-Path $nodeDataRoot 'node-state.json'
+    $enrollmentDeadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
+    while (-not (Test-Path -LiteralPath $nodeStatePath -PathType Leaf) -and
+           [DateTimeOffset]::UtcNow -lt $enrollmentDeadline) {
+        $nodeService = Get-Service -Name $nodeServiceName
+        if ($nodeService.Status -ne 'Running') {
+            throw 'The Satellite Office Node service stopped before enrollment completed.'
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not (Test-Path -LiteralPath $nodeStatePath -PathType Leaf)) {
+        throw "The Satellite Office Node service started but did not enroll within 60 seconds. Check the '$nodeServiceName' Windows Application log for the control-plane connection error."
+    }
 }
 if ($ProgressWorkflow -eq 'packaged-installer') {
     Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $ProgressWorkflow `

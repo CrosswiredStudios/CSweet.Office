@@ -71,13 +71,14 @@ public sealed class SatelliteOfficeWorker(
     private async Task<SatelliteOfficeState> EnrollAsync(X509Certificate2 certificate, CancellationToken cancellationToken)
     {
         var token = options.EnrollmentToken;
+        string? enrollmentTokenPath = null;
         if (string.IsNullOrWhiteSpace(token) && !string.IsNullOrWhiteSpace(options.EnrollmentTokenFilePath))
         {
             var tokenPath = Path.GetFullPath(options.EnrollmentTokenFilePath);
             try
             {
                 token = (await File.ReadAllTextAsync(tokenPath, cancellationToken)).Trim();
-                File.Delete(tokenPath);
+                enrollmentTokenPath = tokenPath;
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
@@ -109,6 +110,16 @@ public sealed class SatelliteOfficeWorker(
         var state = new SatelliteOfficeState(result.SatelliteOfficeId.Value, result.EnrollmentReceipt,
             DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), stateStore.GetCertificatePath());
         await stateStore.SaveAsync(state, cancellationToken);
+        if (enrollmentTokenPath is not null)
+        {
+            try { File.Delete(enrollmentTokenPath); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                logger.LogWarning(exception,
+                    "The consumed enrollment-token file could not be removed from {EnrollmentTokenPath}.",
+                    enrollmentTokenPath);
+            }
+        }
         logger.LogInformation("Satellite Office {SatelliteOfficeId} enrolled and is awaiting administrator approval.", state.SatelliteOfficeId);
         return state;
     }

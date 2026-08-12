@@ -88,9 +88,25 @@ public sealed class SatelliteOfficeTests : IDisposable
         Assert.Empty(Directory.GetFiles(Path.Combine(_root, "maintenance", "active-assignments"), "*.active"));
     }
 
+    [Fact]
+    public void EnrollmentTokenFileIsDeletedOnlyAfterStateIsSaved()
+    {
+        var worker = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "CSweet.SatelliteOffice.Node", "SatelliteOfficeWorker.cs"));
+
+        var saveState = worker.IndexOf("await stateStore.SaveAsync(state, cancellationToken);", StringComparison.Ordinal);
+        var deleteToken = worker.IndexOf("File.Delete(enrollmentTokenPath);", StringComparison.Ordinal);
+        Assert.True(saveState >= 0);
+        Assert.True(deleteToken > saveState);
+        Assert.DoesNotContain("File.Delete(tokenPath);", worker, StringComparison.Ordinal);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);
         GC.SuppressFinalize(this);
     }
+
+    private static string RepositoryRoot() => Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
 }

@@ -163,6 +163,8 @@ public sealed class WindowsHyperVOnboardingTests
         Assert.Contains("function Initialize-WindowsEventLogSource", installer, StringComparison.Ordinal);
         Assert.Contains("Initialize-WindowsEventLogSource -SourceName $serviceName", installer, StringComparison.Ordinal);
         Assert.Contains("Initialize-WindowsEventLogSource -SourceName $nodeServiceName", installer, StringComparison.Ordinal);
+        Assert.Contains("$nodeStatePath = Join-Path $nodeDataRoot 'node-state.json'", installer, StringComparison.Ordinal);
+        Assert.Contains("did not enroll within 60 seconds", installer, StringComparison.Ordinal);
         Assert.DoesNotContain("Invoke-Sc @('create'", installer, StringComparison.Ordinal);
         Assert.DoesNotContain("Invoke-Sc @('config'", installer, StringComparison.Ordinal);
     }
