@@ -5,7 +5,7 @@ param(
     [string] $PackerVersion = '1.15.4',
     [string] $OutputPath = "$PSScriptRoot\..\..\artifacts\windows-runtime\source\csweet-agent-guest.vhdx",
     [string] $ProgressPath,
-    [guid] $ProgressJobId
+    [guid] $ProgressJobId = [guid]::Empty
 )
 
 Set-StrictMode -Version Latest

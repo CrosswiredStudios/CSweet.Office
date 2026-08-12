@@ -8,7 +8,7 @@ param(
     [string] $ControlPlaneUrl,
     [string] $EnrollmentTokenInputPath,
     [string] $ProgressPath,
-    [guid] $ProgressJobId,
+    [guid] $ProgressJobId = [guid]::Empty,
     [string] $ProgressWorkflow = 'packaged-installer'
 )
 
@@ -59,7 +59,9 @@ Assert-Administrator
 if ([String]::IsNullOrWhiteSpace($ControlPlaneUserSid)) {
     $ControlPlaneUserSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 }
-if ($ProgressJobId -eq [guid]::Empty) { $ProgressJobId = [guid]::NewGuid() }
+if ($null -eq $ProgressJobId -or $ProgressJobId -eq [guid]::Empty) {
+    $ProgressJobId = [guid]::NewGuid()
+}
 if ([String]::IsNullOrWhiteSpace($ProgressPath)) {
     $ProgressPath = Join-Path $env:ProgramData "CSweet\Setup\windows-isolation-$($ProgressJobId.ToString('N')).json"
 }

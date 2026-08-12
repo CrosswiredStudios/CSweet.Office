@@ -5,7 +5,7 @@ param(
     [string] $InstallRoot = "$env:ProgramFiles\CSweet\SatelliteOffice",
     [string] $DataRoot = "$env:ProgramData\CSweet\SatelliteOffice",
     [string] $ProgressPath,
-    [guid] $ProgressJobId
+    [guid] $ProgressJobId = [guid]::Empty
 )
 
 Set-StrictMode -Version Latest
@@ -38,7 +38,9 @@ try {
 } catch {
     throw 'The C-Sweet control-plane Windows user identity is invalid.'
 }
-if ($ProgressJobId -eq [guid]::Empty) { $ProgressJobId = [guid]::NewGuid() }
+if ($null -eq $ProgressJobId -or $ProgressJobId -eq [guid]::Empty) {
+    $ProgressJobId = [guid]::NewGuid()
+}
 if ([String]::IsNullOrWhiteSpace($ProgressPath)) {
     $ProgressPath = Join-Path $env:ProgramData "CSweet\Setup\windows-isolation-$($ProgressJobId.ToString('N')).json"
 }
