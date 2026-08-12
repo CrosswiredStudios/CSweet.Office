@@ -55,6 +55,23 @@ function Invoke-Sc([string[]] $Arguments) {
     }
 }
 
+function Initialize-WindowsEventLogSource([string] $SourceName) {
+    if (-not [Diagnostics.EventLog]::SourceExists($SourceName, '.')) {
+        New-EventLog -LogName Application -Source $SourceName
+    }
+
+    $registeredLog = [Diagnostics.EventLog]::LogNameFromSourceName($SourceName, '.')
+    if (-not $registeredLog.Equals('Application', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "The Windows Event Log source '$SourceName' is already registered to '$registeredLog'."
+    }
+
+    # Prime the source before the service starts. If the host creates the source during
+    # startup, its first concurrent background-service log can race Event Log source
+    # registration and terminate the host when logging throws access denied.
+    Write-EventLog -LogName Application -Source $SourceName -EntryType Information -EventId 0 `
+        -Message 'C-Sweet Satellite Office service logging initialized.'
+}
+
 function Test-PathWithinRoot([string] $Candidate, [string] $Root) {
     if ([String]::IsNullOrWhiteSpace($Candidate)) { return $false }
     $rootPath = [IO.Path]::GetFullPath($Root).TrimEnd('\')
@@ -354,6 +371,7 @@ $serviceEnvironment = @(
 )
 New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName" -Name 'Environment' -PropertyType MultiString -Value $serviceEnvironment -Force | Out-Null
 Invoke-Sc @('failure', $serviceName, 'reset=', '86400', 'actions=', 'restart/5000/restart/15000/none/0')
+Initialize-WindowsEventLogSource -SourceName $serviceName
 Start-Service -Name $serviceName
 (Get-Service -Name $serviceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
 
@@ -405,6 +423,7 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
         throw "The SatelliteOffice service could not be configured. Win32_Service.Change returned $nodeReturnValue."
     }
     Invoke-Sc @('failure', $nodeServiceName, 'reset=', '86400', 'actions=', 'restart/5000/restart/15000/none/0')
+    Initialize-WindowsEventLogSource -SourceName $nodeServiceName
     Start-Service -Name $nodeServiceName
     (Get-Service -Name $nodeServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
 }

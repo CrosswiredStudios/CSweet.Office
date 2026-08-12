@@ -160,6 +160,9 @@ public sealed class WindowsHyperVOnboardingTests
         Assert.Contains("StartName = 'LocalSystem'", installer, StringComparison.Ordinal);
         Assert.Contains("'reset=', '86400'", installer, StringComparison.Ordinal);
         Assert.Contains("'actions=', 'restart/5000/restart/15000/none/0'", installer, StringComparison.Ordinal);
+        Assert.Contains("function Initialize-WindowsEventLogSource", installer, StringComparison.Ordinal);
+        Assert.Contains("Initialize-WindowsEventLogSource -SourceName $serviceName", installer, StringComparison.Ordinal);
+        Assert.Contains("Initialize-WindowsEventLogSource -SourceName $nodeServiceName", installer, StringComparison.Ordinal);
         Assert.DoesNotContain("Invoke-Sc @('create'", installer, StringComparison.Ordinal);
         Assert.DoesNotContain("Invoke-Sc @('config'", installer, StringComparison.Ordinal);
     }
