@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.SatelliteOffice.Runtime.Abstractions\CSweet.SatelliteOffice.Runtime.Abstractions.csproj" />
+  </ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.SatelliteOffice.Tests" /></ItemGroup>
+</Project>

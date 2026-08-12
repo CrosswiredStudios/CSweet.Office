@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><Description>Certified Hyper-V Generation 2 isolation backend.</Description></PropertyGroup>
+  <ItemGroup><ProjectReference Include="..\CSweet.SatelliteOffice.Runtime.Core\CSweet.SatelliteOffice.Runtime.Core.csproj" /></ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.SatelliteOffice.Tests" /></ItemGroup>
+</Project>

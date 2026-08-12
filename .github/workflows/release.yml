@@ -1,0 +1,77 @@
+name: signed-release
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+jobs:
+  certify-and-package:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: windows, arch: x64, runner: csweet-hardened-windows-signing }
+          - { os: linux, arch: x64, runner: csweet-hardened-linux-x64 }
+          - { os: linux, arch: arm64, runner: csweet-hardened-linux-arm64 }
+          - { os: macos, arch: x64, runner: csweet-hardened-macos-x64 }
+          - { os: macos, arch: arm64, runner: csweet-hardened-macos-arm64 }
+    runs-on: ${{ matrix.runner }}
+    environment: production-signing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Build, test, certify, package, sign, and emit SBOM
+        shell: pwsh
+        run: ./scripts/release/Invoke-PlatformRelease.ps1 -OperatingSystem '${{ matrix.os }}' -Architecture '${{ matrix.arch }}' -Tag '${{ github.ref_name }}'
+        env:
+          CSWEET_WINDOWS_SIGNING_THUMBPRINT: ${{ secrets.CSWEET_WINDOWS_SIGNING_THUMBPRINT }}
+          CSWEET_LINUX_SIGNING_KEY_ID: ${{ secrets.CSWEET_LINUX_SIGNING_KEY_ID }}
+          CSWEET_APPLE_SIGNING_IDENTITY: ${{ secrets.CSWEET_APPLE_SIGNING_IDENTITY }}
+          CSWEET_APPLE_INSTALLER_SIGNING_IDENTITY: ${{ secrets.CSWEET_APPLE_INSTALLER_SIGNING_IDENTITY }}
+          CSWEET_APPLE_NOTARY_PROFILE: ${{ secrets.CSWEET_APPLE_NOTARY_PROFILE }}
+          CSWEET_FIRECRACKER: ${{ vars.CSWEET_FIRECRACKER }}
+          CSWEET_JAILER: ${{ vars.CSWEET_JAILER }}
+          CSWEET_GUEST_KERNEL: ${{ vars.CSWEET_GUEST_KERNEL }}
+          CSWEET_GUEST_INITRD: ${{ vars.CSWEET_GUEST_INITRD }}
+          CSWEET_GUEST_IMAGE: ${{ vars.CSWEET_GUEST_IMAGE }}
+          CSWEET_GUEST_IMAGE_SIGNATURE: ${{ vars.CSWEET_GUEST_IMAGE_SIGNATURE }}
+          CSWEET_GUEST_SIGNING_CERTIFICATE: ${{ vars.CSWEET_GUEST_SIGNING_CERTIFICATE }}
+          CSWEET_GUEST_SIGNING_THUMBPRINT: ${{ vars.CSWEET_GUEST_SIGNING_THUMBPRINT }}
+          CSWEET_CERTIFICATION_EVIDENCE: ${{ vars.CSWEET_CERTIFICATION_EVIDENCE }}
+          CSWEET_CERTIFICATION_VALID_UNTIL: ${{ vars.CSWEET_CERTIFICATION_VALID_UNTIL }}
+      - uses: actions/upload-artifact@v4
+        with: { name: 'release-${{ matrix.os }}-${{ matrix.arch }}', path: artifacts/release/* }
+  publish:
+    needs: certify-and-package
+    runs-on: ubuntu-latest
+    environment: production-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts/release, merge-multiple: true }
+      - name: Generate release manifest and consolidated checksums
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          ./scripts/release/New-SatelliteOfficeReleaseManifest.ps1 -Version $version -ContractsVersion '1.0.0' -AssetDirectory artifacts/release -OutputPath artifacts/release/satellite-office-release.json
+          Get-ChildItem artifacts/release -File | Where-Object Name -ne SHA256SUMS | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content artifacts/release/SHA256SUMS -Encoding ascii
+      - run: bash ./scripts/release/verify-release.sh artifacts/release
+      - uses: actions/attest-build-provenance@v2
+        with: { subject-path: 'artifacts/release/*' }
+      - uses: softprops/action-gh-release@v2
+        with:
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/release/*.msi
+            artifacts/release/*.deb
+            artifacts/release/*.rpm
+            artifacts/release/*.pkg
+            artifacts/release/*.img
+            artifacts/release/*.sig
+            artifacts/release/*.json
+            artifacts/release/*.zip
+            artifacts/release/SHA256SUMS

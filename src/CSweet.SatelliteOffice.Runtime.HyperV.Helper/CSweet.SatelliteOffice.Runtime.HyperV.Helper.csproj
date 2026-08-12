@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>CSweet.SatelliteOffice.Runtime.HyperV.Helper</AssemblyName>
+    <Description>Privileged, narrow Hyper-V lifecycle helper for C-Sweet RuntimeHost.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.SatelliteOffice.Runtime.Core\CSweet.SatelliteOffice.Runtime.Core.csproj" />
+    <ProjectReference Include="..\CSweet.SatelliteOffice.Runtime.HyperV\CSweet.SatelliteOffice.Runtime.HyperV.csproj" />
+  </ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.SatelliteOffice.Tests" /></ItemGroup>
+</Project>

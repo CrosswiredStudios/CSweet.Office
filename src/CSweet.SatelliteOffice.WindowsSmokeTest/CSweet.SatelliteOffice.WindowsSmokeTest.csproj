@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Runs real Hyper-V or Firecracker guests and emits development certification evidence only after isolation checks pass.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.AgentBroker\CSweet.AgentBroker.csproj" />
+    <ProjectReference Include="..\CSweet.SatelliteOffice.Runtime.Abstractions\CSweet.SatelliteOffice.Runtime.Abstractions.csproj" />
+    <ProjectReference Include="..\CSweet.SatelliteOffice.Runtime.Core\CSweet.SatelliteOffice.Runtime.Core.csproj" />
+    <ProjectReference Include="..\CSweet.SatelliteOffice.Runtime.Firecracker\CSweet.SatelliteOffice.Runtime.Firecracker.csproj" />
+    <ProjectReference Include="..\CSweet.SatelliteOffice.Runtime.HyperV\CSweet.SatelliteOffice.Runtime.HyperV.csproj" />
+    <ProjectReference Include="..\CSweet.SatelliteOffice.Runtime.Protocol\CSweet.SatelliteOffice.Runtime.Protocol.csproj" />
+  </ItemGroup>
+</Project>

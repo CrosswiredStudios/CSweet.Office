@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.Node\CSweet.SatelliteOffice.Node.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.Runtime.Abstractions\CSweet.SatelliteOffice.Runtime.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.Runtime.AppleVirtualization\CSweet.SatelliteOffice.Runtime.AppleVirtualization.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.Runtime.Artifacts\CSweet.SatelliteOffice.Runtime.Artifacts.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.Runtime.Core\CSweet.SatelliteOffice.Runtime.Core.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.Runtime.Firecracker\CSweet.SatelliteOffice.Runtime.Firecracker.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.Runtime.Firecracker.Helper\CSweet.SatelliteOffice.Runtime.Firecracker.Helper.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.Runtime.HyperV\CSweet.SatelliteOffice.Runtime.HyperV.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.Runtime.HyperV.Helper\CSweet.SatelliteOffice.Runtime.HyperV.Helper.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.Runtime.LocalRpc\CSweet.SatelliteOffice.Runtime.LocalRpc.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.Runtime.Protocol\CSweet.SatelliteOffice.Runtime.Protocol.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.SatelliteOffice.RuntimeGuest\CSweet.SatelliteOffice.RuntimeGuest.csproj" />
+  </ItemGroup>
+</Project>

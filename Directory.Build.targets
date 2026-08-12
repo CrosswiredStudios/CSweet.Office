@@ -1,0 +1,9 @@
+<Project>
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'CSweet.SatelliteOffice.Contracts'">
+    <ProjectReference Condition="'$(UseLocalSatelliteOfficeContracts)' == 'true'"
+                      Include="$(CSweetSatelliteOfficeContractsRepositoryRoot)\src\CSweet.SatelliteOffice.Contracts\CSweet.SatelliteOffice.Contracts.csproj" />
+    <PackageReference Condition="'$(UseLocalSatelliteOfficeContracts)' != 'true'"
+                      Include="CSweet.SatelliteOffice.Contracts" />
+    <Compile Include="$(MSBuildThisFileDirectory)SatelliteOffice.GlobalUsings.cs" Link="SatelliteOffice.GlobalUsings.cs" />
+  </ItemGroup>
+</Project>

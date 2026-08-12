@@ -1,0 +1,17 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - run: dotnet restore CSweet.SatelliteOffice.slnx -p:UseLocalSatelliteOfficeContracts=false
+      - run: dotnet build CSweet.SatelliteOffice.slnx -c Release --no-restore -p:UseLocalSatelliteOfficeContracts=false
+      - run: dotnet test tests/CSweet.SatelliteOffice.Tests/CSweet.SatelliteOffice.Tests.csproj -c Release --no-build -p:UseLocalSatelliteOfficeContracts=false
