@@ -2,11 +2,14 @@
 param(
     [Parameter(Mandatory = $true)] [string] $PayloadRoot,
     [Parameter(Mandatory = $true)] [string] $ControlPlaneUrl,
+    [string] $ControlPlaneCertificateSha256,
+    [switch] $NonInteractive,
     [switch] $Elevated
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -15,6 +18,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     $arguments = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
         ('"' + $PSCommandPath + '"'), '-PayloadRoot', ('"' + $PayloadRoot + '"'),
         '-ControlPlaneUrl', ('"' + $ControlPlaneUrl + '"'), '-Elevated')
+    if (-not [String]::IsNullOrWhiteSpace($ControlPlaneCertificateSha256)) {
+        $arguments += @('-ControlPlaneCertificateSha256', ('"' + $ControlPlaneCertificateSha256 + '"'))
+    }
+    if ($NonInteractive) { $arguments += '-NonInteractive' }
     $process = Start-Process -FilePath $powershell -Verb RunAs -Wait -PassThru -ArgumentList ($arguments -join ' ')
     if ($process.ExitCode -ne 0) { throw "Execution fleet installation failed with exit code $($process.ExitCode)." }
     return
@@ -29,7 +36,8 @@ try {
     [IO.File]::WriteAllText($inputPath, $token, [Text.UTF8Encoding]::new($false))
     $token = $null
     & (Join-Path $PSScriptRoot 'Install-CSweetSatelliteOfficeRuntimeHost.ps1') -PayloadRoot $PayloadRoot `
-        -ControlPlaneUrl $ControlPlaneUrl -EnrollmentTokenInputPath $inputPath
+        -ControlPlaneUrl $ControlPlaneUrl -ControlPlaneCertificateSha256 $ControlPlaneCertificateSha256 `
+        -EnrollmentTokenInputPath $inputPath -NonInteractive:$NonInteractive
     if ($LASTEXITCODE -ne 0) { throw 'The execution fleet installer failed.' }
 } finally {
     if (Test-Path -LiteralPath $inputPath) { Remove-Item -LiteralPath $inputPath -Force }

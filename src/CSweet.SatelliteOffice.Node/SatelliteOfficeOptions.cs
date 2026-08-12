@@ -5,6 +5,8 @@ public sealed class SatelliteOfficeOptions
     public const string SectionName = "CSweet:SatelliteOffice:Node";
 
     public string ControlPlaneUrl { get; set; } = "https://localhost:7443";
+    public string ControlPlaneCertificateSha256 { get; set; } = string.Empty;
+    public string ControlPlaneTrustFilePath { get; set; } = string.Empty;
     public string EnrollmentToken { get; set; } = string.Empty;
     public string EnrollmentTokenFilePath { get; set; } = string.Empty;
     public string StateDirectory { get; set; } = string.Empty;

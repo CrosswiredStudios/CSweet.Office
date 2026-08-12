@@ -19,6 +19,7 @@ public sealed class SatelliteOfficeWorker(
     SatelliteOfficeArtifactCache artifactCache,
     IEnumerable<IAgentIsolationProvider> isolationProviders,
     IHttpClientFactory httpClientFactory,
+    ControlPlaneServerCertificateValidator certificateValidator,
     ILogger<SatelliteOfficeWorker> logger) : BackgroundService
 {
     private readonly IReadOnlyDictionary<string, IAgentIsolationProvider> _providers = isolationProviders
@@ -162,8 +163,7 @@ public sealed class SatelliteOfficeWorker(
 
     private HttpClient CreateMutualTlsClient(X509Certificate2 certificate)
     {
-        var handler = new HttpClientHandler();
-        handler.ClientCertificates.Add(certificate);
+        var handler = certificateValidator.CreateHttpClientHandler(certificate);
         return new HttpClient(handler) { BaseAddress = new Uri(options.ControlPlaneUrl) };
     }
 
@@ -183,8 +183,7 @@ public sealed class SatelliteOfficeWorker(
             heartbeat.EnsureSuccessStatusCode();
         }
 
-        var handler = new HttpClientHandler();
-        handler.ClientCertificates.Add(certificate);
+        var handler = certificateValidator.CreateHttpClientHandler(certificate);
         using var channel = GrpcChannel.ForAddress(options.ControlPlaneUrl, new GrpcChannelOptions { HttpHandler = handler });
         var client = new SatelliteOfficeGateway.SatelliteOfficeGatewayClient(channel);
         using var call = client.Connect(cancellationToken: cancellationToken);

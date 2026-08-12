@@ -11,4 +11,7 @@
     <ProjectReference Include="..\CSweet.SatelliteOffice.Runtime.LocalRpc\CSweet.SatelliteOffice.Runtime.LocalRpc.csproj" />
     <ProjectReference Include="..\CSweet.SatelliteOffice.Runtime.Protocol\CSweet.SatelliteOffice.Runtime.Protocol.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CSweet.SatelliteOffice.Tests" />
+  </ItemGroup>
 </Project>

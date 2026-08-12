@@ -165,8 +165,30 @@ public sealed class WindowsHyperVOnboardingTests
         Assert.Contains("Initialize-WindowsEventLogSource -SourceName $nodeServiceName", installer, StringComparison.Ordinal);
         Assert.Contains("$nodeStatePath = Join-Path $nodeDataRoot 'node-state.json'", installer, StringComparison.Ordinal);
         Assert.Contains("did not enroll within 60 seconds", installer, StringComparison.Ordinal);
+        Assert.Contains("control-plane-trust.json", installer, StringComparison.Ordinal);
+        Assert.Contains("ControlPlaneTrustFilePath = $controlPlaneTrustPath", installer, StringComparison.Ordinal);
+        Assert.Contains("'*S-1-5-19:R'", installer, StringComparison.Ordinal);
         Assert.DoesNotContain("Invoke-Sc @('create'", installer, StringComparison.Ordinal);
         Assert.DoesNotContain("Invoke-Sc @('config'", installer, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SatelliteOfficeInstallerPromptsForApplicationScopedPrivateCertificateTrust()
+    {
+        var installer = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "scripts", "windows", "Install-CSweetSatelliteOffice.ps1"));
+        var runtimeInstaller = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "scripts", "windows", "Install-CSweetSatelliteOfficeRuntimeHost.ps1"));
+
+        Assert.Contains("Resolve-ControlPlaneCertificateSha256", runtimeInstaller, StringComparison.Ordinal);
+        Assert.Contains("--probe-control-plane-certificate", runtimeInstaller, StringComparison.Ordinal);
+        Assert.Contains("WaitForExit(20000)", runtimeInstaller, StringComparison.Ordinal);
+        Assert.Contains("Rebuild the Satellite Office payload", runtimeInstaller, StringComparison.Ordinal);
+        Assert.Contains("The control-plane certificate does not match host", runtimeInstaller, StringComparison.Ordinal);
+        Assert.Contains("Trust this certificate only for C-Sweet Satellite Office?", runtimeInstaller, StringComparison.Ordinal);
+        Assert.Contains("-ControlPlaneCertificateSha256", installer, StringComparison.Ordinal);
+        Assert.Contains("$NonInteractive", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cert:\\LocalMachine\\Root", installer + runtimeInstaller, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

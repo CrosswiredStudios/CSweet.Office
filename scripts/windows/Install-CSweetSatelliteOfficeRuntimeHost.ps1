@@ -6,7 +6,9 @@ param(
     [string] $DataRoot = "$env:ProgramData\CSweet\SatelliteOffice",
     [string] $ControlPlaneUserSid,
     [string] $ControlPlaneUrl,
+    [string] $ControlPlaneCertificateSha256,
     [string] $EnrollmentTokenInputPath,
+    [switch] $NonInteractive,
     [string] $ProgressPath,
     [guid] $ProgressJobId = [guid]::Empty,
     [string] $ProgressWorkflow = 'packaged-installer'
@@ -70,6 +72,96 @@ function Initialize-WindowsEventLogSource([string] $SourceName) {
     # registration and terminate the host when logging throws access denied.
     Write-EventLog -LogName Application -Source $SourceName -EntryType Information -EventId 0 `
         -Message 'C-Sweet Satellite Office service logging initialized.'
+}
+
+function Normalize-CertificateSha256([string] $Value) {
+    if ([String]::IsNullOrWhiteSpace($Value)) { return '' }
+    $normalized = $Value.Trim().Replace(':', '').Replace('-', '')
+    if ($normalized.StartsWith('sha256', [StringComparison]::OrdinalIgnoreCase)) {
+        $normalized = $normalized.Substring(6).TrimStart(':')
+    }
+    if ($normalized -notmatch '^[0-9a-fA-F]{64}$') {
+        throw 'ControlPlaneCertificateSha256 must contain exactly 64 hexadecimal characters.'
+    }
+    return $normalized.ToLowerInvariant()
+}
+
+function Resolve-ControlPlaneCertificateSha256(
+    [string] $NodeExecutable,
+    [string] $Url,
+    [string] $ExpectedSha256,
+    [bool] $IsNonInteractive) {
+    $uri = [Uri]$Url
+    if (-not $uri.IsAbsoluteUri -or $uri.Scheme -ne 'https') {
+        throw 'ControlPlaneUrl must be an absolute HTTPS URL.'
+    }
+    Write-Host "Verifying the control-plane TLS certificate at $($uri.AbsoluteUri)..."
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $NodeExecutable
+    $startInfo.Arguments = '--probe-control-plane-certificate "' + $uri.AbsoluteUri.Replace('"', '\"') + '"'
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $probe = [Diagnostics.Process]::new()
+    $probe.StartInfo = $startInfo
+    if (-not $probe.Start()) { throw 'The control-plane certificate probe could not be started.' }
+    $standardOutput = $probe.StandardOutput.ReadToEndAsync()
+    $standardError = $probe.StandardError.ReadToEndAsync()
+    if (-not $probe.WaitForExit(20000)) {
+        try { $probe.Kill() } catch { }
+        $probe.Dispose()
+        throw 'The control-plane certificate probe timed out. Rebuild the Satellite Office payload with the current Node executable.'
+    }
+    $probeOutput = $standardOutput.GetAwaiter().GetResult()
+    $probeError = $standardError.GetAwaiter().GetResult()
+    $probeExitCode = $probe.ExitCode
+    $probe.Dispose()
+    if ($probeExitCode -ne 0) {
+        $detail = $probeError.Trim()
+        throw "The control-plane TLS certificate could not be inspected. $detail"
+    }
+    try { $certificate = $probeOutput | ConvertFrom-Json }
+    catch { throw 'The control-plane certificate probe returned an invalid response.' }
+    $actual = Normalize-CertificateSha256 ([string]$certificate.certificateSha256)
+    $expected = Normalize-CertificateSha256 $ExpectedSha256
+    if (-not [String]::IsNullOrWhiteSpace($expected) -and $expected -cne $actual) {
+        throw "The control-plane certificate fingerprint did not match. Expected $expected but received $actual."
+    }
+
+    $policyErrors = [int]$certificate.policyErrors
+    if (($policyErrors -band 2) -ne 0) {
+        throw "The control-plane certificate does not match host '$($uri.DnsSafeHost)'."
+    }
+    $notBefore = [DateTime]$certificate.notBefore
+    $notAfter = [DateTime]$certificate.notAfter
+    $now = (Get-Date).ToUniversalTime()
+    if ($notBefore.ToUniversalTime() -gt $now -or $notAfter.ToUniversalTime() -lt $now) {
+        throw "The control-plane certificate is not currently valid ($($notBefore.ToUniversalTime().ToString('u')) through $($notAfter.ToUniversalTime().ToString('u')))."
+    }
+    if ($policyErrors -eq 0) { return $expected }
+    if (($policyErrors -band (-bnot 4)) -ne 0) {
+        throw "The control-plane TLS certificate could not be validated ($($certificate.policyErrorNames))."
+    }
+    if (-not [String]::IsNullOrWhiteSpace($expected)) { return $expected }
+    if ($IsNonInteractive) {
+        throw "The control plane uses a private certificate. Rerun with -ControlPlaneCertificateSha256 '$actual' after verifying the fingerprint."
+    }
+
+    Write-Host ''
+    Write-Warning 'The control plane uses a certificate that is not trusted by Windows.'
+    Write-Host "URL:         $($uri.AbsoluteUri)"
+    Write-Host "Subject:     $($certificate.subject)"
+    Write-Host "Issuer:      $($certificate.issuer)"
+    Write-Host "Valid from:  $($notBefore.ToUniversalTime().ToString('u'))"
+    Write-Host "Valid until: $($notAfter.ToUniversalTime().ToString('u'))"
+    Write-Host "SHA-256:     $actual" -ForegroundColor Cyan
+    Write-Host ''
+    $answer = Read-Host 'Trust this certificate only for C-Sweet Satellite Office? Type TRUST to continue'
+    if (-not $answer.Equals('TRUST', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'The control-plane certificate was not trusted.'
+    }
+    return $actual
 }
 
 function Test-PathWithinRoot([string] $Candidate, [string] $Root) {
@@ -379,6 +471,9 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
     -not [String]::IsNullOrWhiteSpace($EnrollmentTokenInputPath)) {
     $gatewayUri = [Uri]$ControlPlaneUrl
     if (-not $gatewayUri.IsAbsoluteUri -or $gatewayUri.Scheme -ne 'https') { throw 'ControlPlaneUrl must be an absolute HTTPS URL.' }
+    $resolvedControlPlaneCertificateSha256 = Resolve-ControlPlaneCertificateSha256 `
+        -NodeExecutable $satelliteOfficeExe -Url $gatewayUri.AbsoluteUri `
+        -ExpectedSha256 $ControlPlaneCertificateSha256 -IsNonInteractive ([bool]$NonInteractive)
     $inputPath = [IO.Path]::GetFullPath($EnrollmentTokenInputPath)
     if (-not (Test-Path -LiteralPath $inputPath -PathType Leaf)) { throw 'The protected enrollment input is missing.' }
     $token = [IO.File]::ReadAllText($inputPath).Trim()
@@ -391,8 +486,22 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
     $token = $null
     & "$env:SystemRoot\System32\icacls.exe" $nodeDataRoot '/inheritance:r' '/grant:r' '*S-1-5-19:(OI)(CI)M' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'The SatelliteOffice state ACL could not be secured.' }
+    $controlPlaneTrustPath = ''
+    if (-not [String]::IsNullOrWhiteSpace($resolvedControlPlaneCertificateSha256)) {
+        $normalizedCertificateSha256 = $resolvedControlPlaneCertificateSha256.Trim().Replace(':', '').Replace('-', '').ToLowerInvariant()
+        if ($normalizedCertificateSha256 -notmatch '^[0-9a-f]{64}$') {
+            throw 'The control-plane certificate SHA-256 fingerprint is invalid.'
+        }
+        $controlPlaneTrustPath = Join-Path $nodeDataRoot 'control-plane-trust.json'
+        $trust = [ordered]@{ schemaVersion = 1; certificateSha256 = $normalizedCertificateSha256 }
+        [IO.File]::WriteAllText($controlPlaneTrustPath,
+            ($trust | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+        & "$env:SystemRoot\System32\icacls.exe" $controlPlaneTrustPath '/inheritance:r' '/grant:r' '*S-1-5-19:R' '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'The control-plane trust file ACL could not be secured.' }
+    }
     $config.CSweet.SatelliteOffice.Node = @{
         ControlPlaneUrl = $gatewayUri.AbsoluteUri
+        ControlPlaneTrustFilePath = $controlPlaneTrustPath
         StateDirectory = $nodeDataRoot
         ArtifactCacheDirectory = (Join-Path $nodeDataRoot 'artifact-cache')
         ArtifactMediaDirectory = $artifactMediaRoot

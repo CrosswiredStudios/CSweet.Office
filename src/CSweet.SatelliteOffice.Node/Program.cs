@@ -3,6 +3,12 @@ using CSweet.SatelliteOffice.Runtime.LocalRpc;
 using CSweet.SatelliteOffice.Runtime.Protocol;
 using CSweet.SatelliteOffice.Node;
 
+if (await ControlPlaneCertificateProbe.TryRunAsync(args) is { } probeExitCode)
+{
+    Environment.ExitCode = probeExitCode;
+    return;
+}
+
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService(options => options.ServiceName = "CSweet.SatelliteOffice.Node");
 builder.Services.AddSystemd();
@@ -13,12 +19,15 @@ if (!Uri.TryCreate(options.ControlPlaneUrl, UriKind.Absolute, out var controlPla
     controlPlane.Scheme != Uri.UriSchemeHttps)
     throw new InvalidOperationException("CSweet:SatelliteOffice:Node:ControlPlaneUrl must be an absolute HTTPS URL.");
 builder.Services.AddSingleton(options);
+builder.Services.AddSingleton<ControlPlaneServerCertificateValidator>();
 builder.Services.AddSingleton<SatelliteOfficeStateStore>();
 builder.Services.AddSingleton<RuntimeHostInventory>();
 builder.Services.AddSingleton<SatelliteOfficeArtifactCache>();
 builder.Services.AddHostedService<SatelliteOfficeWorker>();
-builder.Services.AddHttpClient("control-plane", client => client.BaseAddress = controlPlane);
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddHttpClient("control-plane", client => client.BaseAddress = controlPlane)
+    .ConfigurePrimaryHttpMessageHandler(services =>
+        services.GetRequiredService<ControlPlaneServerCertificateValidator>().CreateHttpClientHandler());
 
 var endpoint = builder.Configuration.GetSection(RuntimeHostEndpointOptions.SectionName)
     .Get<RuntimeHostEndpointOptions>() ?? new RuntimeHostEndpointOptions();
