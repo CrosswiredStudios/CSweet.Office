@@ -101,6 +101,17 @@ public sealed class SatelliteOfficeTests : IDisposable
         Assert.DoesNotContain("File.Delete(tokenPath);", worker, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void EnrollmentNormalizesCertificateExpirationToUtcAndReportsInvalidServerResponses()
+    {
+        var worker = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "CSweet.SatelliteOffice.Node", "SatelliteOfficeWorker.cs"));
+
+        Assert.Contains("certificate.NotAfter.ToUniversalTime()", worker, StringComparison.Ordinal);
+        Assert.Contains("returned HTTP {(int)response.StatusCode}", worker, StringComparison.Ordinal);
+        Assert.Contains("details.Length > 512", worker, StringComparison.Ordinal);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);

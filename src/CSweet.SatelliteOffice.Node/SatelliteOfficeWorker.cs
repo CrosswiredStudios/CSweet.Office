@@ -97,14 +97,30 @@ public sealed class SatelliteOfficeWorker(
             token ?? string.Empty, options.SatelliteOfficeName, Environment.MachineName, RuntimeHostInventory.Platform(),
             RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
             typeof(SatelliteOfficeWorker).Assembly.GetName().Version?.ToString(3) ?? "1.0.0", "1.0",
-            certificate.Thumbprint, certificate.SerialNumber, certificate.NotAfter,
+            certificate.Thumbprint, certificate.SerialNumber,
+            new DateTimeOffset(certificate.NotAfter.ToUniversalTime(), TimeSpan.Zero),
             SatelliteOfficeStateStore.CreateCertificateSigningRequestPem(certificate),
             options.AllocatableCpuCount, options.AllocatableMemoryMb, options.AllocatableDiskMb,
             options.MaximumConcurrentWorkloads, providers);
         var client = httpClientFactory.CreateClient("control-plane");
         using var response = await client.PostAsJsonAsync("api/satellite-offices/claim", request, cancellationToken);
-        var result = await response.Content.ReadFromJsonAsync<ClaimSatelliteOfficeResponse>(cancellationToken)
-            ?? throw new InvalidDataException("The control plane returned an empty enrollment response.");
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        ClaimSatelliteOfficeResponse? result;
+        try
+        {
+            result = JsonSerializer.Deserialize<ClaimSatelliteOfficeResponse>(
+                responseBody, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        }
+        catch (JsonException exception)
+        {
+            var details = responseBody.Trim();
+            if (details.Length > 512) details = details[..512];
+            throw new InvalidOperationException(
+                $"The control plane returned HTTP {(int)response.StatusCode} with an invalid enrollment response" +
+                (details.Length == 0 ? "." : $": {details}"), exception);
+        }
+        if (result is null)
+            throw new InvalidDataException("The control plane returned an empty enrollment response.");
         if (!response.IsSuccessStatusCode || !result.Succeeded || result.SatelliteOfficeId is null || string.IsNullOrWhiteSpace(result.EnrollmentReceipt))
             throw new InvalidOperationException($"Satellite Office enrollment failed ({result.ErrorCode ?? "unknown"}): {result.Message}");
         options.EnrollmentToken = string.Empty;
