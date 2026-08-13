@@ -266,7 +266,9 @@ if ($null -eq $manifest.files -or @($manifest.files).Count -lt 1 -or @($manifest
 }
 
 $existingNodeService = Get-Service -Name 'CSweet.SatelliteOffice.Node' -ErrorAction SilentlyContinue
-if ($null -ne $existingNodeService) {
+$existingNodeStatePath = Join-Path $DataRoot 'node-state.json'
+if ($null -ne $existingNodeService -and
+    (Test-Path -LiteralPath $existingNodeStatePath -PathType Leaf)) {
     $maintenance = Join-Path $env:ProgramData 'CSweet\SatelliteOffice\maintenance'
     $drainPath = Join-Path $maintenance 'drain-state'
     $activeRoot = Join-Path $maintenance 'active-assignments'
@@ -280,7 +282,7 @@ if ($null -ne $existingNodeService) {
         throw 'Drain this node in C-Sweet and wait for active assignments to reach zero before upgrading RuntimeHost.'
     }
 }
-else {
+elseif ($null -eq $existingNodeService) {
     # Clean v1 cutover: legacy identities and certificates are deliberately not migrated.
     foreach ($legacyServiceName in @('CSweet.ExecutionNode', 'CSweet.RuntimeHost')) {
         $legacyService = Get-Service -Name $legacyServiceName -ErrorAction SilentlyContinue

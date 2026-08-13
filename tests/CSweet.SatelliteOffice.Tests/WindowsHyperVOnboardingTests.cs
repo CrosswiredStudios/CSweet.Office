@@ -164,6 +164,9 @@ public sealed class WindowsHyperVOnboardingTests
         Assert.Contains("Initialize-WindowsEventLogSource -SourceName $serviceName", installer, StringComparison.Ordinal);
         Assert.Contains("Initialize-WindowsEventLogSource -SourceName $nodeServiceName", installer, StringComparison.Ordinal);
         Assert.Contains("$nodeStatePath = Join-Path $nodeDataRoot 'node-state.json'", installer, StringComparison.Ordinal);
+        Assert.Contains("$existingNodeStatePath = Join-Path $DataRoot 'node-state.json'", installer, StringComparison.Ordinal);
+        Assert.Contains("Test-Path -LiteralPath $existingNodeStatePath -PathType Leaf", installer, StringComparison.Ordinal);
+        Assert.Contains("elseif ($null -eq $existingNodeService)", installer, StringComparison.Ordinal);
         Assert.Contains("did not enroll within 60 seconds", installer, StringComparison.Ordinal);
         Assert.Contains("control-plane-trust.json", installer, StringComparison.Ordinal);
         Assert.Contains("ControlPlaneTrustFilePath = $controlPlaneTrustPath", installer, StringComparison.Ordinal);
