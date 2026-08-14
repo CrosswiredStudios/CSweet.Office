@@ -15,6 +15,7 @@ public sealed class RuntimeHostRpcServer(
     P.RuntimeHostRequestAuthenticator authenticator,
     RuntimeHostRequestDispatcher dispatcher,
     IEnumerable<CSweet.SatelliteOffice.Runtime.Abstractions.IPlatformGuestChannelConnector> guestChannelConnectors,
+    RuntimeHostAuthorizationGate authorizationGate,
     ILogger<RuntimeHostRpcServer>? logger = null)
 {
     private readonly ConcurrentDictionary<int, Task> _connections = [];
@@ -233,12 +234,17 @@ public sealed class RuntimeHostRpcServer(
         try
         {
             var handle = RuntimeHostProtocolMapper.FromProtocol(request.OpenGuestChannelRequest.Workload);
+            if (!authorizationGate.IsHandleAuthorized(handle))
+                throw new InvalidDataException("The workload handle is not authorized for guest-channel access.");
             if (!_guestChannelConnectors.TryGetValue(handle.ProviderId, out var connector))
                 throw new InvalidOperationException("The selected provider does not expose a guest broker channel.");
             guest = await connector.OpenGuestChannelAsync(handle, cancellationToken);
+            logger?.LogInformation(
+                "RuntimeHost established the authenticated guest channel for workload {WorkloadId} using provider {ProviderId} (request {RuntimeHostRequestId}).",
+                handle.WorkloadId, handle.ProviderId, request.RequestId);
             result = new P.OpenGuestChannelResponse { Success = true };
         }
-        catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException or IOException)
+        catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException or IOException or TimeoutException)
         {
             logger?.LogWarning(exception,
                 "RuntimeHost could not open guest channel for request {RuntimeHostRequestId}.", request.RequestId);

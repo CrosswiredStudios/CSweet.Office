@@ -2,20 +2,27 @@
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then echo "Run this installer with sudo." >&2; exit 1; fi
-if [ "$#" -lt 2 ]; then echo "usage: $0 PACKAGE_ROOT https://control-plane [--enrollment-token-file PATH] [--result-job-id ID]" >&2; exit 2; fi
+if [ "$#" -lt 2 ]; then echo "usage: $0 PACKAGE_ROOT https://control-plane [--enrollment-token-file PATH] [--result-job-id ID] [--security-profile baseline|hardened|development] [--dedicated-host] [--allow-development-assignments]" >&2; exit 2; fi
 package_root=$1
 control_plane=$2
 shift 2
 token_file=
 result_job_id=
 result_file=
+security_profile=baseline
+mixed_use=true
+allow_development=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --enrollment-token-file) [ "$#" -ge 2 ] || exit 2; token_file=$2; shift 2 ;;
     --result-job-id) [ "$#" -ge 2 ] || exit 2; result_job_id=$2; shift 2 ;;
+    --security-profile) [ "$#" -ge 2 ] || exit 2; security_profile=$2; shift 2 ;;
+    --dedicated-host) mixed_use=false; shift ;;
+    --allow-development-assignments) allow_development=true; shift ;;
     *) echo "Unknown installer option: $1" >&2; exit 2 ;;
   esac
 done
+case "$security_profile" in baseline|hardened) ;; development) [ "$allow_development" = true ] || { echo "Development posture requires --allow-development-assignments." >&2; exit 2; }; echo "WARNING: development posture is for disposable test data and credentials only." >&2 ;; *) echo "Invalid security profile." >&2; exit 2;; esac
 if [ -n "$result_job_id" ]; then
   case "$result_job_id" in *[!0-9a-f]*|'') echo "The installer result job ID is invalid." >&2; exit 2;; esac
   [ "${#result_job_id}" -eq 32 ] || { echo "The installer result job ID is invalid." >&2; exit 2; }
@@ -107,6 +114,8 @@ else IFS= read -r token; fi
 if [ "${#token}" -lt 32 ] || [ "${#token}" -gt 256 ]; then echo "Invalid enrollment token." >&2; exit 2; fi
 
 install -d -m 0755 /Library/Application\ Support/CSweet/SatelliteOffice /Library/Application\ Support/CSweet/SatelliteOffice/artifact-media
+install -d -o _csweetnode -g _csweet -m 0700 /Library/Application\ Support/CSweet/SatelliteOffice/node
+install -d -o root -g wheel -m 0700 /Library/Application\ Support/CSweet/SatelliteOffice/authorization
 install -d -m 0700 /Library/Application\ Support/CSweet/SatelliteOffice/AppleVirtualization /Library/Application\ Support/CSweet/SatelliteOffice/AppleVirtualization/instances
 install -d -m 0700 /var/run/csweet-av
 ditto "$package_root" /Library/Application\ Support/CSweet/SatelliteOffice
@@ -123,15 +132,24 @@ if [ ! -f /Library/Application\ Support/CSweet/SatelliteOffice/runtime-host.key 
 fi
 chown root:_csweet /Library/Application\ Support/CSweet/SatelliteOffice/runtime-host.key
 chmod 0640 /Library/Application\ Support/CSweet/SatelliteOffice/runtime-host.key
-printf '%s' "$token" > /Library/Application\ Support/CSweet/SatelliteOffice/enrollment.secret
+/Library/Application\ Support/CSweet/SatelliteOffice/CSweet.SatelliteOffice.Node \
+  --initialize-headquarters-assignment-trust "$control_plane" \
+  /Library/Application\ Support/CSweet/SatelliteOffice/authorization/headquarters-trust.json
+chown root:wheel /Library/Application\ Support/CSweet/SatelliteOffice/authorization/headquarters-trust.json
+chmod 0600 /Library/Application\ Support/CSweet/SatelliteOffice/authorization/headquarters-trust.json
+printf '%s' "$token" > /Library/Application\ Support/CSweet/SatelliteOffice/node/enrollment.secret
 unset token
-chmod 0600 /Library/Application\ Support/CSweet/SatelliteOffice/enrollment.secret
-chown -R _csweetnode:_csweet /Library/Application\ Support/CSweet/SatelliteOffice
+chmod 0600 /Library/Application\ Support/CSweet/SatelliteOffice/node/enrollment.secret
+chown -R _csweetnode:_csweet /Library/Application\ Support/CSweet/SatelliteOffice/node
 chown -R _csweetnode:_csweet /Library/Application\ Support/CSweet/SatelliteOffice/artifact-media
 chmod 0770 /Library/Application\ Support/CSweet/SatelliteOffice/artifact-media
 install -m 0644 "$package_root/com.csweet.satelliteoffice.runtime.plist" /Library/LaunchDaemons/com.csweet.satelliteoffice.runtime.plist
 escaped_control_plane=$(printf '%s' "$control_plane" | sed 's/[&|\\]/\\&/g')
-sed "s|__CONTROL_PLANE_URL__|$escaped_control_plane|g" "$package_root/com.csweet.satelliteoffice.node.plist" > /Library/LaunchDaemons/com.csweet.satelliteoffice.node.plist
+sed -e "s|__CONTROL_PLANE_URL__|$escaped_control_plane|g" \
+  -e "s|__SECURITY_PROFILE__|$security_profile|g" \
+  -e "s|__MIXED_USE_HOST__|$mixed_use|g" \
+  -e "s|__ALLOW_DEVELOPMENT_ASSIGNMENTS__|$allow_development|g" \
+  "$package_root/com.csweet.satelliteoffice.node.plist" > /Library/LaunchDaemons/com.csweet.satelliteoffice.node.plist
 chmod 0644 /Library/LaunchDaemons/com.csweet.satelliteoffice.node.plist
 launchctl bootstrap system /Library/LaunchDaemons/com.csweet.satelliteoffice.runtime.plist
 launchctl bootstrap system /Library/LaunchDaemons/com.csweet.satelliteoffice.node.plist

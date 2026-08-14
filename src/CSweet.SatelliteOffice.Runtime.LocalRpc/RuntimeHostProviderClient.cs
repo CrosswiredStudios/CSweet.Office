@@ -17,6 +17,26 @@ public sealed class RuntimeHostProviderClient(
 
     public A.IsolationProviderDescriptor Descriptor { get; } = descriptor;
 
+    public async Task PinHeadquartersTrustAsync(
+        A.PinnedHeadquartersTrust trust,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(trust);
+        var response = await CallAsync(new P.RuntimeHostEnvelope
+        {
+            PinHeadquartersTrustRequest = new P.PinHeadquartersTrustRequest
+            {
+                SatelliteOfficeId = trust.SatelliteOfficeId.ToString("D"),
+                AssignmentSigningKeyId = trust.AssignmentSigningKeyId,
+                AssignmentVerificationPublicKey = Google.Protobuf.ByteString.CopyFrom(
+                    trust.AssignmentVerificationPublicKey)
+            }
+        }, P.RuntimeHostEnvelope.BodyOneofCase.PinHeadquartersTrustResponse, cancellationToken);
+        EnsureSuccess(response.PinHeadquartersTrustResponse.Success,
+            response.PinHeadquartersTrustResponse.ErrorCode,
+            response.PinHeadquartersTrustResponse.SanitizedError);
+    }
+
     public async Task<A.IsolationProviderProbeResult> ProbeAsync(CancellationToken cancellationToken = default)
     {
         var response = await CallAsync(
@@ -48,9 +68,32 @@ public sealed class RuntimeHostProviderClient(
     }
 
     public async Task<A.IsolationWorkloadHandle> CreateAsync(W.WorkloadSpecification workload, CancellationToken cancellationToken = default)
+        => throw new A.IsolationUnavailableException(
+            "RuntimeHost creation requires a signed Headquarters workload authorization.");
+
+    public async Task<A.IsolationWorkloadHandle> CreateAuthorizedAsync(
+        W.WorkloadSpecification workload,
+        A.SignedWorkloadAuthorization authorization,
+        CancellationToken cancellationToken = default)
     {
+        var create = RuntimeHostProtocolMapper.ToProtocol(Descriptor.ProviderId, workload);
+        create.Authorization = new P.SignedWorkloadAuthorization
+        {
+            AuthorizationVersion = authorization.AuthorizationVersion,
+            SatelliteOfficeId = authorization.SatelliteOfficeId.ToString("D"),
+            AssignmentId = authorization.AssignmentId.ToString("D"),
+            WorkloadId = authorization.WorkloadId.ToString("D"),
+            FencingEpoch = authorization.FencingEpoch,
+            ProviderId = authorization.ProviderId,
+            SpecificationJson = authorization.SpecificationJson,
+            SpecificationSha256 = authorization.SpecificationSha256,
+            SignatureKeyId = authorization.SignatureKeyId,
+            Signature = Google.Protobuf.ByteString.CopyFrom(authorization.Signature),
+            IssuedAtUnixSeconds = authorization.IssuedAt.ToUnixTimeSeconds(),
+            ExpiresAtUnixSeconds = authorization.ExpiresAt.ToUnixTimeSeconds()
+        };
         var response = await CallAsync(
-            new P.RuntimeHostEnvelope { CreateRequest = RuntimeHostProtocolMapper.ToProtocol(Descriptor.ProviderId, workload) },
+            new P.RuntimeHostEnvelope { CreateRequest = create },
             P.RuntimeHostEnvelope.BodyOneofCase.CreateResponse,
             cancellationToken);
         EnsureSuccess(response.CreateResponse.Success, response.CreateResponse.ErrorCode, response.CreateResponse.SanitizedError);

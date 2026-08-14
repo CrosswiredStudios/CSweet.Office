@@ -57,7 +57,34 @@ public interface IAgentIsolationProviderSelector
         CancellationToken cancellationToken = default);
 }
 
-public interface IRuntimeHostClient : IAgentIsolationProvider, IAgentGuestChannelProvider;
+public sealed record PinnedHeadquartersTrust(
+    Guid SatelliteOfficeId,
+    string AssignmentSigningKeyId,
+    byte[] AssignmentVerificationPublicKey);
+
+public sealed record SignedWorkloadAuthorization(
+    int AuthorizationVersion,
+    Guid SatelliteOfficeId,
+    Guid AssignmentId,
+    Guid WorkloadId,
+    long FencingEpoch,
+    string ProviderId,
+    string SpecificationJson,
+    string SpecificationSha256,
+    string SignatureKeyId,
+    byte[] Signature,
+    DateTimeOffset IssuedAt,
+    DateTimeOffset ExpiresAt);
+
+public interface IRuntimeHostClient : IAgentIsolationProvider, IAgentGuestChannelProvider
+{
+    Task PinHeadquartersTrustAsync(PinnedHeadquartersTrust trust, CancellationToken cancellationToken = default);
+
+    Task<IsolationWorkloadHandle> CreateAuthorizedAsync(
+        WorkloadSpecification workload,
+        SignedWorkloadAuthorization authorization,
+        CancellationToken cancellationToken = default);
+}
 
 public interface IPlatformIsolationBackend : IAgentIsolationProvider;
 

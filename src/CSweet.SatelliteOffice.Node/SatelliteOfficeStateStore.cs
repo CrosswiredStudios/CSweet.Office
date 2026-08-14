@@ -8,7 +8,9 @@ public sealed record SatelliteOfficeState(
     Guid SatelliteOfficeId,
     string EnrollmentReceipt,
     long SessionEpoch,
-    string CertificatePath);
+    string CertificatePath,
+    string AssignmentSigningKeyId,
+    string AssignmentVerificationPublicKeyBase64);
 
 public sealed class SatelliteOfficeStateStore(SatelliteOfficeOptions options)
 {
@@ -53,7 +55,11 @@ public sealed class SatelliteOfficeStateStore(SatelliteOfficeOptions options)
             if (!File.Exists(StatePath)) return null;
             await using var stream = new FileStream(StatePath, FileMode.Open, FileAccess.Read, FileShare.Read,
                 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
-            return await JsonSerializer.DeserializeAsync<SatelliteOfficeState>(stream, cancellationToken: cancellationToken);
+            var state = await JsonSerializer.DeserializeAsync<SatelliteOfficeState>(stream, cancellationToken: cancellationToken);
+            if (state is null || string.IsNullOrWhiteSpace(state.AssignmentSigningKeyId) ||
+                string.IsNullOrWhiteSpace(state.AssignmentVerificationPublicKeyBase64))
+                return null;
+            return state;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {

@@ -6,6 +6,26 @@ namespace CSweet.SatelliteOffice.Runtime.LocalRpc;
 
 public static class RuntimeHostProtocolMapper
 {
+    public static W.WorkloadSpecification DeserializeSpecification(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json) || json.Length > 16 * 1024 * 1024)
+            throw new InvalidDataException("The signed workload specification is empty or too large.");
+        using var document = System.Text.Json.JsonDocument.Parse(json,
+            new System.Text.Json.JsonDocumentOptions { MaxDepth = 32 });
+        var options = new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            MaxDepth = 32
+        };
+        var isBuilder = document.RootElement.EnumerateObject()
+            .Any(x => x.Name.Equals("repository", StringComparison.OrdinalIgnoreCase));
+        return isBuilder
+            ? System.Text.Json.JsonSerializer.Deserialize<W.BuilderWorkloadSpecification>(json, options)
+                ?? throw new InvalidDataException("The builder workload specification is empty.")
+            : System.Text.Json.JsonSerializer.Deserialize<W.RuntimeWorkloadSpecification>(json, options)
+                ?? throw new InvalidDataException("The runtime workload specification is empty.");
+    }
+
     public static P.CreateWorkloadRequest ToProtocol(string providerId, W.WorkloadSpecification workload)
     {
         ArgumentNullException.ThrowIfNull(workload);

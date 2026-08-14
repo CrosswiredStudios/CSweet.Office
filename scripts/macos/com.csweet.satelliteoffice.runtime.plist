@@ -8,6 +8,7 @@
     <key>CSweet__SatelliteOffice__Providers__AppleVirtualization__ArtifactImageRoot</key><string>/Library/Application Support/CSweet/SatelliteOffice/artifact-media</string>
     <key>CSweet__SatelliteOffice__Providers__AppleVirtualization__PayloadManifestPath</key><string>/Library/Application Support/CSweet/SatelliteOffice/runtime-manifest.json</string>
     <key>CSweet__SatelliteOffice__RuntimeHost__Authentication__SharedKeyFilePath</key><string>/Library/Application Support/CSweet/SatelliteOffice/runtime-host.key</string>
+    <key>CSweet__SatelliteOffice__RuntimeHost__Authorization__StateDirectory</key><string>/Library/Application Support/CSweet/SatelliteOffice/authorization</string>
     <key>CSWEET_APPLE_VIRTUALIZATION_DATA_ROOT</key><string>/Library/Application Support/CSweet/SatelliteOffice/AppleVirtualization</string>
     <key>CSWEET_APPLE_VIRTUALIZATION_PACKAGE_ROOT</key><string>/Library/Application Support/CSweet/SatelliteOffice/apple-virtualization</string>
     <key>CSWEET_APPLE_VIRTUALIZATION_GUEST_PORT</key><string>5000</string>

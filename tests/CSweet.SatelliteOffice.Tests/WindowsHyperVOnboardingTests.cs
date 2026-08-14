@@ -3,11 +3,54 @@ using CSweet.SatelliteOffice.Runtime.HyperV.Helper;
 using CSweet.SatelliteOffice.RuntimeGuest;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace CSweet.SatelliteOffice.Tests;
 
 public sealed class WindowsHyperVOnboardingTests
 {
+    [Fact]
+    public void HyperVPowerShellDiagnostic_DecodesCliXmlErrorText()
+    {
+        const string cliXml = "#< CLIXML\r\n<Objs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\">" +
+            "<Obj S=\"progress\"><MS><PR N=\"Record\"><AV>Preparing modules for first use.</AV></PR></MS></Obj>" +
+            "<S S=\"Error\">Get-VMHost : You do not have the required permission._x000D__x000A_</S>" +
+            "<S S=\"Error\">At line:1 char:1_x000D__x000A_</S></Objs>";
+
+        var result = PowerShellHyperV.Sanitize(cliXml);
+
+        Assert.Equal("Get-VMHost : You do not have the required permission.", result);
+        Assert.DoesNotContain("CLIXML", result, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Preparing modules", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void HyperVPowerShellDiagnostic_PreservesBoundedUnderlyingDeviceReason()
+    {
+        const string error = "Add-VMHardDiskDrive : Failed to add device 'Virtual Hard Disk'.\r\n" +
+            "The virtual machine account does not have read permission to the parent disk.\r\n" +
+            "At line:12 char:3\r\n+ Add-VMHardDiskDrive";
+
+        var result = PowerShellHyperV.Sanitize(error);
+
+        Assert.Contains("Failed to add device", result, StringComparison.Ordinal);
+        Assert.Contains("does not have read permission", result, StringComparison.Ordinal);
+        Assert.DoesNotContain("At line", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task HyperVPowerShellDiagnostic_UsesPlainTextForRedirectedErrors()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var exception = await Assert.ThrowsAsync<HyperVCommandException>(() =>
+            PowerShellHyperV.RunAsync("throw 'csweet-hyperv-diagnostic-test'"));
+
+        Assert.Equal("hyperv-command-failed", exception.ErrorCode);
+        Assert.Contains("csweet-hyperv-diagnostic-test", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("CLIXML", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData("Professional", true)]
     [InlineData("ProfessionalWorkstation", true)]
@@ -68,6 +111,14 @@ public sealed class WindowsHyperVOnboardingTests
 
         Assert.Equal("1.0", result.ProtocolVersion);
         Assert.Equal("create", result.Operation);
+    }
+
+    [Fact]
+    public void HelperArguments_AcceptBoundedWorkloadReapingOperation()
+    {
+        var result = HelperArguments.Parse(["--protocol", "1.0", "--operation", "reap"]);
+
+        Assert.Equal("reap", result.Operation);
     }
 
     [Fact]
@@ -154,25 +205,74 @@ public sealed class WindowsHyperVOnboardingTests
         var installer = File.ReadAllText(Path.Combine(
             RepositoryRoot(), "scripts", "windows", "Install-CSweetSatelliteOfficeRuntimeHost.ps1"));
 
-        Assert.Contains("New-Service -Name $serviceName -BinaryPathName $binaryPath", installer, StringComparison.Ordinal);
-        Assert.Contains("Invoke-CimMethod -InputObject $serviceConfiguration -MethodName Change", installer, StringComparison.Ordinal);
-        Assert.Contains("PathName = $binaryPath", installer, StringComparison.Ordinal);
-        Assert.Contains("StartName = 'LocalSystem'", installer, StringComparison.Ordinal);
+        Assert.Contains("New-Service -Name $runtimeHostServiceName -BinaryPathName $runtimeHostBinaryPath", installer, StringComparison.Ordinal);
+        Assert.Contains("Invoke-CimMethod -InputObject $runtimeHostServiceConfiguration -MethodName Change", installer, StringComparison.Ordinal);
+        Assert.Contains("PathName = $runtimeHostBinaryPath", installer, StringComparison.Ordinal);
+        Assert.Contains("StartName = \"NT SERVICE\\$runtimeHostServiceName\"", installer, StringComparison.Ordinal);
+        Assert.Contains("StartName = \"NT SERVICE\\$nodeServiceName\"", installer, StringComparison.Ordinal);
+        Assert.Equal(2, Regex.Matches(installer, "StartPassword = \\$null", RegexOptions.CultureInvariant).Count);
+        Assert.Contains("Invoke-Sc @('sidtype', $runtimeHostServiceName, 'unrestricted')", installer, StringComparison.Ordinal);
+        Assert.Contains("Invoke-Sc @('sidtype', $nodeServiceName, 'unrestricted')", installer, StringComparison.Ordinal);
+        Assert.Contains("Grant-RuntimeHostHyperVAccess -ServiceName $serviceName", installer, StringComparison.Ordinal);
+        Assert.Contains("S-1-5-32-578", installer, StringComparison.Ordinal);
+        Assert.Contains("Assert-NotDomainController", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("StartName = 'LocalSystem'", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("NT AUTHORITY\\LocalService", installer, StringComparison.Ordinal);
+        Assert.True(
+            installer.IndexOf("New-Service -Name $runtimeHostServiceName", StringComparison.Ordinal) <
+            installer.IndexOf("icacls.exe\" $keyPath", StringComparison.Ordinal));
+        Assert.True(
+            installer.IndexOf("New-Service -Name $nodeServiceName", StringComparison.Ordinal) <
+            installer.IndexOf("icacls.exe\" $nodeDataRoot", StringComparison.Ordinal));
         Assert.Contains("'reset=', '86400'", installer, StringComparison.Ordinal);
         Assert.Contains("'actions=', 'restart/5000/restart/15000/none/0'", installer, StringComparison.Ordinal);
         Assert.Contains("function Initialize-WindowsEventLogSource", installer, StringComparison.Ordinal);
         Assert.Contains("Initialize-WindowsEventLogSource -SourceName $serviceName", installer, StringComparison.Ordinal);
         Assert.Contains("Initialize-WindowsEventLogSource -SourceName $nodeServiceName", installer, StringComparison.Ordinal);
         Assert.Contains("$nodeStatePath = Join-Path $nodeDataRoot 'node-state.json'", installer, StringComparison.Ordinal);
-        Assert.Contains("$existingNodeStatePath = Join-Path $DataRoot 'node-state.json'", installer, StringComparison.Ordinal);
+        Assert.Contains("$legacyNodeStatePath = Join-Path $DataRoot 'node-state.json'", installer, StringComparison.Ordinal);
+        Assert.Contains("$protectedNodeStatePath = Join-Path (Join-Path $DataRoot 'node') 'node-state.json'", installer, StringComparison.Ordinal);
         Assert.Contains("Test-Path -LiteralPath $existingNodeStatePath -PathType Leaf", installer, StringComparison.Ordinal);
         Assert.Contains("elseif ($null -eq $existingNodeService)", installer, StringComparison.Ordinal);
+        Assert.Contains("$existingNodeConfiguration = Get-OptionalObjectProperty $existingSatelliteOfficeConfiguration 'Node'", installer, StringComparison.Ordinal);
+        Assert.Contains("$null -eq $existingNodeConfiguration", installer, StringComparison.Ordinal);
+        Assert.Contains("$config.CSweet.SatelliteOffice.Node = $existingNodeConfiguration", installer, StringComparison.Ordinal);
+        Assert.Contains("elseif ($null -ne $existingNodeConfiguration)", installer, StringComparison.Ordinal);
+        Assert.Contains("The existing Satellite Office content root is outside the protected install directory.", installer, StringComparison.Ordinal);
         Assert.Contains("did not enroll within 60 seconds", installer, StringComparison.Ordinal);
+        Assert.Contains("Generate a new connection code in C-Sweet", installer, StringComparison.Ordinal);
+        Assert.Contains("Satellite Office enrollment failed", installer, StringComparison.Ordinal);
+        Assert.Contains("$minimumSatelliteOfficeVersion = [Version]'1.0.2.0'", installer, StringComparison.Ordinal);
+        Assert.Contains("predates privileged signed-assignment enforcement", installer, StringComparison.Ordinal);
         Assert.Contains("control-plane-trust.json", installer, StringComparison.Ordinal);
         Assert.Contains("ControlPlaneTrustFilePath = $controlPlaneTrustPath", installer, StringComparison.Ordinal);
-        Assert.Contains("'*S-1-5-19:R'", installer, StringComparison.Ordinal);
+        Assert.Contains("*$nodeServiceSid`:R", installer, StringComparison.Ordinal);
+        Assert.Contains("*$runtimeHostServiceSid`:R", installer, StringComparison.Ordinal);
+        Assert.Contains("$hyperVDataRoot '/inheritance:r'", installer, StringComparison.Ordinal);
+        Assert.Contains("$nodeDataRoot '/inheritance:r'", installer, StringComparison.Ordinal);
+        Assert.Contains("*$RuntimeHostSid`:(OI)(CI)RX", installer, StringComparison.Ordinal);
+        Assert.Contains("*$NodeSid`:(OI)(CI)RX", installer, StringComparison.Ordinal);
+        Assert.Contains("Set-ProtectedPackageAcl -Root $versionRoot", installer, StringComparison.Ordinal);
+        Assert.Contains("Grant-HyperVGuestImageReadAccess -GuestImagePath $guestImage", installer, StringComparison.Ordinal);
+        Assert.Contains("$virtualMachinesSid = 'S-1-5-83-0'", installer, StringComparison.Ordinal);
+        Assert.Contains("\"*$virtualMachinesSid`:R\"", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"*$virtualMachinesSid`:M\"", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"*$virtualMachinesSid`:F\"", installer, StringComparison.Ordinal);
+        Assert.Contains("\"*$RuntimeHostSid`:RX\" \"*$NodeSid`:RX\"", installer, StringComparison.Ordinal);
+        Assert.Contains("Assert-FileReadExecuteAce -Path $runtimeHostExe", installer, StringComparison.Ordinal);
+        Assert.Contains("Assert-FileReadExecuteAce -Path $satelliteOfficeExe", installer, StringComparison.Ordinal);
         Assert.DoesNotContain("Invoke-Sc @('create'", installer, StringComparison.Ordinal);
         Assert.DoesNotContain("Invoke-Sc @('config'", installer, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PayloadGeneratorRejectsPublishedNodeBeforeSignedAssignmentFix()
+    {
+        var generator = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "scripts", "windows", "New-CSweetWindowsRuntimePayload.ps1"));
+
+        Assert.Contains("$publishedNodeVersion -lt [Version]'1.0.2.0'", generator, StringComparison.Ordinal);
+        Assert.Contains("satelliteOfficeVersion = $publishedNodeVersion.ToString(3)", generator, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -301,12 +401,95 @@ public sealed class WindowsHyperVOnboardingTests
             RepositoryRoot(), "scripts", "windows", "Repair-CSweetSatelliteOfficeRuntimeHostAccess.ps1"));
 
         Assert.Contains("Resolve-ProtectedInstalledPath", repair, StringComparison.Ordinal);
-        Assert.Contains("AllowedClientSid = $ControlPlaneUserSid", repair, StringComparison.Ordinal);
+        Assert.Contains("$runtimeHostConfiguration.AllowedClientSid = $ControlPlaneUserSid", repair, StringComparison.Ordinal);
+        Assert.Contains("AllowedClientSids -NotePropertyValue $requiredAllowedClientSids", repair, StringComparison.Ordinal);
         Assert.Contains("runtime-host.key", repair, StringComparison.Ordinal);
         Assert.Contains("Stop-Service -Name $serviceName", repair, StringComparison.Ordinal);
         Assert.Contains("Start-Service -Name $serviceName", repair, StringComparison.Ordinal);
+        Assert.Contains("Resolve-ServiceSid", repair, StringComparison.Ordinal);
+        Assert.Contains("*$runtimeHostServiceSid`:(OI)(CI)M", repair, StringComparison.Ordinal);
+        Assert.Contains("Set-ProtectedPackageAcl -Root $contentRoot", repair, StringComparison.Ordinal);
+        Assert.Contains("\"*$RuntimeHostSid`:RX\" \"*$NodeSid`:RX\"", repair, StringComparison.Ordinal);
+        Assert.Contains("Assert-FileReadExecuteAce -Path $runtimeHostExe", repair, StringComparison.Ordinal);
+        Assert.Contains("Set-ServiceVirtualAccount -ServiceName $serviceName", repair, StringComparison.Ordinal);
+        Assert.Contains("Set-ServiceVirtualAccount -ServiceName $nodeServiceName", repair, StringComparison.Ordinal);
+        Assert.Contains("StartName = \"NT SERVICE\\$ServiceName\"", repair, StringComparison.Ordinal);
+        Assert.Contains("Stop-OrphanedSatelliteOfficeProcesses -ProtectedInstallRoot $InstallRoot", repair, StringComparison.Ordinal);
+        Assert.Contains("$executablePath.StartsWith($rootPath, [StringComparison]::OrdinalIgnoreCase)", repair, StringComparison.Ordinal);
+        Assert.Contains("-in $serviceProcessIds", repair, StringComparison.Ordinal);
+        Assert.True(
+            repair.IndexOf("Stop-Service -Name $nodeServiceName", StringComparison.Ordinal) <
+            repair.IndexOf("Set-ServiceVirtualAccount -ServiceName $nodeServiceName", StringComparison.Ordinal));
+        Assert.True(
+            repair.IndexOf("Set-ProtectedPackageAcl -Root $contentRoot", StringComparison.Ordinal) <
+            repair.IndexOf("Get-Content -LiteralPath $configurationPath", StringComparison.Ordinal));
+        Assert.Contains("$configurationPath '/reset'", repair, StringComparison.Ordinal);
+        Assert.Contains("$configurationPath '/inheritance:r' '/grant:r'", repair, StringComparison.Ordinal);
+        Assert.True(
+            repair.IndexOf("$configurationPath '/reset'", StringComparison.Ordinal) <
+            repair.IndexOf("Get-Content -LiteralPath $configurationPath", StringComparison.Ordinal));
+        Assert.Contains("[IO.File]::WriteAllText($configurationPath", repair, StringComparison.Ordinal);
+        Assert.Contains("if ($configurationNeedsUpdate)", repair, StringComparison.Ordinal);
+        Assert.DoesNotContain("[IO.File]::Replace", repair, StringComparison.Ordinal);
+        Assert.DoesNotContain("$temporaryConfiguration", repair, StringComparison.Ordinal);
+        Assert.Contains("Stop-Service -Name $nodeServiceName", repair, StringComparison.Ordinal);
+        Assert.Contains("Start-Service -Name $nodeServiceName", repair, StringComparison.Ordinal);
+        Assert.Contains("$restartNodeService = $true", repair, StringComparison.Ordinal);
+        Assert.Contains("} catch { }\n    try {\n        $stoppedNodeService", repair.Replace("\r\n", "\n"), StringComparison.Ordinal);
+        Assert.Contains("Grant-RuntimeHostHyperVAccess -ServiceName $serviceName", repair, StringComparison.Ordinal);
+        Assert.Contains("Grant-HyperVGuestImageReadAccess -GuestImagePath $guestImagePath", repair, StringComparison.Ordinal);
+        Assert.Contains("Resolve-ProtectedInstalledPath -Root $contentRoot", repair, StringComparison.Ordinal);
+        Assert.Contains("$virtualMachinesSid = 'S-1-5-83-0'", repair, StringComparison.Ordinal);
         Assert.DoesNotContain("Remove-VM", repair, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("GuestImage", repair, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HyperVHelper_CopiesPrivateArtifactMediaIntoThePerVmDirectoryAndReverifiesIt()
+    {
+        var helper = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "CSweet.SatelliteOffice.Runtime.HyperV.Helper", "HyperVHelperController.cs"));
+
+        Assert.Contains("Path.Combine(instanceDirectory, \"artifact.iso\")", helper, StringComparison.Ordinal);
+        Assert.Contains("File.Copy(artifactImage, attachedArtifactImage, overwrite: false)", helper, StringComparison.Ordinal);
+        Assert.Contains("VerifyArtifactDigestAsync(\n                        attachedArtifactImage", helper.Replace("\r\n", "\n"), StringComparison.Ordinal);
+        Assert.Contains("attachedArtifactImage);", helper, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RuntimeHostStartDiagnostic_RequiresElevationAndValidatesMicrosoftProcessMonitor()
+    {
+        var diagnostic = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "scripts", "windows", "Diagnose-CSweetSatelliteOfficeRuntimeHostStart.ps1"));
+
+        Assert.Contains("Assert-Administrator", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("https://download.sysinternals.com/files/ProcessMonitor.zip", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("Get-AuthenticodeSignature", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("O=Microsoft Corporation", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("sc.exe\" start 'CSweet.SatelliteOffice.RuntimeHost'", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("'ACCESS DENIED'", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("/Terminate", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("Wait-ForUnlockedFile", diagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Uninstaller_RemovesRuntimeHostHyperVPrivilegeBeforeDeletingService()
+    {
+        var uninstall = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "scripts", "windows", "Uninstall-CSweetSatelliteOffice.ps1"));
+
+        var removeMembership = uninstall.IndexOf("Remove-LocalGroupMember", StringComparison.Ordinal);
+        var deleteService = uninstall.IndexOf("sc.exe\" delete $serviceName", StringComparison.Ordinal);
+        Assert.True(removeMembership >= 0);
+        Assert.True(deleteService > removeMembership);
+        Assert.Contains("S-1-5-32-578", uninstall, StringComparison.Ordinal);
+        Assert.Contains("NT SERVICE\\$runtimeHostServiceName", uninstall, StringComparison.Ordinal);
+        Assert.Contains("$protectedNodeRoot", uninstall, StringComparison.Ordinal);
+        Assert.Contains("Remove-SatelliteOfficeHyperVResources $hyperVDataRoot", uninstall, StringComparison.Ordinal);
+        Assert.Contains("Get-VMHardDiskDrive -VM $vm", uninstall, StringComparison.Ordinal);
+        Assert.Contains("Remove-VM -VM $vm -Force", uninstall, StringComparison.Ordinal);
+        Assert.Contains("Dismount-VHD", uninstall, StringComparison.Ordinal);
+        Assert.Contains("Remove-InstalledDirectory $path", uninstall, StringComparison.Ordinal);
+        Assert.Contains("Uninstall did not completely remove", uninstall, StringComparison.Ordinal);
     }
 
     [Fact]

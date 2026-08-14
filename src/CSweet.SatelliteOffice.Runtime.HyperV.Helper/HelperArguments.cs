@@ -3,7 +3,7 @@ namespace CSweet.SatelliteOffice.Runtime.HyperV.Helper;
 internal sealed record HelperArguments(string ProtocolVersion, string Operation)
 {
     private static readonly HashSet<string> AllowedOperations =
-        ["probe", "create", "start", "inspect", "stop", "destroy", "logs"];
+        ["probe", "create", "start", "inspect", "stop", "destroy", "reap", "logs"];
 
     public static HelperArguments Parse(string[] args)
     {

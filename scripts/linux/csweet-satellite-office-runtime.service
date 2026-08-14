@@ -11,6 +11,7 @@ EnvironmentFile=/etc/csweet/runtime-host.env
 Environment=CSweet__SatelliteOffice__Providers__Firecracker__ArtifactImageRoot=/var/lib/csweet/artifact-media
 Environment=CSweet__SatelliteOffice__Providers__Firecracker__PayloadManifestPath=/opt/csweet/satellite-office/runtime-manifest.json
 Environment=CSweet__SatelliteOffice__RuntimeHost__Authentication__SharedKeyFilePath=/var/lib/csweet/satellite-office/runtime-host.key
+Environment=CSweet__SatelliteOffice__RuntimeHost__Authorization__StateDirectory=/var/lib/csweet/satellite-office/authorization
 Restart=on-failure
 RestartSec=5
 RuntimeDirectory=csweet

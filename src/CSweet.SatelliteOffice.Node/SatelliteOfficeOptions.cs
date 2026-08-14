@@ -17,6 +17,28 @@ public sealed class SatelliteOfficeOptions
     public int AllocatableMemoryMb { get; set; } = 4096;
     public int AllocatableDiskMb { get; set; } = 32768;
     public int MaximumConcurrentWorkloads { get; set; } = Math.Max(1, Environment.ProcessorCount / 2);
+    public string SecurityProfile { get; set; } = "baseline";
+    public bool MixedUseHost { get; set; } = true;
+    public bool AllowDevelopmentAssignments { get; set; }
+    public string[] EnabledSecurityControls { get; set; } = [];
+    public string[] MissingSecurityControls { get; set; } = [];
+
+    public SatelliteOfficeSecurityPostureReport SecurityPosture()
+    {
+        var profile = SecurityProfile.Trim().ToLowerInvariant();
+        if (profile is not ("baseline" or "hardened" or "development"))
+            throw new InvalidOperationException("SecurityProfile must be baseline, hardened, or development.");
+        if (profile == "development" && !AllowDevelopmentAssignments)
+            throw new InvalidOperationException(
+                "The development security profile requires explicit AllowDevelopmentAssignments consent.");
+        if (profile == "hardened" && MissingSecurityControls.Length != 0)
+            throw new InvalidOperationException(
+                "The hardened security profile cannot be reported while required controls are missing.");
+        return new SatelliteOfficeSecurityPostureReport(
+            profile, MixedUseHost, AllowDevelopmentAssignments,
+            NormalizeControls(EnabledSecurityControls), NormalizeControls(MissingSecurityControls),
+            DateTimeOffset.UtcNow);
+    }
 
     public string ResolveStateDirectory()
     {
@@ -33,4 +55,13 @@ public sealed class SatelliteOfficeOptions
     public string ResolveArtifactMediaDirectory() => string.IsNullOrWhiteSpace(ArtifactMediaDirectory)
         ? Path.Combine(ResolveStateDirectory(), "artifact-media")
         : Path.GetFullPath(ArtifactMediaDirectory);
+
+    private static string[] NormalizeControls(IEnumerable<string> controls) => controls
+        .Select(value => value.Trim().ToLowerInvariant())
+        .Where(value => value.Length is > 0 and <= 100 &&
+            value.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '.'))
+        .Distinct(StringComparer.Ordinal)
+        .Order(StringComparer.Ordinal)
+        .Take(64)
+        .ToArray();
 }

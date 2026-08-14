@@ -7,10 +7,13 @@
   <key>ProgramArguments</key><array><string>/Library/Application Support/CSweet/SatelliteOffice/CSweet.SatelliteOffice.Node</string></array>
   <key>EnvironmentVariables</key><dict>
     <key>CSweet__SatelliteOffice__Node__ControlPlaneUrl</key><string>__CONTROL_PLANE_URL__</string>
-    <key>CSweet__SatelliteOffice__Node__StateDirectory</key><string>/Library/Application Support/CSweet/SatelliteOffice</string>
-    <key>CSweet__SatelliteOffice__Node__ArtifactCacheDirectory</key><string>/Library/Application Support/CSweet/SatelliteOffice/artifact-cache</string>
+    <key>CSweet__SatelliteOffice__Node__StateDirectory</key><string>/Library/Application Support/CSweet/SatelliteOffice/node</string>
+    <key>CSweet__SatelliteOffice__Node__ArtifactCacheDirectory</key><string>/Library/Application Support/CSweet/SatelliteOffice/node/artifact-cache</string>
     <key>CSweet__SatelliteOffice__Node__ArtifactMediaDirectory</key><string>/Library/Application Support/CSweet/SatelliteOffice/artifact-media</string>
-    <key>CSweet__SatelliteOffice__Node__EnrollmentTokenFilePath</key><string>/Library/Application Support/CSweet/SatelliteOffice/enrollment.secret</string>
+    <key>CSweet__SatelliteOffice__Node__EnrollmentTokenFilePath</key><string>/Library/Application Support/CSweet/SatelliteOffice/node/enrollment.secret</string>
+    <key>CSweet__SatelliteOffice__Node__SecurityProfile</key><string>__SECURITY_PROFILE__</string>
+    <key>CSweet__SatelliteOffice__Node__MixedUseHost</key><string>__MIXED_USE_HOST__</string>
+    <key>CSweet__SatelliteOffice__Node__AllowDevelopmentAssignments</key><string>__ALLOW_DEVELOPMENT_ASSIGNMENTS__</string>
     <key>CSweet__SatelliteOffice__RuntimeHost__Authentication__SharedKeyFilePath</key><string>/Library/Application Support/CSweet/SatelliteOffice/runtime-host.key</string>
   </dict>
   <key>ProcessType</key><string>Background</string>

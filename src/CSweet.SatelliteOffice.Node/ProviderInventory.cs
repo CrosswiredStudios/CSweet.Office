@@ -27,7 +27,8 @@ public sealed class RuntimeHostInventory(IEnumerable<IAgentIsolationProvider> pr
                     SupportsBuilderWorkloads: true,
                     SupportsRuntimeWorkloads: true,
                     probe.IsAvailable && certification?.IsActiveAt(DateTimeOffset.UtcNow) == true,
-                    probe.UnavailableReason ?? (certification is null ? "Provider certification is unavailable." : null)));
+                    Diagnostic(probe.UnavailableReason ??
+                        (certification is null ? "Provider certification is unavailable." : null))));
             }
             catch (Exception exception) when (exception is IOException or TimeoutException or InvalidDataException or IsolationUnavailableException)
             {
@@ -42,6 +43,17 @@ public sealed class RuntimeHostInventory(IEnumerable<IAgentIsolationProvider> pr
 
     private static bool IsCurrentPlatformProvider(IAgentIsolationProvider provider) =>
         string.Equals(provider.Descriptor.HostOperatingSystem, Platform(), StringComparison.OrdinalIgnoreCase);
+
+    private static string? Diagnostic(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (value.Contains("#< CLIXML", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("<Objs Version=", StringComparison.OrdinalIgnoreCase))
+            return "The runtime provider readiness check failed. Review the RuntimeHost event log for details.";
+        var normalized = string.Join(' ', value.Split((char[]?)null,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return normalized[..Math.Min(512, normalized.Length)];
+    }
 
     public static string Platform() => OperatingSystem.IsWindows() ? "windows" :
         OperatingSystem.IsLinux() ? "linux" : OperatingSystem.IsMacOS() ? "macos" :

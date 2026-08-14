@@ -27,6 +27,11 @@ builder.Services.AddSingleton(endpoint);
 builder.Services.AddSingleton(authentication);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<RuntimeHostRequestAuthenticator>();
+var authorization = builder.Configuration
+    .GetSection(RuntimeHostAuthorizationOptions.SectionName)
+    .Get<RuntimeHostAuthorizationOptions>() ?? new RuntimeHostAuthorizationOptions();
+builder.Services.AddSingleton(authorization);
+builder.Services.AddSingleton<RuntimeHostAuthorizationGate>();
 builder.Services.AddSingleton<RuntimeHostRequestDispatcher>();
 builder.Services.AddSingleton<RuntimeHostRpcServer>();
 builder.Services.AddHostedService<RuntimeHostWorker>();
@@ -40,22 +45,40 @@ var apple = builder.Configuration.GetSection("CSweet:SatelliteOffice:Providers:A
     .Get<AppleVirtualizationIsolationBackendOptions>() ?? new AppleVirtualizationIsolationBackendOptions();
 PlatformRuntimePayloadManifest.ApplyIfConfigured(firecracker, IsolationProviderCatalog.Firecracker());
 PlatformRuntimePayloadManifest.ApplyIfConfigured(apple, IsolationProviderCatalog.AppleVirtualization());
-builder.Services.AddSingleton(hyperV);
-builder.Services.AddSingleton(firecracker);
-builder.Services.AddSingleton(apple);
-builder.Services.AddSingleton<IPlatformIsolationBackend, HyperVIsolationBackend>();
-builder.Services.AddSingleton<IPlatformIsolationBackend, FirecrackerIsolationBackend>();
-builder.Services.AddSingleton<IPlatformIsolationBackend, AppleVirtualizationIsolationBackend>();
+if (OperatingSystem.IsWindows())
+{
+    builder.Services.AddSingleton(hyperV);
+    builder.Services.AddSingleton<IPlatformIsolationBackend, HyperVIsolationBackend>();
+}
+else if (OperatingSystem.IsLinux())
+{
+    builder.Services.AddSingleton(firecracker);
+    builder.Services.AddSingleton<IPlatformIsolationBackend, FirecrackerIsolationBackend>();
+}
+else if (OperatingSystem.IsMacOS())
+{
+    builder.Services.AddSingleton(apple);
+    builder.Services.AddSingleton<IPlatformIsolationBackend, AppleVirtualizationIsolationBackend>();
+}
 var hyperVSocket = builder.Configuration.GetSection("CSweet:SatelliteOffice:RuntimeHost:HyperVSocket")
     .Get<HyperVSocketTransportOptions>() ?? new HyperVSocketTransportOptions();
 hyperVSocket.Validate();
 builder.Services.AddSingleton(hyperVSocket);
-builder.Services.AddSingleton<WindowsHyperVSocketTransport>();
-builder.Services.AddSingleton<IHyperVGuestTransport>(services =>
-    services.GetRequiredService<WindowsHyperVSocketTransport>());
-builder.Services.AddSingleton<IPlatformGuestChannelConnector>(services =>
-    services.GetRequiredService<WindowsHyperVSocketTransport>());
-builder.Services.AddSingleton<IPlatformGuestChannelConnector, FirecrackerGuestChannelConnector>();
-builder.Services.AddSingleton<IPlatformGuestChannelConnector, AppleVirtualizationGuestChannelConnector>();
+if (OperatingSystem.IsWindows())
+{
+    builder.Services.AddSingleton<WindowsHyperVSocketTransport>();
+    builder.Services.AddSingleton<IHyperVGuestTransport>(services =>
+        services.GetRequiredService<WindowsHyperVSocketTransport>());
+    builder.Services.AddSingleton<IPlatformGuestChannelConnector>(services =>
+        services.GetRequiredService<WindowsHyperVSocketTransport>());
+}
+else if (OperatingSystem.IsLinux())
+{
+    builder.Services.AddSingleton<IPlatformGuestChannelConnector, FirecrackerGuestChannelConnector>();
+}
+else if (OperatingSystem.IsMacOS())
+{
+    builder.Services.AddSingleton<IPlatformGuestChannelConnector, AppleVirtualizationGuestChannelConnector>();
+}
 
 await builder.Build().RunAsync();

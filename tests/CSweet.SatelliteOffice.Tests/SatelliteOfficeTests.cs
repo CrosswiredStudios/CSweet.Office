@@ -11,6 +11,30 @@ public sealed class SatelliteOfficeTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"csweet-satellite-office-{Guid.NewGuid():N}");
 
     [Fact]
+    public void NodeVersionAdvertisesCanonicalAssignmentDigestSupport()
+    {
+        var version = typeof(SatelliteOfficeWorker).Assembly.GetName().Version;
+
+        Assert.NotNull(version);
+        Assert.True(version >= new Version(1, 0, 2),
+            $"Satellite Office {version} must not advertise a pre-1.0.2 version without privileged signed-assignment enforcement.");
+    }
+
+    [Fact]
+    public void DevelopmentPostureRequiresExplicitOfficeConsent()
+    {
+        var options = new SatelliteOfficeOptions { SecurityProfile = "development" };
+
+        Assert.Throws<InvalidOperationException>(() => options.SecurityPosture());
+
+        options.AllowDevelopmentAssignments = true;
+        var report = options.SecurityPosture();
+        Assert.Equal("development", report.Profile);
+        Assert.True(report.DevelopmentAssignmentsAllowed);
+        Assert.True(report.MixedUseHost);
+    }
+
+    [Fact]
     public void LocalEndpointUsesBrandedV1Identity()
     {
         var endpoint = new RuntimeHostEndpointOptions();
@@ -112,6 +136,43 @@ public sealed class SatelliteOfficeTests : IDisposable
         Assert.Contains("details.Length > 512", worker, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void WorkloadTunnelIsOpenedBeforeWaitingForGuestPayload()
+    {
+        var worker = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "CSweet.SatelliteOffice.Node", "SatelliteOfficeWorker.cs"));
+
+        var relay = worker.IndexOf("private static async Task RelayGuestChannelAsync", StringComparison.Ordinal);
+        var openingFrame = worker.IndexOf(
+            "await call.RequestStream.WriteAsync(new WorkloadTunnelFrame", relay, StringComparison.Ordinal);
+        var guestReadLoop = worker.IndexOf("var upload = Task.Run", relay, StringComparison.Ordinal);
+
+        Assert.True(relay >= 0);
+        Assert.True(openingFrame > relay);
+        Assert.True(guestReadLoop > openingFrame);
+        var opening = worker[openingFrame..guestReadLoop];
+        Assert.Contains("Sequence = 0", opening, StringComparison.Ordinal);
+        Assert.Contains("Content = Google.Protobuf.ByteString.Empty", opening, StringComparison.Ordinal);
+        Assert.Contains("Completed = false", opening, StringComparison.Ordinal);
+        Assert.Contains("long sequence = 1", worker[guestReadLoop..], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DownloadedArtifactIsClosedBeforeHashVerificationAndCommit()
+    {
+        Directory.CreateDirectory(_root);
+        var content = "verified runtime artifact"u8.ToArray();
+        var digest = $"sha256:{Convert.ToHexStringLower(SHA256.HashData(content))}";
+        var temporary = Path.Combine(_root, ".artifact.download");
+        var destination = Path.Combine(_root, "runtime.artifact");
+
+        await SatelliteOfficeArtifactCache.DownloadAndCommitAsync(
+            DownloadChunks(content, digest), temporary, destination, digest, CancellationToken.None);
+
+        Assert.False(File.Exists(temporary));
+        Assert.Equal(content, await File.ReadAllBytesAsync(destination));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);
@@ -120,4 +181,17 @@ public sealed class SatelliteOfficeTests : IDisposable
 
     private static string RepositoryRoot() => Path.GetFullPath(Path.Combine(
         AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+
+    private static async IAsyncEnumerable<ArtifactChunk> DownloadChunks(byte[] content, string digest)
+    {
+        await Task.Yield();
+        yield return new ArtifactChunk
+        {
+            Offset = 0,
+            Content = Google.Protobuf.ByteString.CopyFrom(content),
+            Completed = true,
+            TotalSize = content.Length,
+            Sha256 = digest
+        };
+    }
 }

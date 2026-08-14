@@ -1,6 +1,8 @@
 using System.Text.Json;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using A = CSweet.SatelliteOffice.Runtime.Abstractions;
+using W = CSweet.SatelliteOffice.Contracts.Workloads;
 using P = CSweet.SatelliteOffice.Runtime.Protocol;
 
 namespace CSweet.SatelliteOffice.Runtime.LocalRpc;
@@ -8,6 +10,7 @@ namespace CSweet.SatelliteOffice.Runtime.LocalRpc;
 public sealed class RuntimeHostRequestDispatcher(
     IEnumerable<A.IPlatformIsolationBackend> backends,
     IEnumerable<A.IPlatformGuestChannelConnector> guestChannelConnectors,
+    RuntimeHostAuthorizationGate authorizationGate,
     ILogger<RuntimeHostRequestDispatcher>? logger = null)
 {
     private readonly IReadOnlyDictionary<string, A.IPlatformIsolationBackend> _backends = backends
@@ -21,6 +24,9 @@ public sealed class RuntimeHostRequestDispatcher(
     {
         switch (request.BodyCase)
         {
+            case P.RuntimeHostEnvelope.BodyOneofCase.PinHeadquartersTrustRequest:
+                yield return PinTrust(request);
+                break;
             case P.RuntimeHostEnvelope.BodyOneofCase.ProbeRequest:
                 yield return await ProbeAsync(request, cancellationToken);
                 break;
@@ -37,7 +43,10 @@ public sealed class RuntimeHostRequestDispatcher(
                 yield return await StopAsync(request, cancellationToken);
                 break;
             case P.RuntimeHostEnvelope.BodyOneofCase.DestroyRequest:
-                yield return await OperationAsync(request, request.DestroyRequest, static (backend, handle, token) => backend.DestroyAsync(handle, token), cancellationToken);
+                yield return await OperationAsync(
+                    request, request.DestroyRequest,
+                    static (backend, handle, token) => backend.DestroyAsync(handle, token),
+                    cancellationToken, allowTermination: true, removeAuthorization: true);
                 break;
             case P.RuntimeHostEnvelope.BodyOneofCase.ReadLogsRequest:
                 await foreach (var response in LogsAsync(request, cancellationToken)) yield return response;
@@ -50,6 +59,33 @@ public sealed class RuntimeHostRequestDispatcher(
                     SanitizedError = "The requested runtime-host operation is not supported."
                 });
                 break;
+        }
+    }
+
+    private P.RuntimeHostEnvelope PinTrust(P.RuntimeHostEnvelope request)
+    {
+        try
+        {
+            var pin = request.PinHeadquartersTrustRequest;
+            if (!Guid.TryParse(pin.SatelliteOfficeId, out var officeId))
+                throw new InvalidDataException("The Satellite Office identifier is invalid.");
+            authorizationGate.Pin(new A.PinnedHeadquartersTrust(
+                officeId, pin.AssignmentSigningKeyId, pin.AssignmentVerificationPublicKey.ToByteArray()));
+            var response = Base(request);
+            response.PinHeadquartersTrustResponse = new P.OperationResponse { Success = true };
+            return response;
+        }
+        catch (Exception exception) when (exception is InvalidDataException or CryptographicException or IOException)
+        {
+            logger?.LogWarning(exception, "Rejected RuntimeHost Headquarters trust pin request {RuntimeHostRequestId}.", request.RequestId);
+            var response = Base(request);
+            response.PinHeadquartersTrustResponse = new P.OperationResponse
+            {
+                Success = false,
+                ErrorCode = "headquarters-trust-rejected",
+                SanitizedError = "The privileged service rejected the Headquarters assignment trust."
+            };
+            return response;
         }
     }
 
@@ -101,14 +137,49 @@ public sealed class RuntimeHostRequestDispatcher(
         if (!_guestChannelProviders.Contains(request.CreateRequest.ProviderId))
             return ErrorHandle(request, "guest-channel-unavailable",
                 "The provider does not have a certified guest-channel connector installed.");
+        W.WorkloadSpecification workload;
         try
         {
-            var workload = RuntimeHostProtocolMapper.FromProtocol(request.CreateRequest);
+            workload = authorizationGate.ValidateAndCommit(request.CreateRequest);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidDataException or CryptographicException)
+        {
+            logger?.LogWarning(
+                exception,
+                "RuntimeHost rejected signed authorization for request {RuntimeHostRequestId}, workload {WorkloadId}, and provider {ProviderId}.",
+                request.RequestId, request.CreateRequest.WorkloadId, request.CreateRequest.ProviderId);
+            return ErrorHandle(
+                request,
+                "authorization-rejected",
+                DiagnosticMessage("Headquarters workload authorization was rejected", request.RequestId));
+        }
+        try
+        {
             var handle = await backend.CreateAsync(workload, cancellationToken);
             EnsureProvider(handle, backend);
+            try { authorizationGate.RegisterHandle(request.CreateRequest, handle); }
+            catch
+            {
+                try { await backend.DestroyAsync(handle, CancellationToken.None); }
+                catch (Exception cleanupException)
+                {
+                    logger?.LogError(cleanupException,
+                        "RuntimeHost could not destroy workload {WorkloadId} after failing to persist its authorized handle.",
+                        handle.WorkloadId);
+                }
+                throw;
+            }
             return Response(request, new P.WorkloadHandleResponse { Success = true, Workload = RuntimeHostProtocolMapper.ToProtocol(handle) });
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (A.IsolationUnavailableException exception)
+        {
+            logger?.LogWarning(
+                exception,
+                "RuntimeHost create request {RuntimeHostRequestId} could not provision workload {WorkloadId} for provider {ProviderId}.",
+                request.RequestId, request.CreateRequest.WorkloadId, request.CreateRequest.ProviderId);
+            return ErrorHandle(request, "provider-unavailable", exception.Message);
+        }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or InvalidOperationException)
         {
             logger?.LogWarning(
@@ -181,20 +252,24 @@ public sealed class RuntimeHostRequestDispatcher(
             request,
             request.StopRequest.Workload,
             (backend, handle, token) => backend.StopAsync(handle, TimeSpan.FromSeconds(seconds), token),
-            cancellationToken);
+            cancellationToken,
+            allowTermination: true);
     }
 
     private async Task<P.RuntimeHostEnvelope> OperationAsync(
         P.RuntimeHostEnvelope request,
         P.WorkloadOperationRequest protocolHandle,
         Func<A.IPlatformIsolationBackend, A.IsolationWorkloadHandle, CancellationToken, Task> operation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowTermination = false,
+        bool removeAuthorization = false)
     {
-        var (backend, handle) = Resolve(protocolHandle);
+        var (backend, handle) = Resolve(protocolHandle, allowTermination);
         if (backend is null || handle is null) return Error(request, "provider-not-registered");
         try
         {
             await operation(backend, handle, cancellationToken);
+            if (removeAuthorization) authorizationGate.RemoveHandle(handle);
             return Response(request, new P.OperationResponse { Success = true });
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -244,13 +319,16 @@ public sealed class RuntimeHostRequestDispatcher(
         yield return Response(request, new P.LogChunk { Completed = true, Truncated = total > maximum });
     }
 
-    private (A.IPlatformIsolationBackend? Backend, A.IsolationWorkloadHandle? Handle) Resolve(P.WorkloadOperationRequest protocol)
+    private (A.IPlatformIsolationBackend? Backend, A.IsolationWorkloadHandle? Handle) Resolve(
+        P.WorkloadOperationRequest protocol,
+        bool allowTermination = false)
     {
         if (!_backends.TryGetValue(protocol.ProviderId, out var backend)) return (null, null);
         try
         {
             var handle = RuntimeHostProtocolMapper.FromProtocol(protocol);
             EnsureProvider(handle, backend);
+            if (!authorizationGate.IsHandleAuthorized(handle, allowTermination)) return (null, null);
             return (backend, handle);
         }
         catch (InvalidDataException) { return (null, null); }

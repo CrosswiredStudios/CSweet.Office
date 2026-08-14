@@ -38,6 +38,15 @@ dotnet publish (Join-Path $repositoryRoot 'src\CSweet.SatelliteOffice.Runtime.Hy
 if ($LASTEXITCODE -ne 0) { throw 'Hyper-V helper publish failed.' }
 dotnet publish (Join-Path $repositoryRoot 'src\CSweet.SatelliteOffice.Node\CSweet.SatelliteOffice.Node.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $nodeRoot
 if ($LASTEXITCODE -ne 0) { throw 'SatelliteOffice publish failed.' }
+$publishedNodeExecutable = Join-Path $nodeRoot 'CSweet.SatelliteOffice.Node.exe'
+try {
+    $publishedNodeVersion = [Version](Get-Item -LiteralPath $publishedNodeExecutable).VersionInfo.FileVersion
+} catch {
+    throw 'The published Satellite Office executable version is invalid.'
+}
+if ($publishedNodeVersion -lt [Version]'1.0.2.0') {
+    throw "The payload generator published Satellite Office $publishedNodeVersion. Version 1.0.2 or later is required for privileged signed-assignment enforcement."
+}
 
 $installedImage = Join-Path $imageRoot 'csweet-agent-guest.vhdx'
 $installedSignature = "$installedImage.sig"
@@ -59,6 +68,7 @@ $files = @(Get-ChildItem -LiteralPath $OutputRoot -File -Recurse | Where-Object 
 $manifest = [ordered]@{
     schemaVersion = 1
     packageVersion = $PackageVersion
+    satelliteOfficeVersion = $publishedNodeVersion.ToString(3)
     runtimeHostExecutable = "runtime/CSweet.SatelliteOffice.RuntimeHost.exe"
     helperExecutable = "helper/CSweet.SatelliteOffice.Runtime.HyperV.Helper.exe"
     satelliteOfficeExecutable = "node/CSweet.SatelliteOffice.Node.exe"

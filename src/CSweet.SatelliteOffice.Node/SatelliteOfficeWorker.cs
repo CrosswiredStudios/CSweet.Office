@@ -50,6 +50,7 @@ public sealed class SatelliteOfficeWorker(
                         await stateStore.SaveAsync(state, stoppingToken);
                         processSession = state;
                     }
+                    await PinRuntimeHostTrustAsync(state, stoppingToken);
                     var operational = await RefreshOperationalCertificateAsync(state, certificate, stoppingToken);
                     if (!ReferenceEquals(operational, certificate))
                     {
@@ -101,7 +102,7 @@ public sealed class SatelliteOfficeWorker(
             new DateTimeOffset(certificate.NotAfter.ToUniversalTime(), TimeSpan.Zero),
             SatelliteOfficeStateStore.CreateCertificateSigningRequestPem(certificate),
             options.AllocatableCpuCount, options.AllocatableMemoryMb, options.AllocatableDiskMb,
-            options.MaximumConcurrentWorkloads, providers);
+            options.MaximumConcurrentWorkloads, providers, options.SecurityPosture());
         var client = httpClientFactory.CreateClient("control-plane");
         using var response = await client.PostAsJsonAsync("api/satellite-offices/claim", request, cancellationToken);
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -121,11 +122,26 @@ public sealed class SatelliteOfficeWorker(
         }
         if (result is null)
             throw new InvalidDataException("The control plane returned an empty enrollment response.");
-        if (!response.IsSuccessStatusCode || !result.Succeeded || result.SatelliteOfficeId is null || string.IsNullOrWhiteSpace(result.EnrollmentReceipt))
+        if (!response.IsSuccessStatusCode || !result.Succeeded || result.SatelliteOfficeId is null ||
+            string.IsNullOrWhiteSpace(result.EnrollmentReceipt) || string.IsNullOrWhiteSpace(result.AssignmentSigningKeyId) ||
+            string.IsNullOrWhiteSpace(result.AssignmentVerificationPublicKeyBase64))
             throw new InvalidOperationException($"Satellite Office enrollment failed ({result.ErrorCode ?? "unknown"}): {result.Message}");
+        byte[] assignmentPublicKey;
+        try
+        {
+            assignmentPublicKey = Convert.FromBase64String(result.AssignmentVerificationPublicKeyBase64);
+            using var parsedKey = ECDsa.Create();
+            parsedKey.ImportSubjectPublicKeyInfo(assignmentPublicKey, out var read);
+            if (read != assignmentPublicKey.Length) throw new CryptographicException("The assignment key contains trailing data.");
+        }
+        catch (Exception exception) when (exception is FormatException or CryptographicException)
+        {
+            throw new InvalidDataException("The control plane returned an invalid assignment verification identity.", exception);
+        }
         options.EnrollmentToken = string.Empty;
         var state = new SatelliteOfficeState(result.SatelliteOfficeId.Value, result.EnrollmentReceipt,
-            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), stateStore.GetCertificatePath());
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), stateStore.GetCertificatePath(),
+            result.AssignmentSigningKeyId, Convert.ToBase64String(assignmentPublicKey));
         await stateStore.SaveAsync(state, cancellationToken);
         if (enrollmentTokenPath is not null)
         {
@@ -139,6 +155,15 @@ public sealed class SatelliteOfficeWorker(
         }
         logger.LogInformation("Satellite Office {SatelliteOfficeId} enrolled and is awaiting administrator approval.", state.SatelliteOfficeId);
         return state;
+    }
+
+    private async Task PinRuntimeHostTrustAsync(SatelliteOfficeState state, CancellationToken cancellationToken)
+    {
+        foreach (var client in _providers.Values.OfType<IRuntimeHostClient>())
+            await client.PinHeadquartersTrustAsync(new PinnedHeadquartersTrust(
+                state.SatelliteOfficeId,
+                state.AssignmentSigningKeyId,
+                Convert.FromBase64String(state.AssignmentVerificationPublicKeyBase64)), cancellationToken);
     }
 
     private async Task<X509Certificate2> RefreshOperationalCertificateAsync(
@@ -195,7 +220,7 @@ public sealed class SatelliteOfficeWorker(
             using var heartbeat = await http.PostAsJsonAsync($"api/satellite-offices/{state.SatelliteOfficeId:D}/heartbeat",
                 new SatelliteOfficeHeartbeatRequest(state.EnrollmentReceipt, state.SessionEpoch,
                     options.AllocatableCpuCount, options.AllocatableMemoryMb, options.AllocatableDiskMb,
-                    options.MaximumConcurrentWorkloads, providers), cancellationToken);
+                    options.MaximumConcurrentWorkloads, providers, options.SecurityPosture()), cancellationToken);
             heartbeat.EnsureSuccessStatusCode();
         }
 
@@ -219,6 +244,7 @@ public sealed class SatelliteOfficeWorker(
                     AllocatableDiskMb = options.AllocatableDiskMb,
                     MaximumConcurrentWorkloads = options.MaximumConcurrentWorkloads
                 };
+                heartbeat.SecurityPosture = ProviderInventory(options.SecurityPosture());
                 if (sendInventory)
                 {
                     heartbeat.Providers.AddRange(providers.Select(ProviderInventory));
@@ -258,6 +284,20 @@ public sealed class SatelliteOfficeWorker(
         UnavailableReason = provider.UnavailableReason ?? string.Empty
     };
 
+    private static SatelliteOfficeSecurityPosture ProviderInventory(SatelliteOfficeSecurityPostureReport report)
+    {
+        var posture = new SatelliteOfficeSecurityPosture
+        {
+            Profile = report.Profile,
+            MixedUseHost = report.MixedUseHost,
+            DevelopmentAssignmentsAllowed = report.DevelopmentAssignmentsAllowed,
+            EvaluatedAtUnixSeconds = report.EvaluatedAt.ToUnixTimeSeconds()
+        };
+        posture.EnabledControls.AddRange(report.EnabledControls);
+        posture.MissingControls.AddRange(report.MissingControls);
+        return posture;
+    }
+
     private async Task ReadControlMessagesAsync(
         IAsyncStreamReader<HeadquartersControlMessage> stream,
         IClientStreamWriter<SatelliteOfficeControlMessage> writer,
@@ -266,8 +306,12 @@ public sealed class SatelliteOfficeWorker(
         SatelliteOfficeState state,
         CancellationToken cancellationToken)
     {
-        ECDsa? assignmentVerificationKey = null;
-        string? assignmentSigningKeyId = null;
+        using var assignmentVerificationKey = ECDsa.Create();
+        var assignmentPublicKey = Convert.FromBase64String(state.AssignmentVerificationPublicKeyBase64);
+        assignmentVerificationKey.ImportSubjectPublicKeyInfo(assignmentPublicKey, out var importedBytes);
+        if (importedBytes != assignmentPublicKey.Length)
+            throw new InvalidDataException("The pinned assignment verification key contains trailing data.");
+        var assignmentSigningKeyId = state.AssignmentSigningKeyId;
         try
         {
         await foreach (var message in stream.ReadAllAsync(cancellationToken))
@@ -279,16 +323,31 @@ public sealed class SatelliteOfficeWorker(
                 if (message.Hello.AssignmentVerificationPublicKey.Length is < 64 or > 1024 ||
                     string.IsNullOrWhiteSpace(message.Hello.AssignmentSigningKeyId))
                     throw new InvalidDataException("The gateway signing identity is invalid.");
-                assignmentVerificationKey?.Dispose();
-                assignmentVerificationKey = ECDsa.Create();
-                assignmentVerificationKey.ImportSubjectPublicKeyInfo(
-                    message.Hello.AssignmentVerificationPublicKey.Span, out _);
-                assignmentSigningKeyId = message.Hello.AssignmentSigningKeyId;
+                if (!string.Equals(message.Hello.AssignmentSigningKeyId, assignmentSigningKeyId, StringComparison.Ordinal) ||
+                    !CryptographicOperations.FixedTimeEquals(
+                        message.Hello.AssignmentVerificationPublicKey.Span, assignmentPublicKey))
+                    throw new InvalidDataException("The gateway signing identity does not match the identity pinned during enrollment.");
             }
             else if (message.BodyCase == HeadquartersControlMessage.BodyOneofCase.Assignment)
             {
-                ValidateAssignment(message.Assignment, state.SatelliteOfficeId,
-                    assignmentVerificationKey, assignmentSigningKeyId);
+                try
+                {
+                    ValidateAssignment(message.Assignment, state.SatelliteOfficeId,
+                        assignmentVerificationKey, assignmentSigningKeyId);
+                }
+                catch (InvalidDataException exception)
+                {
+                    logger.LogError(exception,
+                        "Rejected assignment {AssignmentId} epoch {FencingEpoch} before execution.",
+                        message.Assignment.AssignmentId,
+                        message.Assignment.FencingEpoch);
+                    await SendStatusAsync(writer, writerLock, state, message.Assignment,
+                        "Failed", "assignment-envelope-invalid",
+                        "The Satellite Office rejected the signed assignment envelope. " +
+                        "Verify that headquarters and Satellite Office use compatible contract versions.",
+                        null, null, cancellationToken);
+                    continue;
+                }
                 logger.LogInformation("Received fenced workload assignment {AssignmentId} at epoch {Epoch}.",
                     message.Assignment.AssignmentId, message.Assignment.FencingEpoch);
                 var assignmentId = Guid.Parse(message.Assignment.AssignmentId);
@@ -321,7 +380,7 @@ public sealed class SatelliteOfficeWorker(
             }
         }
         }
-        finally { assignmentVerificationKey?.Dispose(); }
+        finally { }
     }
 
     private async Task ExecuteAssignmentAsync(
@@ -354,11 +413,20 @@ public sealed class SatelliteOfficeWorker(
             }
             await SendStatusAsync(writer, writerLock, state, assignment,
                 "Starting", null, null, null, null, assignmentCancellation.Token);
-            handle = await provider.CreateAsync(specification, assignmentCancellation.Token);
+            if (provider is not IRuntimeHostClient runtimeHost)
+                throw new IsolationUnavailableException("The assigned provider does not enforce signed workload authorization.");
+            handle = await runtimeHost.CreateAuthorizedAsync(specification,
+                ToAuthorization(state, assignment), assignmentCancellation.Token);
             await provider.StartAsync(handle, assignmentCancellation.Token);
             if (provider is not IAgentGuestChannelProvider guestChannels)
                 throw new IsolationUnavailableException("The RuntimeHost provider does not expose a guest broker channel.");
+            logger.LogInformation(
+                "Assignment {AssignmentId} epoch {FencingEpoch} started provider {ProviderId}; waiting for the authenticated guest broker channel.",
+                assignmentId, assignment.FencingEpoch, assignment.ProviderId);
             var guestStream = await guestChannels.OpenGuestChannelAsync(handle, assignmentCancellation.Token);
+            logger.LogInformation(
+                "Assignment {AssignmentId} epoch {FencingEpoch} opened the authenticated guest broker channel.",
+                assignmentId, assignment.FencingEpoch);
             tunnelLifetime = CancellationTokenSource.CreateLinkedTokenSource(assignmentCancellation.Token);
             tunnelTask = RelayGuestChannelAsync(
                 gatewayClient, guestStream, state, assignment, tunnelLifetime.Token);
@@ -402,11 +470,15 @@ public sealed class SatelliteOfficeWorker(
         catch (OperationCanceledException) when (assignmentCancellation.IsCancellationRequested) { }
         catch (Exception exception)
         {
+            logger.LogError(
+                exception,
+                "Assignment {AssignmentId} epoch {FencingEpoch} failed while executing provider {ProviderId}.",
+                assignmentId, assignment.FencingEpoch, assignment.ProviderId);
             try
             {
+                var failure = DescribeExecutionFailure(exception);
                 await SendStatusAsync(writer, writerLock, state, assignment,
-                    "Failed", "satellite-office-error",
-                    $"The node could not execute the workload ({exception.GetType().Name}).",
+                    "Failed", failure.FailureCode, failure.SanitizedFailure,
                     handle,
                     provider is not null && handle is not null
                         ? await ReadLogsAsync(provider, handle, CancellationToken.None)
@@ -455,10 +527,26 @@ public sealed class SatelliteOfficeWorker(
         using (var call = client.OpenWorkloadTunnel(cancellationToken: cancellationToken))
         using (var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
+            // OpenWorkloadTunnel cannot start the Headquarters broker session until it receives
+            // the first bound frame. The Linux guest waits for Headquarters to send its boot
+            // configuration before it writes anything, so waiting for guest bytes here creates
+            // a three-way deadlock. Send an explicit empty opening frame before starting either
+            // relay direction; it carries no guest data and is consumed as sequence zero.
+            await call.RequestStream.WriteAsync(new WorkloadTunnelFrame
+            {
+                SatelliteOfficeId = state.SatelliteOfficeId.ToString("D"),
+                AssignmentId = assignment.AssignmentId,
+                FencingEpoch = assignment.FencingEpoch,
+                SessionEpoch = state.SessionEpoch,
+                Sequence = 0,
+                Content = Google.Protobuf.ByteString.Empty,
+                Completed = false
+            }, cancellationToken);
+
             var upload = Task.Run(async () =>
             {
                 var buffer = new byte[64 * 1024];
-                long sequence = 0;
+                long sequence = 1;
                 while (true)
                 {
                     var read = await guest.ReadAsync(buffer, lifetime.Token);
@@ -508,6 +596,48 @@ public sealed class SatelliteOfficeWorker(
                 ?? throw new InvalidDataException("The builder workload specification is empty.")
             : JsonSerializer.Deserialize<RuntimeWorkloadSpecification>(json, options)
                 ?? throw new InvalidDataException("The runtime workload specification is empty.");
+    }
+
+    internal static (string FailureCode, string SanitizedFailure) DescribeExecutionFailure(
+        Exception exception)
+    {
+        if (exception is IsolationUnavailableException)
+            return ("isolation-provider-unavailable", SanitizeFailureDetail(exception.Message));
+
+        if (exception is RpcException rpc)
+        {
+            return rpc.StatusCode switch
+            {
+                StatusCode.FailedPrecondition => (
+                    "headquarters-broker-rejected",
+                    "Headquarters rejected the authenticated guest broker session: " +
+                    SanitizeFailureDetail(rpc.Status.Detail)),
+                StatusCode.PermissionDenied or StatusCode.Unauthenticated => (
+                    "headquarters-authorization-rejected",
+                    "Headquarters rejected the Satellite Office authorization."),
+                StatusCode.Unavailable or StatusCode.DeadlineExceeded => (
+                    "headquarters-unavailable",
+                    "The secure connection to Headquarters was unavailable while the workload was running."),
+                _ => (
+                    "headquarters-rpc-error",
+                    $"The secure Headquarters connection failed ({rpc.StatusCode}).")
+            };
+        }
+
+        return ("satellite-office-error",
+            $"The Satellite Office could not execute the workload ({exception.GetType().Name}). " +
+            "Review the Satellite Office Node service log using the assignment identifier.");
+    }
+
+    private static string SanitizeFailureDetail(string value)
+    {
+        var sanitized = new string(value
+            .Where(character => !char.IsControl(character) || character is '\r' or '\n' or '\t')
+            .Take(1500)
+            .ToArray());
+        return string.IsNullOrWhiteSpace(sanitized)
+            ? "No additional detail was provided."
+            : sanitized;
     }
 
     private static Task SendStatusAsync(
@@ -573,22 +703,50 @@ public sealed class SatelliteOfficeWorker(
     private static void ValidateAssignment(
         WorkloadAssignment assignment,
         Guid nodeId,
-        ECDsa? verificationKey,
-        string? keyId)
+        ECDsa verificationKey,
+        string keyId)
     {
-        if (verificationKey is null || !string.Equals(keyId, assignment.SignatureKeyId, StringComparison.Ordinal) ||
-            !Guid.TryParse(assignment.AssignmentId, out var assignmentId))
+        if (assignment.AuthorizationVersion != AssignmentEnvelope.CurrentAuthorizationVersion ||
+            !string.Equals(keyId, assignment.SignatureKeyId, StringComparison.Ordinal) ||
+            !Guid.TryParse(assignment.AssignmentId, out var assignmentId) ||
+            !Guid.TryParse(assignment.WorkloadId, out var workloadId) ||
+            assignmentId == Guid.Empty || workloadId == Guid.Empty || assignment.FencingEpoch < 1 ||
+            string.IsNullOrWhiteSpace(assignment.ProviderId))
             throw new InvalidDataException("The assignment signing identity is unavailable.");
+        var issuedAt = DateTimeOffset.FromUnixTimeSeconds(assignment.IssuedAtUnixSeconds);
         var expiresAt = DateTimeOffset.FromUnixTimeSeconds(assignment.LeaseExpiresAtUnixSeconds);
-        if (expiresAt <= DateTimeOffset.UtcNow ||
-            !string.Equals(AssignmentEnvelope.Digest(assignment.SpecificationJson),
-                assignment.SpecificationSha256, StringComparison.Ordinal) ||
-            !verificationKey.VerifyData(
-                AssignmentEnvelope.Payload(nodeId, assignmentId, assignment.FencingEpoch,
-                    assignment.SpecificationSha256, expiresAt, assignment.ArtifactReadToken),
+        if (issuedAt > DateTimeOffset.UtcNow.AddMinutes(2) || expiresAt <= DateTimeOffset.UtcNow ||
+            expiresAt - issuedAt > TimeSpan.FromMinutes(10))
+            throw new InvalidDataException(
+                $"Assignment {assignmentId:D} epoch {assignment.FencingEpoch} is outside its authorization lifetime.");
+        var expectedDigest = AssignmentEnvelope.Digest(assignment.SpecificationJson);
+        if (!string.Equals(expectedDigest, assignment.SpecificationSha256, StringComparison.Ordinal))
+            throw new InvalidDataException(
+                $"Assignment {assignmentId:D} epoch {assignment.FencingEpoch} has a specification digest mismatch " +
+                $"(expected {expectedDigest}, received {assignment.SpecificationSha256}).");
+        if (!verificationKey.VerifyData(
+                AssignmentEnvelope.Payload(nodeId, assignmentId, workloadId, assignment.FencingEpoch,
+                    assignment.ProviderId, assignment.SpecificationSha256, issuedAt, expiresAt),
                 assignment.Signature.Span, HashAlgorithmName.SHA256))
-            throw new InvalidDataException("The assignment envelope signature or digest is invalid.");
+            throw new InvalidDataException(
+                $"Assignment {assignmentId:D} epoch {assignment.FencingEpoch} has an invalid signature for key {keyId}.");
     }
+
+    private static CSweet.SatelliteOffice.Runtime.Abstractions.SignedWorkloadAuthorization ToAuthorization(
+        SatelliteOfficeState state,
+        WorkloadAssignment assignment) => new(
+            assignment.AuthorizationVersion,
+            state.SatelliteOfficeId,
+            Guid.Parse(assignment.AssignmentId),
+            Guid.Parse(assignment.WorkloadId),
+            assignment.FencingEpoch,
+            assignment.ProviderId,
+            assignment.SpecificationJson,
+            assignment.SpecificationSha256,
+            assignment.SignatureKeyId,
+            assignment.Signature.ToByteArray(),
+            DateTimeOffset.FromUnixTimeSeconds(assignment.IssuedAtUnixSeconds),
+            DateTimeOffset.FromUnixTimeSeconds(assignment.LeaseExpiresAtUnixSeconds));
 
     private static string Normalize(string value) =>
         new(value.Where(Uri.IsHexDigit).Select(char.ToUpperInvariant).ToArray());

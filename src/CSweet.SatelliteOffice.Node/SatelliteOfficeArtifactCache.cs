@@ -48,33 +48,8 @@ public sealed class SatelliteOfficeArtifactCache : IAgentArtifactStore
                         ArtifactReadToken = assignment.ArtifactReadToken,
                         TransferId = transferId
                     }, cancellationToken: cancellationToken);
-                    await using var output = new FileStream(
-                        temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                        64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.WriteThrough);
-                    long expectedOffset = 0;
-                    string? completedDigest = null;
-                    await foreach (var chunk in call.ResponseStream.ReadAllAsync(cancellationToken))
-                    {
-                        if (chunk.Offset != expectedOffset || chunk.Content.Length > 64 * 1024)
-                            throw new InvalidDataException("The artifact transfer sequence is invalid.");
-                        if (chunk.Content.Length > 0)
-                        {
-                            await output.WriteAsync(chunk.Content.Memory, cancellationToken);
-                            expectedOffset += chunk.Content.Length;
-                        }
-                        if (expectedOffset > 2L * 1024 * 1024 * 1024)
-                            throw new InvalidDataException("The artifact transfer exceeded the cache limit.");
-                        if (chunk.Completed)
-                        {
-                            if (chunk.TotalSize != expectedOffset) throw new InvalidDataException("The artifact size did not match.");
-                            completedDigest = chunk.Sha256;
-                        }
-                    }
-                    await output.FlushAsync(cancellationToken);
-                    if (!string.Equals(completedDigest, digest, StringComparison.Ordinal) ||
-                        !await VerifyAsync(temporary, digest, cancellationToken))
-                        throw new InvalidDataException("The downloaded artifact failed SHA-256 verification.");
-                    File.Move(temporary, path, overwrite: true);
+                    await DownloadAndCommitAsync(
+                        call.ResponseStream.ReadAllAsync(cancellationToken), temporary, path, digest, cancellationToken);
                     break;
                 }
                 catch (RpcException exception) when (attempt < 3 &&
@@ -89,6 +64,48 @@ public sealed class SatelliteOfficeArtifactCache : IAgentArtifactStore
             }
         }
         await _media.EnsureReadOnlyMediaAsync(digest, cancellationToken);
+    }
+
+    internal static async Task DownloadAndCommitAsync(
+        IAsyncEnumerable<ArtifactChunk> chunks,
+        string temporary,
+        string destination,
+        string digest,
+        CancellationToken cancellationToken)
+    {
+        long expectedOffset = 0;
+        string? completedDigest = null;
+        await using (var output = new FileStream(
+            temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+            64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.WriteThrough))
+        {
+            await foreach (var chunk in chunks.WithCancellation(cancellationToken))
+            {
+                if (chunk.Offset != expectedOffset || chunk.Content.Length > 64 * 1024)
+                    throw new InvalidDataException("The artifact transfer sequence is invalid.");
+                if (chunk.Content.Length > 0)
+                {
+                    await output.WriteAsync(chunk.Content.Memory, cancellationToken);
+                    expectedOffset += chunk.Content.Length;
+                }
+                if (expectedOffset > 2L * 1024 * 1024 * 1024)
+                    throw new InvalidDataException("The artifact transfer exceeded the cache limit.");
+                if (chunk.Completed)
+                {
+                    if (chunk.TotalSize != expectedOffset)
+                        throw new InvalidDataException("The artifact size did not match.");
+                    completedDigest = chunk.Sha256;
+                }
+            }
+            await output.FlushAsync(cancellationToken);
+        }
+
+        // FileShare.None protects an in-progress transfer. Dispose the writer before reopening
+        // the file for verification; otherwise every valid download fails before provider start.
+        if (!string.Equals(completedDigest, digest, StringComparison.Ordinal) ||
+            !await VerifyAsync(temporary, digest, cancellationToken))
+            throw new InvalidDataException("The downloaded artifact failed SHA-256 verification.");
+        File.Move(temporary, destination, overwrite: true);
     }
 
     public Task<bool> ExistsAsync(string digest, CancellationToken cancellationToken = default) =>

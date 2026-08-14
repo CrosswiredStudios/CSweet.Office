@@ -41,12 +41,8 @@ authentication.LoadSharedKeyFileIfNeeded(Path.Combine(
     "CSweet", "SatelliteOffice", "runtime-host.key"));
 builder.Services.AddSingleton(authentication);
 builder.Services.AddSingleton<RuntimeHostRequestAuthenticator>();
-builder.Services.AddSingleton<IAgentIsolationProvider>(services => CreateClient(
-    IsolationProviderCatalog.HyperV(), services));
-builder.Services.AddSingleton<IAgentIsolationProvider>(services => CreateClient(
-    IsolationProviderCatalog.Firecracker(), services));
-builder.Services.AddSingleton<IAgentIsolationProvider>(services => CreateClient(
-    IsolationProviderCatalog.AppleVirtualization(), services));
+var hostProvider = HostPlatformProvider.Resolve();
+builder.Services.AddSingleton<IAgentIsolationProvider>(services => CreateClient(hostProvider, services));
 
 await builder.Build().RunAsync();
 

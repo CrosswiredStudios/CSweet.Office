@@ -63,7 +63,7 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
     {
         if (!IsHostPlatform(out var platformReason)) return Unavailable(platformReason);
         if (!TryResolveFile(_options.HelperExecutablePath, out var helper))
-            return Unavailable("The privileged platform helper is not installed at its configured absolute path.");
+            return Unavailable("The privileged platform helper is missing or is not readable by the RuntimeHost service identity.");
         if (!IsSha256(_options.HelperExecutableDigest) ||
             !await VerifyFileDigestAsync(helper, _options.HelperExecutableDigest, cancellationToken))
             return Unavailable("The privileged platform helper does not match its immutable package digest.");
@@ -213,7 +213,7 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
     private async Task<PlatformHelperResponse> InvokeAsync(string operation, PlatformHelperRequest? request, CancellationToken cancellationToken)
     {
         if (!TryResolveFile(_options.HelperExecutablePath, out var helper))
-            throw new IOException("The configured platform helper is unavailable.");
+            throw new IOException("The configured platform helper is missing or inaccessible to RuntimeHost.");
         if (!IsSha256(_options.HelperExecutableDigest) ||
             !await VerifyFileDigestAsync(helper, _options.HelperExecutableDigest, cancellationToken))
             throw new IOException("The configured platform helper failed its integrity check.");
@@ -370,7 +370,9 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
         new(value.Where(Uri.IsHexDigit).Select(char.ToUpperInvariant).ToArray());
     private static void EnsureSuccess(PlatformHelperResponse response)
     {
-        if (!response.Success) throw new InvalidOperationException($"Platform helper rejected the operation ({Sanitize(response.ErrorCode)}).");
+        if (!response.Success) throw new IsolationUnavailableException(
+            $"Platform helper rejected the operation ({Sanitize(response.ErrorCode)}): " +
+            $"{Sanitize(response.SanitizedError)}");
     }
     private static string Sanitize(string? value) => string.IsNullOrWhiteSpace(value) ? "unspecified" : new string(value.Where(character => !char.IsControl(character)).Take(256).ToArray());
     private static void TryKill(Process process) { try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } }

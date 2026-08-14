@@ -37,6 +37,10 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
             return Failure("broker-transport-unavailable", "The C-Sweet Hyper-V socket service is not registered.");
         try
         {
+            // The helper runs as the RuntimeHost service identity. Asking Hyper-V for
+            // its host state is the authoritative effective-access check. A local-group
+            // membership pre-check is both weaker and unreliable for Windows virtual
+            // service accounts, where WindowsPrincipal.IsInRole can throw AccessDenied.
             await PowerShellHyperV.RunAsync(
                 "Import-Module Hyper-V -ErrorAction Stop; $null = Get-Command New-VM -ErrorAction Stop; $null = Get-VMHost -ErrorAction Stop");
             return Success();
@@ -89,6 +93,17 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
             Directory.CreateDirectory(instanceDirectory);
             var osDisk = Path.Combine(instanceDirectory, "os-diff.vhdx");
             var scratchDisk = Path.Combine(instanceDirectory, "scratch.vhdx");
+            string? attachedArtifactImage = null;
+            if (artifactImage is not null && workload is RuntimeWorkloadSpecification runtimeWorkload)
+            {
+                attachedArtifactImage = Path.Combine(instanceDirectory, "artifact.iso");
+                File.Copy(artifactImage, attachedArtifactImage, overwrite: false);
+                if (!await SingleFileIso9660.VerifyArtifactDigestAsync(
+                        attachedArtifactImage, runtimeWorkload.Artifact.Digest))
+                    throw new HyperVCommandException(
+                        "invalid-artifact-media",
+                        "The private runtime artifact copy failed integrity validation.");
+            }
             await PowerShellHyperV.ConfigureAsync(
                 vmName,
                 guestImage,
@@ -98,7 +113,7 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
                 workload.ResourceLimits.CpuPercent,
                 workload.ResourceLimits.MemoryMegabytes,
                 workload.ResourceLimits.WritableDiskMegabytes,
-                artifactImage);
+                attachedArtifactImage);
             var metadata = new HyperVInstanceMetadata(
                 instanceId, workload.WorkloadId, workload.Kind, vmName,
                 DateTimeOffset.UtcNow, null, null, workload.BrokerLease.ExpiresAt);

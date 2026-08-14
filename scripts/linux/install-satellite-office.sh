@@ -2,20 +2,27 @@
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then echo "Run this installer as root." >&2; exit 1; fi
-if [ "$#" -lt 2 ]; then echo "usage: $0 PACKAGE_ROOT https://control-plane [--enrollment-token-file PATH] [--result-job-id ID]" >&2; exit 2; fi
+if [ "$#" -lt 2 ]; then echo "usage: $0 PACKAGE_ROOT https://control-plane [--enrollment-token-file PATH] [--result-job-id ID] [--security-profile baseline|hardened|development] [--dedicated-host] [--allow-development-assignments]" >&2; exit 2; fi
 package_root=$(readlink -f "$1")
 control_plane=$2
 shift 2
 token_file=
 result_job_id=
 result_file=
+security_profile=baseline
+mixed_use=true
+allow_development=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --enrollment-token-file) [ "$#" -ge 2 ] || exit 2; token_file=$2; shift 2 ;;
     --result-job-id) [ "$#" -ge 2 ] || exit 2; result_job_id=$2; shift 2 ;;
+    --security-profile) [ "$#" -ge 2 ] || exit 2; security_profile=$2; shift 2 ;;
+    --dedicated-host) mixed_use=false; shift ;;
+    --allow-development-assignments) allow_development=true; shift ;;
     *) echo "Unknown installer option: $1" >&2; exit 2 ;;
   esac
 done
+case "$security_profile" in baseline|hardened) ;; development) [ "$allow_development" = true ] || { echo "Development posture requires --allow-development-assignments." >&2; exit 2; }; echo "WARNING: development posture is for disposable test data and credentials only." >&2 ;; *) echo "Invalid security profile." >&2; exit 2;; esac
 if [ -n "$result_job_id" ]; then
   case "$result_job_id" in *[!0-9a-f]*|'') echo "The installer result job ID is invalid." >&2; exit 2;; esac
   [ "${#result_job_id}" -eq 32 ] || { echo "The installer result job ID is invalid." >&2; exit 2; }
@@ -83,6 +90,8 @@ id csweet-node >/dev/null 2>&1 || useradd --system --home /var/lib/csweet/satell
 id csweet-vm >/dev/null 2>&1 || useradd --system --home /nonexistent --shell /usr/sbin/nologin csweet-vm
 getent group csweet-runtime >/dev/null 2>&1 || groupadd --system csweet-runtime
 usermod -a -G csweet-runtime csweet-node
+install -d -o csweet-node -g csweet-node -m 0700 /var/lib/csweet/satellite-office/node
+install -d -o root -g root -m 0700 /var/lib/csweet/satellite-office/authorization
 vm_uid=$(id -u csweet-vm)
 vm_gid=$(id -g csweet-vm)
 install -d -o csweet-node -g csweet-runtime -m 0770 /var/lib/csweet/artifact-media
@@ -92,17 +101,26 @@ if [ ! -f /var/lib/csweet/satellite-office/runtime-host.key ]; then
 fi
 chown root:csweet-runtime /var/lib/csweet/satellite-office/runtime-host.key
 chmod 0640 /var/lib/csweet/satellite-office/runtime-host.key
-install -o csweet-node -g csweet-node -m 0600 /dev/null /var/lib/csweet/satellite-office/enrollment.secret
-printf '%s' "$token" > /var/lib/csweet/satellite-office/enrollment.secret
+/opt/csweet/satellite-office/CSweet.SatelliteOffice.Node \
+  --initialize-headquarters-assignment-trust "$control_plane" \
+  /var/lib/csweet/satellite-office/authorization/headquarters-trust.json
+chown root:root /var/lib/csweet/satellite-office/authorization/headquarters-trust.json
+chmod 0600 /var/lib/csweet/satellite-office/authorization/headquarters-trust.json
+install -o csweet-node -g csweet-node -m 0600 /dev/null /var/lib/csweet/satellite-office/node/enrollment.secret
+printf '%s' "$token" > /var/lib/csweet/satellite-office/node/enrollment.secret
 unset token
 cat > /etc/csweet/satellite-office.env <<EOF
 CSweet__SatelliteOffice__Node__ControlPlaneUrl=$control_plane
-CSweet__SatelliteOffice__Node__StateDirectory=/var/lib/csweet/satellite-office
-CSweet__SatelliteOffice__Node__ArtifactCacheDirectory=/var/lib/csweet/satellite-office/artifact-cache
+CSweet__SatelliteOffice__Node__StateDirectory=/var/lib/csweet/satellite-office/node
+CSweet__SatelliteOffice__Node__ArtifactCacheDirectory=/var/lib/csweet/satellite-office/node/artifact-cache
 CSweet__SatelliteOffice__Node__ArtifactMediaDirectory=/var/lib/csweet/artifact-media
-CSweet__SatelliteOffice__Node__EnrollmentTokenFilePath=/var/lib/csweet/satellite-office/enrollment.secret
+CSweet__SatelliteOffice__Node__EnrollmentTokenFilePath=/var/lib/csweet/satellite-office/node/enrollment.secret
+CSweet__SatelliteOffice__Node__SecurityProfile=$security_profile
+CSweet__SatelliteOffice__Node__MixedUseHost=$mixed_use
+CSweet__SatelliteOffice__Node__AllowDevelopmentAssignments=$allow_development
 CSweet__SatelliteOffice__RuntimeHost__UnixSocketPath=/run/csweet/csweet-satellite-office-runtime-v1.sock
 CSweet__SatelliteOffice__RuntimeHost__Authentication__SharedKeyFilePath=/var/lib/csweet/satellite-office/runtime-host.key
+CSweet__SatelliteOffice__RuntimeHost__Authorization__StateDirectory=/var/lib/csweet/satellite-office/authorization
 EOF
 chmod 0600 /etc/csweet/satellite-office.env
 cat > /etc/csweet/runtime-host.env <<EOF

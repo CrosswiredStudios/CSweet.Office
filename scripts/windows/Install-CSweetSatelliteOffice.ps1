@@ -3,6 +3,10 @@ param(
     [Parameter(Mandatory = $true)] [string] $PayloadRoot,
     [Parameter(Mandatory = $true)] [string] $ControlPlaneUrl,
     [string] $ControlPlaneCertificateSha256,
+    [ValidateSet('baseline', 'hardened', 'development')]
+    [string] $SecurityProfile = 'baseline',
+    [bool] $MixedUseHost = $true,
+    [switch] $AllowDevelopmentAssignments,
     [switch] $NonInteractive,
     [switch] $Elevated
 )
@@ -22,6 +26,8 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
         $arguments += @('-ControlPlaneCertificateSha256', ('"' + $ControlPlaneCertificateSha256 + '"'))
     }
     if ($NonInteractive) { $arguments += '-NonInteractive' }
+    $arguments += @('-SecurityProfile', $SecurityProfile, '-MixedUseHost', $MixedUseHost.ToString())
+    if ($AllowDevelopmentAssignments) { $arguments += '-AllowDevelopmentAssignments' }
     $process = Start-Process -FilePath $powershell -Verb RunAs -Wait -PassThru -ArgumentList ($arguments -join ' ')
     if ($process.ExitCode -ne 0) { throw "Execution fleet installation failed with exit code $($process.ExitCode)." }
     return
@@ -37,7 +43,9 @@ try {
     $token = $null
     & (Join-Path $PSScriptRoot 'Install-CSweetSatelliteOfficeRuntimeHost.ps1') -PayloadRoot $PayloadRoot `
         -ControlPlaneUrl $ControlPlaneUrl -ControlPlaneCertificateSha256 $ControlPlaneCertificateSha256 `
-        -EnrollmentTokenInputPath $inputPath -NonInteractive:$NonInteractive
+        -EnrollmentTokenInputPath $inputPath -NonInteractive:$NonInteractive `
+        -SecurityProfile $SecurityProfile -MixedUseHost $MixedUseHost `
+        -AllowDevelopmentAssignments:$AllowDevelopmentAssignments
     if ($LASTEXITCODE -ne 0) { throw 'The execution fleet installer failed.' }
 } finally {
     if (Test-Path -LiteralPath $inputPath) { Remove-Item -LiteralPath $inputPath -Force }

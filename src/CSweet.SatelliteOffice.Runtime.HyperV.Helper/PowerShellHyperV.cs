@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
+using System.Xml.Linq;
 
 namespace CSweet.SatelliteOffice.Runtime.HyperV.Helper;
 
@@ -132,7 +133,8 @@ internal static class PowerShellHyperV
         var windowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         var executable = Path.Combine(windowsDirectory, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
         if (!File.Exists(executable)) throw new HyperVCommandException("powershell-unavailable", "Windows PowerShell is unavailable.");
-        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+        var wrappedScript = "$ProgressPreference='SilentlyContinue';" + script;
+        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(wrappedScript));
         var start = new ProcessStartInfo
         {
             FileName = executable,
@@ -144,6 +146,8 @@ internal static class PowerShellHyperV
         start.ArgumentList.Add("-NoLogo");
         start.ArgumentList.Add("-NoProfile");
         start.ArgumentList.Add("-NonInteractive");
+        start.ArgumentList.Add("-OutputFormat");
+        start.ArgumentList.Add("Text");
         start.ArgumentList.Add("-EncodedCommand");
         start.ArgumentList.Add(encoded);
         if (environment is not null)
@@ -190,9 +194,49 @@ internal static class PowerShellHyperV
         return output.ToString();
     }
 
-    private static string Sanitize(string value) => string.IsNullOrWhiteSpace(value)
-        ? "The Hyper-V command failed."
-        : new(value.Where(character => !char.IsControl(character)).Take(256).ToArray());
+    internal static string Sanitize(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "The Hyper-V command failed.";
+        var decoded = DecodeCliXml(value);
+        var lines = decoded.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(candidate => candidate.Trim())
+            .Where(candidate => candidate.Length > 0 &&
+                !candidate.StartsWith("At line:", StringComparison.OrdinalIgnoreCase) &&
+                !candidate.StartsWith("+", StringComparison.Ordinal) &&
+                !candidate.StartsWith("CategoryInfo", StringComparison.OrdinalIgnoreCase) &&
+                !candidate.StartsWith("FullyQualifiedErrorId", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.Ordinal)
+            .Take(4)
+            .ToArray();
+        if (lines.Length == 0) return "The Hyper-V command failed.";
+        var summary = string.Join(" ", lines);
+        return new string(summary.Where(character => !char.IsControl(character)).Take(1024).ToArray());
+    }
+
+    private static string DecodeCliXml(string value)
+    {
+        var xmlStart = value.IndexOf("<Objs", StringComparison.Ordinal);
+        if (xmlStart < 0) return value;
+        try
+        {
+            var document = XDocument.Parse(value[xmlStart..]);
+            XNamespace ns = "http://schemas.microsoft.com/powershell/2004/04";
+            var errors = document.Descendants(ns + "S")
+                .Where(element => string.Equals((string?)element.Attribute("S"), "Error", StringComparison.Ordinal))
+                .Select(element => DecodePowerShellEscapes(element.Value));
+            var decoded = string.Concat(errors);
+            return string.IsNullOrWhiteSpace(decoded) ? value : decoded;
+        }
+        catch (System.Xml.XmlException)
+        {
+            return value;
+        }
+    }
+
+    private static string DecodePowerShellEscapes(string value) => value
+        .Replace("_x000D__x000A_", Environment.NewLine, StringComparison.Ordinal)
+        .Replace("_x000D_", "\r", StringComparison.Ordinal)
+        .Replace("_x000A_", "\n", StringComparison.Ordinal);
 }
 
 internal sealed class HyperVCommandException(string errorCode, string message) : Exception(message)

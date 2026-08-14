@@ -25,7 +25,15 @@ message RuntimeHostEnvelope {
     LogChunk log_chunk = 21;
     OpenGuestChannelRequest open_guest_channel_request = 22;
     OpenGuestChannelResponse open_guest_channel_response = 23;
+    PinHeadquartersTrustRequest pin_headquarters_trust_request = 24;
+    OperationResponse pin_headquarters_trust_response = 25;
   }
+}
+
+message PinHeadquartersTrustRequest {
+  string satellite_office_id = 1;
+  string assignment_signing_key_id = 2;
+  bytes assignment_verification_public_key = 3;
 }
 
 message OpenGuestChannelRequest {
@@ -66,6 +74,22 @@ message CreateWorkloadRequest {
   BrokerLease broker_lease = 10;
   BuilderSpec builder = 11;
   RuntimeSpec runtime = 12;
+  SignedWorkloadAuthorization authorization = 13;
+}
+
+message SignedWorkloadAuthorization {
+  int32 authorization_version = 1;
+  string satellite_office_id = 2;
+  string assignment_id = 3;
+  string workload_id = 4;
+  int64 fencing_epoch = 5;
+  string provider_id = 6;
+  string specification_json = 7;
+  string specification_sha256 = 8;
+  string signature_key_id = 9;
+  bytes signature = 10;
+  int64 issued_at_unix_seconds = 11;
+  int64 expires_at_unix_seconds = 12;
 }
 
 message ResourceLimits {
