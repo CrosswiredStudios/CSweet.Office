@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CSweet.Office.Node\CSweet.Office.Node.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Office.Runtime.Abstractions\CSweet.Office.Runtime.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Office.Runtime.AppleVirtualization\CSweet.Office.Runtime.AppleVirtualization.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Office.Runtime.Artifacts\CSweet.Office.Runtime.Artifacts.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Office.Runtime.Core\CSweet.Office.Runtime.Core.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Office.Runtime.Firecracker\CSweet.Office.Runtime.Firecracker.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Office.Runtime.Firecracker.Helper\CSweet.Office.Runtime.Firecracker.Helper.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Office.Runtime.HyperV\CSweet.Office.Runtime.HyperV.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Office.Runtime.HyperV.Helper\CSweet.Office.Runtime.HyperV.Helper.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Office.Runtime.LocalRpc\CSweet.Office.Runtime.LocalRpc.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Office.Runtime.Protocol\CSweet.Office.Runtime.Protocol.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Office.RuntimeGuest\CSweet.Office.RuntimeGuest.csproj" />
+  </ItemGroup>
+</Project>

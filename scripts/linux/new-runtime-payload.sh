@@ -49,16 +49,16 @@ build_root=$(mktemp -d)
 trap 'rm -rf -- "$build_root"' EXIT
 mkdir -p "$output_root/firecracker" "$output_root/images" "$output_root/certificates" "$output_root/certification"
 
-dotnet publish "$repository_root/src/CSweet.SatelliteOffice.RuntimeHost/CSweet.SatelliteOffice.RuntimeHost.csproj" -c Release -r "$runtime_id" --self-contained true \
+dotnet publish "$repository_root/src/CSweet.Office.RuntimeHost/CSweet.Office.RuntimeHost.csproj" -c Release -r "$runtime_id" --self-contained true \
   -p:PublishSingleFile=true -p:DebugType=None -o "$build_root/runtime-host"
-dotnet publish "$repository_root/src/CSweet.SatelliteOffice.Node/CSweet.SatelliteOffice.Node.csproj" -c Release -r "$runtime_id" --self-contained true \
-  -p:PublishSingleFile=true -p:DebugType=None -o "$build_root/satellite-office"
-dotnet publish "$repository_root/src/CSweet.SatelliteOffice.Runtime.Firecracker.Helper/CSweet.SatelliteOffice.Runtime.Firecracker.Helper.csproj" \
+dotnet publish "$repository_root/src/CSweet.Office.Node/CSweet.Office.Node.csproj" -c Release -r "$runtime_id" --self-contained true \
+  -p:PublishSingleFile=true -p:DebugType=None -o "$build_root/office"
+dotnet publish "$repository_root/src/CSweet.Office.Runtime.Firecracker.Helper/CSweet.Office.Runtime.Firecracker.Helper.csproj" \
   -c Release -r "$runtime_id" --self-contained true -p:PublishSingleFile=true -p:DebugType=None -o "$build_root/helper"
 
-install -m 0755 "$build_root/runtime-host/CSweet.SatelliteOffice.RuntimeHost" "$output_root/CSweet.SatelliteOffice.RuntimeHost"
-install -m 0755 "$build_root/satellite-office/CSweet.SatelliteOffice.Node" "$output_root/CSweet.SatelliteOffice.Node"
-install -m 0755 "$build_root/helper/CSweet.SatelliteOffice.Runtime.Firecracker.Helper" "$output_root/CSweet.SatelliteOffice.Runtime.Firecracker.Helper"
+install -m 0755 "$build_root/runtime-host/CSweet.Office.RuntimeHost" "$output_root/CSweet.Office.RuntimeHost"
+install -m 0755 "$build_root/office/CSweet.Office.Node" "$output_root/CSweet.Office.Node"
+install -m 0755 "$build_root/helper/CSweet.Office.Runtime.Firecracker.Helper" "$output_root/CSweet.Office.Runtime.Firecracker.Helper"
 install -m 0755 "$firecracker" "$output_root/firecracker/firecracker"
 install -m 0755 "$jailer" "$output_root/firecracker/jailer"
 install -m 0644 "$kernel" "$output_root/firecracker/vmlinux"
@@ -67,10 +67,10 @@ install -m 0644 "$guest" "$output_root/images/csweet-agent-guest.ext4"
 install -m 0644 "$guest_signature" "$output_root/images/csweet-agent-guest.ext4.sig"
 install -m 0644 "$signing_certificate" "$output_root/certificates/guest-image-signing.cer"
 install -m 0644 "$evidence" "$output_root/certification/linux-firecracker.json"
-install -m 0755 "$script_root/install-satellite-office.sh" "$output_root/install-satellite-office.sh"
-install -m 0755 "$script_root/uninstall-satellite-office.sh" "$output_root/uninstall-satellite-office.sh"
-install -m 0644 "$script_root/csweet-satellite-office-runtime.service" "$output_root/csweet-satellite-office-runtime.service"
-install -m 0644 "$script_root/csweet-satellite-office-node.service" "$output_root/csweet-satellite-office-node.service"
+install -m 0755 "$script_root/install-office.sh" "$output_root/install-office.sh"
+install -m 0755 "$script_root/uninstall-office.sh" "$output_root/uninstall-office.sh"
+install -m 0644 "$script_root/csweet-office-runtime.service" "$output_root/csweet-office-runtime.service"
+install -m 0644 "$script_root/csweet-office-node.service" "$output_root/csweet-office-node.service"
 
 files_json="$build_root/files.jsonl"
 while IFS= read -r -d '' file; do
@@ -89,7 +89,7 @@ jq -s \
   --arg certifiedAt "$certified_at" --argjson expiration "$expiration" \
   '{schemaVersion:1,providerId:"firecracker-kvm",providerVersion:$providerVersion,
     hostOperatingSystem:"linux",hostArchitecture:$architecture,
-    helperExecutable:"CSweet.SatelliteOffice.Runtime.Firecracker.Helper",
+    helperExecutable:"CSweet.Office.Runtime.Firecracker.Helper",
     guestImage:"images/csweet-agent-guest.ext4",guestImageDigest:$guestDigest,
     guestImageSignature:"images/csweet-agent-guest.ext4.sig",
     guestImageSigningCertificate:"certificates/guest-image-signing.cer",

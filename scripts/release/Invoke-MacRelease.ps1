@@ -10,7 +10,7 @@ $arguments = @($payload, $rid, $env:CSWEET_APPLE_SIGNING_IDENTITY, $env:CSWEET_G
     [DateTimeOffset]::UtcNow.ToString('O'), $env:CSWEET_CERTIFICATION_VALID_UNTIL)
 & bash (Join-Path $root 'scripts\macos\new-runtime-payload.sh') @arguments
 if ($LASTEXITCODE -ne 0) { throw 'macOS payload creation failed.' }
-$package = Join-Path $Output "csweet-satellite-office-$Version-macos-$Architecture.pkg"
+$package = Join-Path $Output "csweet-office-$Version-macos-$Architecture.pkg"
 & bash (Join-Path $root 'scripts\macos\new-installer-package.sh') $payload $package $Version `
     $env:CSWEET_APPLE_INSTALLER_SIGNING_IDENTITY $env:CSWEET_APPLE_NOTARY_PROFILE
 if ($LASTEXITCODE -ne 0) { throw 'macOS package creation failed.' }

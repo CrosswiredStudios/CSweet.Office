@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.Office.Runtime.Abstractions\CSweet.Office.Runtime.Abstractions.csproj" />
+    <ProjectReference Include="..\CSweet.Office.Runtime.AppleVirtualization\CSweet.Office.Runtime.AppleVirtualization.csproj" />
+    <ProjectReference Include="..\CSweet.Office.Runtime.Firecracker\CSweet.Office.Runtime.Firecracker.csproj" />
+    <ProjectReference Include="..\CSweet.Office.Runtime.HyperV\CSweet.Office.Runtime.HyperV.csproj" />
+    <ProjectReference Include="..\CSweet.Office.Runtime.LocalRpc\CSweet.Office.Runtime.LocalRpc.csproj" />
+    <ProjectReference Include="..\CSweet.Office.Runtime.Protocol\CSweet.Office.Runtime.Protocol.csproj" />
+  </ItemGroup>
+</Project>

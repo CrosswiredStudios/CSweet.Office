@@ -142,18 +142,18 @@ if (-not (Test-Path -LiteralPath $packer -PathType Leaf)) {
 Write-Host 'Publishing the self-contained Linux guest broker...'
 Report-GuestProgress 'publish-guest' 'Publishing the guest broker' `
     'C-Sweet is compiling the broker that runs inside the isolated guest.' 16 1080 2400
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.SatelliteOffice.RuntimeGuest\CSweet.SatelliteOffice.RuntimeGuest.csproj') `
+dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.RuntimeGuest\CSweet.Office.RuntimeGuest.csproj') `
     -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true -o $guestPublish
 if ($LASTEXITCODE -ne 0) { throw 'The Linux guest broker publish failed.' }
-if (-not (Test-Path -LiteralPath (Join-Path $guestPublish 'CSweet.SatelliteOffice.RuntimeGuest') -PathType Leaf)) {
+if (-not (Test-Path -LiteralPath (Join-Path $guestPublish 'CSweet.Office.RuntimeGuest') -PathType Leaf)) {
     throw 'The published Linux guest executable was not produced.'
 }
 Write-Host 'Publishing the self-contained Linux agent builder...'
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.SatelliteOffice.BuilderGuest\CSweet.SatelliteOffice.BuilderGuest.csproj') `
+dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.BuilderGuest\CSweet.Office.BuilderGuest.csproj') `
     -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true -o $builderPublish
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $builderPublish 'CSweet.SatelliteOffice.BuilderGuest') -PathType Leaf)) {
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $builderPublish 'CSweet.Office.BuilderGuest') -PathType Leaf)) {
     throw 'The Linux agent builder publish failed.'
 }
 

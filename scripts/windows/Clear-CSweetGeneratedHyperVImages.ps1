@@ -225,14 +225,14 @@ $orphanedAttachedImages = @(foreach ($root in $staleRoots) {
         }
 })
 if ($registeredVms.Count -eq 0 -and $orphanedAttachedImages.Count -gt 0) {
-    $runtimeService = Get-Service -Name 'CSweet.SatelliteOffice.RuntimeHost' -ErrorAction SilentlyContinue
+    $runtimeService = Get-Service -Name 'CSweet.Office.RuntimeHost' -ErrorAction SilentlyContinue
     $restartRuntime = $null -ne $runtimeService -and $runtimeService.Status -eq 'Running'
     try {
-        if ($restartRuntime) { Stop-Service -Name 'CSweet.SatelliteOffice.RuntimeHost' -Force }
+        if ($restartRuntime) { Stop-Service -Name 'CSweet.Office.RuntimeHost' -Force }
         Restart-Service -Name 'vmms' -Force
     }
     finally {
-        if ($restartRuntime) { Start-Service -Name 'CSweet.SatelliteOffice.RuntimeHost' }
+        if ($restartRuntime) { Start-Service -Name 'CSweet.Office.RuntimeHost' }
     }
 }
 
@@ -314,5 +314,5 @@ $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($RepositoryRoot))
     restartRequired = $scheduledImages.Count -gt 0
     preservedCurrentSourceImage = $currentImagePrefix
     freeSpaceGb = [Math]::Round($drive.AvailableFreeSpace / 1GB, 2)
-    installedRuntimePreserved = (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'CSweet\SatelliteOffice'))
+    installedRuntimePreserved = (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'CSweet\Office'))
 } | ConvertTo-Json -Compress

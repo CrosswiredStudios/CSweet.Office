@@ -5,10 +5,9 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <VersionPrefix>1.0.3</VersionPrefix>
-    <VersionSuffix Condition="'$(VersionSuffix)' == ''">rc.1</VersionSuffix>
-    <CSweetSatelliteOfficeContractsRepositoryRoot Condition="'$(CSweetSatelliteOfficeContractsRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.SatelliteOffice.Contracts</CSweetSatelliteOfficeContractsRepositoryRoot>
-    <UseLocalSatelliteOfficeContracts Condition="'$(UseLocalSatelliteOfficeContracts)' == '' and Exists('$(CSweetSatelliteOfficeContractsRepositoryRoot)\src\CSweet.SatelliteOffice.Contracts\CSweet.SatelliteOffice.Contracts.csproj')">true</UseLocalSatelliteOfficeContracts>
-    <UseLocalSatelliteOfficeContracts Condition="'$(UseLocalSatelliteOfficeContracts)' == ''">false</UseLocalSatelliteOfficeContracts>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <CSweetOfficeContractsRepositoryRoot Condition="'$(CSweetOfficeContractsRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.Office.Contracts</CSweetOfficeContractsRepositoryRoot>
+    <UseLocalOfficeContracts Condition="'$(UseLocalOfficeContracts)' == '' and Exists('$(CSweetOfficeContractsRepositoryRoot)\src\CSweet.Office.Contracts\CSweet.Office.Contracts.csproj')">true</UseLocalOfficeContracts>
+    <UseLocalOfficeContracts Condition="'$(UseLocalOfficeContracts)' == ''">false</UseLocalOfficeContracts>
   </PropertyGroup>
 </Project>

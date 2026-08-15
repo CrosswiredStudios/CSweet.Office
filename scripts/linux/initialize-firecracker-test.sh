@@ -77,9 +77,9 @@ echo "Building the immutable Firecracker guest filesystem..."
 helper_publish="$run_root/helper"
 smoke_publish="$run_root/smoke-runner"
 mkdir -p "$helper_publish" "$smoke_publish" "$smoke_root" "$smoke_root/package"
-dotnet publish "$repository_root/src/CSweet.SatelliteOffice.Runtime.Firecracker.Helper/CSweet.SatelliteOffice.Runtime.Firecracker.Helper.csproj" \
+dotnet publish "$repository_root/src/CSweet.Office.Runtime.Firecracker.Helper/CSweet.Office.Runtime.Firecracker.Helper.csproj" \
   -c Release -r "$runtime_id" --self-contained true -p:PublishSingleFile=true -p:DebugType=None -o "$helper_publish"
-dotnet publish "$repository_root/src/CSweet.SatelliteOffice.WindowsSmokeTest/CSweet.SatelliteOffice.WindowsSmokeTest.csproj" \
+dotnet publish "$repository_root/src/CSweet.Office.WindowsSmokeTest/CSweet.Office.WindowsSmokeTest.csproj" \
   -c Release -r "$runtime_id" --self-contained true -p:PublishSingleFile=true -p:DebugType=None -o "$smoke_publish"
 install -m 0755 "$tools_root/firecracker" "$smoke_root/package/firecracker"
 install -m 0755 "$tools_root/jailer" "$smoke_root/package/jailer"
@@ -100,11 +100,11 @@ done
 
 evidence_path="$run_root/linux-firecracker.json"
 echo "Running real no-network runtime and builder certification VMs..."
-"$smoke_publish/CSweet.SatelliteOffice.WindowsSmokeTest" \
+"$smoke_publish/CSweet.Office.WindowsSmokeTest" \
   --provider firecracker \
-  --helper "$helper_publish/CSweet.SatelliteOffice.Runtime.Firecracker.Helper" \
+  --helper "$helper_publish/CSweet.Office.Runtime.Firecracker.Helper" \
   --guest-image "$guest_root/csweet-agent-guest.ext4" \
-  --probe "$guest_root/CSweet.SatelliteOffice.GuestProbe" \
+  --probe "$guest_root/CSweet.Office.GuestProbe" \
   --output-root "$smoke_root/output" \
   --evidence "$evidence_path"
 jq -e '.checks | length > 0 and all(.[]; . == true)' "$evidence_path" >/dev/null || {
@@ -133,8 +133,8 @@ expires_at=$(jq -r '.certificationExpiresAt // empty' "$evidence_path")
   "$suite_version" "$certified_at" "$expires_at"
 
 if [[ $skip_install == false ]]; then
-  echo "Installing RuntimeHost and SatelliteOffice. Enter the one-use enrollment token when prompted."
-  "$script_root/install-satellite-office.sh" "$payload_root" "$control_plane_url"
+  echo "Installing RuntimeHost and Office. Enter the one-use enrollment token when prompted."
+  "$script_root/install-office.sh" "$payload_root" "$control_plane_url"
 fi
 
 echo "Firecracker development certification completed."

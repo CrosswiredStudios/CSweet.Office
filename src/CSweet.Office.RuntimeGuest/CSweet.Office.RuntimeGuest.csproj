@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Minimal in-guest C-Sweet broker service and workload supervisor.</Description>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.Office.Runtime.Protocol\CSweet.Office.Runtime.Protocol.csproj" />
+  </ItemGroup>
+
+  <ItemGroup><InternalsVisibleTo Include="CSweet.Office.Tests" /></ItemGroup>
+</Project>
