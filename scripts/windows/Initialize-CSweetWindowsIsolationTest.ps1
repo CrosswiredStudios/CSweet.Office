@@ -6,6 +6,7 @@ param(
     [switch] $NoElevation,
     [string] $ControlPlaneUserSid,
     [string] $ControlPlaneUrl,
+    [string] $ControlPlaneCertificateSha256,
     [string] $EnrollmentTokenInputPath,
     [string] $ProgressPath,
     [guid] $ProgressJobId = [guid]::Empty
@@ -69,6 +70,15 @@ if (-not (Test-Administrator)) {
         '-ProgressJobId', (Quote-ProcessArgument $ProgressJobId.ToString('D')), '-NoElevation')
     if ($RebuildGuest) { $arguments += '-RebuildGuest' }
     if ($SkipInstall) { $arguments += '-SkipInstall' }
+    if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl)) {
+        $arguments += @('-ControlPlaneUrl', (Quote-ProcessArgument $ControlPlaneUrl))
+    }
+    if (-not [String]::IsNullOrWhiteSpace($ControlPlaneCertificateSha256)) {
+        $arguments += @('-ControlPlaneCertificateSha256', (Quote-ProcessArgument $ControlPlaneCertificateSha256))
+    }
+    if (-not [String]::IsNullOrWhiteSpace($EnrollmentTokenInputPath)) {
+        $arguments += @('-EnrollmentTokenInputPath', (Quote-ProcessArgument $EnrollmentTokenInputPath))
+    }
     $process = Start-Process -FilePath $hostExecutable -Verb RunAs -Wait -PassThru -ArgumentList ($arguments -join ' ')
     if ($process.ExitCode -ne 0) { throw "The elevated Windows isolation test exited with code $($process.ExitCode)." }
     return
@@ -295,7 +305,8 @@ if (-not $SkipInstall) {
     & (Join-Path $PSScriptRoot 'Install-CSweetOfficeRuntimeHost.ps1') -PayloadRoot $payloadRoot `
         -ControlPlaneUserSid $ControlPlaneUserSid -ProgressPath $ProgressPath -ProgressJobId $ProgressJobId `
         -ProgressWorkflow $progressWorkflow -ControlPlaneUrl $ControlPlaneUrl `
-        -EnrollmentTokenInputPath $EnrollmentTokenInputPath
+        -ControlPlaneCertificateSha256 $ControlPlaneCertificateSha256 `
+        -EnrollmentTokenInputPath $EnrollmentTokenInputPath -NonInteractive
     if ($LASTEXITCODE -ne 0) { throw 'The Windows RuntimeHost installation failed.' }
 }
 

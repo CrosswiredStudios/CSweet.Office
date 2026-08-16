@@ -295,6 +295,17 @@ public sealed class WindowsHyperVOnboardingTests
     }
 
     [Fact]
+    public void AssistedWindowsBootstrapPinsCertificateAndNeverPrompts()
+    {
+        var bootstrap = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "scripts", "windows", "Initialize-CSweetWindowsIsolationTest.ps1"));
+
+        Assert.Contains("[string] $ControlPlaneCertificateSha256", bootstrap, StringComparison.Ordinal);
+        Assert.Contains("-ControlPlaneCertificateSha256 $ControlPlaneCertificateSha256", bootstrap, StringComparison.Ordinal);
+        Assert.Contains("-EnrollmentTokenInputPath $EnrollmentTokenInputPath -NonInteractive", bootstrap, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RuntimeHostInstaller_SkipsAlreadyInstalledContentByDigest()
     {
         var installer = File.ReadAllText(Path.Combine(

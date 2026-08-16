@@ -26,6 +26,7 @@ public sealed class RuntimeHostProtocolMapperTests
         Assert.Equal(expected.BrokerLease.ExpectedArtifactDigest, actual.BrokerLease.ExpectedArtifactDigest);
         Assert.Equal(expected.BrokerLease.ExpiresAt.ToUnixTimeSeconds(), actual.BrokerLease.ExpiresAt.ToUnixTimeSeconds());
         Assert.Equal(expected.Artifact, actual.Artifact);
+        Assert.Equal(expected.Identity, actual.Identity);
         Assert.Equal(expected.Entrypoint, actual.Entrypoint);
     }
 
@@ -62,7 +63,12 @@ public sealed class RuntimeHostProtocolMapperTests
             Limits(),
             Lease(id, ArtifactDigest),
             new AgentArtifactReference(ArtifactDigest, "signature", "1.0", "linux", "x64"),
-            new RuntimeAgentIdentity(Guid.NewGuid(), Guid.NewGuid().ToString("D"), Guid.NewGuid()),
+            new RuntimeAgentIdentity(
+                Guid.NewGuid(),
+                Guid.NewGuid().ToString("D"),
+                Guid.NewGuid(),
+                "Ada Lovelace",
+                "Software Developer"),
             ["/app/agent"]);
     }
 

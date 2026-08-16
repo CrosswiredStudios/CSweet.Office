@@ -197,7 +197,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Packer plugin initialization failed.' }
 Write-Host 'Building the hardened Generation 2 Hyper-V guest.'
 Write-Host "Packer will show 'Waiting for SSH to become available' while Ubuntu installs. That line normally remains unchanged for 10-30 minutes."
 Report-GuestProgress 'build-guest' 'Building the hardened guest image' `
-    'Ubuntu is installing from verified local media into a Secure Boot-enabled VM. The build console may remain on Waiting for SSH for 10-30 minutes.' 24 600 2100
+    'Ubuntu is installing from verified local media into a Secure Boot-enabled VM. This usually takes 10-30 minutes.' 24 600 2100
 $heartbeatJob = Start-GuestBuildHeartbeat
 $packerExitCode = -1
 try {

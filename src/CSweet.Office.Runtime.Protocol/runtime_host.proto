@@ -130,6 +130,8 @@ message RuntimeSpec {
   string installation_id = 7;
   string business_id = 8;
   string tick_id = 9;
+  string agent_display_name = 10;
+  string agent_role_name = 11;
 }
 
 message WorkloadOperationRequest {

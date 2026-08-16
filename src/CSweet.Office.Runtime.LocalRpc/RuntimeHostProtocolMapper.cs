@@ -88,7 +88,9 @@ public static class RuntimeHostProtocolMapper
                     ArtifactArchitecture = Required(runtime.Artifact.Architecture, nameof(runtime.Artifact.Architecture), 50),
                     InstallationId = runtime.Identity.InstallationId.ToString("D"),
                     BusinessId = Required(runtime.Identity.BusinessId, nameof(runtime.Identity.BusinessId), 200),
-                    TickId = runtime.Identity.TickId.ToString("D")
+                    TickId = runtime.Identity.TickId.ToString("D"),
+                    AgentDisplayName = Optional(runtime.Identity.AgentDisplayName, nameof(runtime.Identity.AgentDisplayName), 160) ?? string.Empty,
+                    AgentRoleName = Optional(runtime.Identity.AgentRoleName, nameof(runtime.Identity.AgentRoleName), 160) ?? string.Empty
                 };
                 request.Runtime.Entrypoint.Add(runtime.Entrypoint);
                 break;
@@ -181,7 +183,9 @@ public static class RuntimeHostProtocolMapper
         var identity = new W.RuntimeAgentIdentity(
             installationId,
             Required(runtime.BusinessId, nameof(runtime.BusinessId), 200),
-            tickId);
+            tickId,
+            Optional(runtime.AgentDisplayName, nameof(runtime.AgentDisplayName), 160),
+            Optional(runtime.AgentRoleName, nameof(runtime.AgentRoleName), 160));
         return new W.RuntimeWorkloadSpecification(id, image, limits, lease, artifact, identity, entrypoint);
     }
 
@@ -257,6 +261,14 @@ public static class RuntimeHostProtocolMapper
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > maximumLength || value.Any(char.IsControl))
             throw new InvalidDataException($"{name} is missing or invalid.");
+        return value;
+    }
+
+    private static string? Optional(string? value, string name, int maximumLength)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (value.Length > maximumLength || value.Any(char.IsControl))
+            throw new InvalidDataException($"{name} is invalid.");
         return value;
     }
 }

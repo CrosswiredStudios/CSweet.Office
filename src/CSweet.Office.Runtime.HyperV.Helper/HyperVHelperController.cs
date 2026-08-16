@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using CSweet.Office.Runtime.Abstractions;
 using CSweet.Office.Runtime.Core;
@@ -76,7 +77,7 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
         }
 
         var creationId = Guid.NewGuid();
-        var vmName = $"CSweet-{workload.Kind}-{creationId:N}";
+        var vmName = BuildVmName(workload, creationId);
         Guid instanceId = Guid.Empty;
         string? instanceDirectory = null;
 
@@ -259,6 +260,44 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
          hyperVState is null ||
          string.Equals(hyperVState, "Off", StringComparison.Ordinal) &&
             (metadata.StartedAt is not null || metadata.CreatedAt <= now - CreationGracePeriod));
+
+    internal static string BuildVmName(WorkloadSpecification workload, Guid creationId)
+    {
+        const int maximumIdentitySegmentLength = 24;
+        var prefix = $"CSweet-{workload.Kind}";
+        if (workload is not RuntimeWorkloadSpecification runtime)
+            return $"{prefix}-{creationId:N}";
+
+        var role = VmNameSegment(runtime.Identity.AgentRoleName, maximumIdentitySegmentLength);
+        var name = VmNameSegment(runtime.Identity.AgentDisplayName, maximumIdentitySegmentLength);
+        var identity = string.Join('-', new[] { role, name }.Where(x => x.Length > 0));
+        return identity.Length == 0
+            ? $"{prefix}-{creationId:N}"
+            : $"{prefix}-{identity}-{creationId:N}";
+    }
+
+    private static string VmNameSegment(string? value, int maximumLength)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        var result = new StringBuilder(Math.Min(value.Length, maximumLength));
+        var separatorPending = false;
+        foreach (var character in value.Trim())
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                if (separatorPending && result.Length > 0 && result.Length < maximumLength)
+                    result.Append('-');
+                if (result.Length >= maximumLength) break;
+                result.Append(character);
+                separatorPending = false;
+            }
+            else
+            {
+                separatorPending = true;
+            }
+        }
+        return result.ToString().TrimEnd('-');
+    }
 
     private async Task<(HyperVInstanceMetadata? Metadata, string? Directory, PlatformHelperResponse? Error)> LoadAsync(
         IsolationWorkloadHandle? handle)
