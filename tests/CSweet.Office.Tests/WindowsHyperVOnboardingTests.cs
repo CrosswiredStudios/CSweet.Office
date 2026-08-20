@@ -501,6 +501,11 @@ public sealed class WindowsHyperVOnboardingTests
         Assert.Contains("Dismount-VHD", uninstall, StringComparison.Ordinal);
         Assert.Contains("Remove-InstalledDirectory $path", uninstall, StringComparison.Ordinal);
         Assert.Contains("Uninstall did not completely remove", uninstall, StringComparison.Ordinal);
+        Assert.Contains("Write-OfficeRemovalProgress 'stop-office-services'", uninstall, StringComparison.Ordinal);
+        Assert.Contains("Write-OfficeRemovalProgress 'remove-office-vms'", uninstall, StringComparison.Ordinal);
+        Assert.Contains("Write-OfficeRemovalProgress 'remove-office-registration'", uninstall, StringComparison.Ordinal);
+        Assert.Contains("Write-OfficeRemovalProgress 'remove-office-data'", uninstall, StringComparison.Ordinal);
+        Assert.Contains("Write-OfficeRemovalProgress 'office-removal-complete'", uninstall, StringComparison.Ordinal);
     }
 
     [Fact]

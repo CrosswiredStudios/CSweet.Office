@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param(
     [switch] $Force,
-    [switch] $Elevated
+    [switch] $Elevated,
+    [string] $ProgressPath,
+    [guid] $ProgressJobId = [guid]::Empty,
+    [string] $ProgressWorkflow = 'office-removal'
 )
 
 Set-StrictMode -Version Latest
@@ -14,9 +17,39 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     $arguments = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
         ('"' + $PSCommandPath + '"'), '-Elevated')
     if ($Force) { $arguments += '-Force' }
+    if (-not [String]::IsNullOrWhiteSpace($ProgressPath) -and $ProgressJobId -ne [guid]::Empty) {
+        $arguments += @('-ProgressPath', ('"' + $ProgressPath + '"'), '-ProgressJobId', $ProgressJobId.ToString('D'),
+            '-ProgressWorkflow', ('"' + $ProgressWorkflow + '"'))
+    }
     $process = Start-Process -FilePath $powershell -Verb RunAs -Wait -PassThru -ArgumentList ($arguments -join ' ')
     if ($process.ExitCode -ne 0) { throw "Execution fleet uninstall failed with exit code $($process.ExitCode)." }
     return
+}
+
+$progressAvailable = -not [String]::IsNullOrWhiteSpace($ProgressPath) -and $ProgressJobId -ne [guid]::Empty
+if ($progressAvailable) {
+    $progressHelper = Join-Path $PSScriptRoot 'CSweet.WindowsSetupProgress.ps1'
+    if (Test-Path -LiteralPath $progressHelper -PathType Leaf) {
+        . $progressHelper
+        $ProgressPath = Resolve-CSweetSetupProgressPath -Path $ProgressPath -JobId $ProgressJobId
+    } else {
+        $progressAvailable = $false
+    }
+}
+
+function Write-OfficeRemovalProgress(
+    [string] $PhaseKey,
+    [string] $PhaseDisplayName,
+    [string] $Message,
+    [int] $PercentComplete,
+    [int] $MinimumSeconds,
+    [int] $MaximumSeconds
+) {
+    if (-not $progressAvailable) { return }
+    Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $ProgressWorkflow `
+        -State running -PhaseKey $PhaseKey -PhaseDisplayName $PhaseDisplayName -Message $Message `
+        -PercentComplete $PercentComplete -EstimatedRemainingMinimumSeconds $MinimumSeconds `
+        -EstimatedRemainingMaximumSeconds $MaximumSeconds
 }
 
 $nodeRoot = Join-Path $env:ProgramData 'CSweet\Office'
@@ -42,6 +75,9 @@ $activeCount = if (Test-Path -LiteralPath $activeRoot -PathType Container) {
 if ($fleetInstalled -and -not $Force -and ($drainState -ne 'draining' -or $activeCount -ne 0)) {
     throw 'Drain this node in C-Sweet and wait for active assignments to reach zero before uninstalling. Use -Force only after revocation.'
 }
+
+Write-OfficeRemovalProgress 'remove-preflight' 'Preparing Office removal' `
+    'Windows is checking the existing Office before removing it.' 5 10 180
 
 function Test-PathWithinRoot([string] $Candidate, [string] $Root) {
     if ([String]::IsNullOrWhiteSpace($Candidate)) { return $false }
@@ -109,6 +145,8 @@ function Remove-InstalledDirectory([string] $Path) {
     }
 }
 
+Write-OfficeRemovalProgress 'stop-office-services' 'Stopping Office services' `
+    'Windows is stopping the existing Office background services.' 20 5 120
 foreach ($serviceName in @('CSweet.Office.Node', 'CSweet.Office.RuntimeHost')) {
     $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($null -ne $service -and $service.Status -ne 'Stopped') {
@@ -117,8 +155,12 @@ foreach ($serviceName in @('CSweet.Office.Node', 'CSweet.Office.RuntimeHost')) {
     }
 }
 
+Write-OfficeRemovalProgress 'remove-office-vms' 'Removing Office virtual machines' `
+    'Windows is removing virtual machines and disks owned by the existing Office.' 45 5 120
 Remove-OfficeHyperVResources $hyperVDataRoot
 
+Write-OfficeRemovalProgress 'remove-office-registration' 'Removing Office registration' `
+    'Windows is removing Office services, permissions, and machine registration.' 70 3 60
 $runtimeHostServiceName = 'CSweet.Office.RuntimeHost'
 $runtimeHostServiceIdentity = "NT SERVICE\$runtimeHostServiceName"
 $hyperVAdministratorsSid = 'S-1-5-32-578'
@@ -144,8 +186,13 @@ foreach ($name in @('CSWEET_HYPERV_BROKER_SERVICE_ID', 'CSWEET_HYPERV_DATA_ROOT'
     [Environment]::SetEnvironmentVariable($name, $null, 'Machine')
 }
 
+Write-OfficeRemovalProgress 'remove-office-data' 'Removing Office data' `
+    'Windows is deleting the old Office data, caches, and mutable runtime files.' 85 2 45
 foreach ($path in @($programFilesRoot, $runtimeDataRoot) | Select-Object -Unique) {
     Remove-InstalledDirectory $path
 }
+
+Write-OfficeRemovalProgress 'office-removal-complete' 'Existing Office removed' `
+    'The old Office is gone. C-Sweet is continuing automatically with the fresh installation.' 100 0 0
 
 Write-Host 'C-Sweet Office was fully uninstalled, including installed versions, cached artifacts, guest disks, and owned Hyper-V VMs. Repository build artifacts were not removed. Revoke the host in fleet administration if it was not already revoked.' -ForegroundColor Green
