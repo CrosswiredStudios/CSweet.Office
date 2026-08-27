@@ -9,8 +9,11 @@ public sealed class GuestBrokerSession(
     TimeProvider timeProvider)
 {
     private readonly SemaphoreSlim _outputLock = new(1, 1);
+    private readonly SemaphoreSlim _diagnosticLock = new(1, 1);
     private readonly ConcurrentDictionary<string, TaskCompletionSource<ProxyResponse>> _pending = new(StringComparer.Ordinal);
     private Stream? _hostOutput;
+    private string? _previousDiagnostic;
+    private long _diagnosticSequence;
 
     public async Task RunAsync(Stream input, Stream output, CancellationToken cancellationToken = default)
     {
@@ -96,8 +99,10 @@ public sealed class GuestBrokerSession(
                         }
                         await SendHealthAsync(output, "running", token);
                         _ = ObserveExitAsync(output, token);
-                        if (options.WorkloadKind == 1)
-                            _ = ObserveDiagnosticsAsync(output, token);
+                        // Builder failures are just as important as runtime failures. The
+                        // host already treats this as a bounded, authenticated stream; emit
+                        // it for both workload kinds so an early builder exit is diagnosable.
+                        _ = ObserveDiagnosticsAsync(output, token);
                         break;
                     case GuestEnvelope.BodyOneofCase.ProxyResponse:
                         if (!_pending.TryRemove(command.ProxyResponse.RequestId, out var completion))
@@ -179,6 +184,9 @@ public sealed class GuestBrokerSession(
         try
         {
             var code = await workload.WaitForExitAsync(cancellationToken);
+            // Do not lose short-lived builder failures that occur before the periodic
+            // diagnostic observer's first sample.
+            await EmitDiagnosticsAsync(output, cancellationToken);
             await SendExitAsync(
                 output,
                 code,
@@ -198,32 +206,43 @@ public sealed class GuestBrokerSession(
 
     private async Task ObserveDiagnosticsAsync(Stream output, CancellationToken cancellationToken)
     {
-        string? previous = null;
-        long sequence = 0;
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
-                var detail = workload.DiagnosticDetail;
-                if (string.IsNullOrWhiteSpace(detail) || string.Equals(detail, previous, StringComparison.Ordinal))
-                    continue;
-                previous = detail;
-                await WriteAsync(output, new GuestEnvelope
-                {
-                    ProtocolVersion = options.ProtocolVersion,
-                    MessageId = Guid.NewGuid().ToString("N"),
-                    StreamChunk = new StreamChunk
-                    {
-                        StreamId = "runtime.logs",
-                        Sequence = sequence++,
-                        Content = Google.Protobuf.ByteString.CopyFromUtf8(SanitizeDetail(detail))
-                    }
-                }, cancellationToken);
+                await EmitDiagnosticsAsync(output, cancellationToken);
             }
         }
         catch (OperationCanceledException) { }
         catch (IOException) { }
+    }
+
+    private async Task EmitDiagnosticsAsync(Stream output, CancellationToken cancellationToken)
+    {
+        var detail = workload.DiagnosticDetail;
+        if (string.IsNullOrWhiteSpace(detail)) return;
+        await _diagnosticLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (string.Equals(detail, _previousDiagnostic, StringComparison.Ordinal)) return;
+            _previousDiagnostic = detail;
+            await WriteAsync(output, new GuestEnvelope
+            {
+                ProtocolVersion = options.ProtocolVersion,
+                MessageId = Guid.NewGuid().ToString("N"),
+                StreamChunk = new StreamChunk
+                {
+                    StreamId = "runtime.logs",
+                    Sequence = _diagnosticSequence++,
+                    Content = Google.Protobuf.ByteString.CopyFromUtf8(SanitizeDetail(detail))
+                }
+            }, cancellationToken);
+        }
+        finally
+        {
+            _diagnosticLock.Release();
+        }
     }
 
     private Task SendHealthAsync(Stream output, string state, CancellationToken cancellationToken) =>
