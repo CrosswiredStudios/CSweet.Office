@@ -2,4 +2,7 @@
   <PropertyGroup><Description>Certified Hyper-V Generation 2 isolation backend.</Description></PropertyGroup>
   <ItemGroup><ProjectReference Include="..\CSweet.Office.Runtime.Core\CSweet.Office.Runtime.Core.csproj" /></ItemGroup>
   <ItemGroup><InternalsVisibleTo Include="CSweet.Office.Tests" /></ItemGroup>
-</Project>
+<ItemGroup>
+<ProjectReference Include="$(CSweetIsolationRepositoryRoot)/src/CSweet.Isolation.HyperV/CSweet.Isolation.HyperV.csproj" Condition="'$(UseLocalIsolation)' == 'true'" />
+<PackageReference Include="CSweet.Isolation.HyperV" Condition="'$(UseLocalIsolation)' != 'true'" />
+</ItemGroup></Project>

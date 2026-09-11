@@ -26,6 +26,7 @@ public sealed class RuntimeHostInventory(IEnumerable<IAgentIsolationProvider> pr
                     certification?.ExpiresAt,
                     SupportsBuilderWorkloads: true,
                     SupportsRuntimeWorkloads: true,
+                    SupportsToolchainBuildWorkloads: false,
                     probe.IsAvailable && certification?.IsActiveAt(DateTimeOffset.UtcNow) == true,
                     Diagnostic(probe.UnavailableReason ??
                         (certification is null ? "Provider certification is unavailable." : null))));
@@ -34,7 +35,7 @@ public sealed class RuntimeHostInventory(IEnumerable<IAgentIsolationProvider> pr
             {
                 inventory.Add(new RegisterOfficeProviderRequest(
                     provider.Descriptor.ProviderId, provider.Descriptor.ProviderVersion, "", "", "", "",
-                    DateTimeOffset.MinValue, null, true, true, false,
+                    DateTimeOffset.MinValue, null, true, true, false, false,
                     $"RuntimeHost probe failed: {exception.GetType().Name}."));
             }
         }

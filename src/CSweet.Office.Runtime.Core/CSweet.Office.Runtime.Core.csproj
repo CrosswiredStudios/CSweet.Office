@@ -3,4 +3,8 @@
     <ProjectReference Include="..\CSweet.Office.Runtime.Abstractions\CSweet.Office.Runtime.Abstractions.csproj" />
   </ItemGroup>
   <ItemGroup><InternalsVisibleTo Include="CSweet.Office.Tests" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(CSweetIsolationRepositoryRoot)/src/CSweet.Isolation.Artifacts/CSweet.Isolation.Artifacts.csproj" Condition="'$(UseLocalIsolation)' == 'true'" />
+    <PackageReference Include="CSweet.Isolation.Artifacts" Condition="'$(UseLocalIsolation)' != 'true'" />
+  </ItemGroup>
 </Project>

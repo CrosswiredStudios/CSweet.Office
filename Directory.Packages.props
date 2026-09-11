@@ -4,7 +4,7 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="CSweet.Office.Contracts" Version="0.3.0" />
+    <PackageVersion Include="CSweet.Office.Contracts" Version="0.6.1" />
     <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
     <PackageVersion Include="Grpc.Core.Api" Version="2.83.0" />
     <PackageVersion Include="Grpc.Net.Client" Version="2.83.0" />
@@ -18,4 +18,4 @@
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
-</Project>
+<ItemGroup><PackageVersion Include="CSweet.Isolation.Artifacts" Version="0.1.0" /></ItemGroup><ItemGroup><PackageVersion Include="CSweet.Isolation.HyperV" Version="0.1.0" /></ItemGroup></Project>

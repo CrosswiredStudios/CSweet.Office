@@ -9,4 +9,7 @@
     <ProjectReference Include="..\CSweet.Office.Runtime.HyperV\CSweet.Office.Runtime.HyperV.csproj" />
   </ItemGroup>
   <ItemGroup><InternalsVisibleTo Include="CSweet.Office.Tests" /></ItemGroup>
-</Project>
+<ItemGroup>
+<ProjectReference Include="$(CSweetIsolationRepositoryRoot)/src/CSweet.Isolation.HyperV/CSweet.Isolation.HyperV.csproj" Condition="'$(UseLocalIsolation)' == 'true'" />
+<PackageReference Include="CSweet.Isolation.HyperV" Condition="'$(UseLocalIsolation)' != 'true'" />
+</ItemGroup></Project>
