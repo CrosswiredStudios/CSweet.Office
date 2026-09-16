@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.Office.Runtime.Abstractions\CSweet.Office.Runtime.Abstractions.csproj" />
+  </ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.Office.Tests" /></ItemGroup>
+</Project>

@@ -7,15 +7,15 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-if ($Tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') { throw 'Release tag must be vMAJOR.MINOR.PATCH.' }
-$version = $Matches.version
+$release = & (Join-Path $PSScriptRoot 'Get-OfficeReleaseMetadata.ps1') -Tag $Tag
+$version = $release.Version
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $output = Join-Path $root 'artifacts\release'
 New-Item -ItemType Directory -Force $output | Out-Null
-dotnet test (Join-Path $root 'CSweet.SatelliteOffice.Independent.slnx') -c Release -p:UseLocalSatelliteOfficeContracts=false
+dotnet test (Join-Path $root 'CSweet.Office.Independent.slnx') -c Release -p:UseLocalOfficeContracts=false
 if ($LASTEXITCODE -ne 0) { throw 'Release tests failed.' }
 $symbols = Get-ChildItem (Join-Path $root 'src') -Recurse -Filter '*.pdb' -File | Where-Object FullName -Match '\\Release\\'
-if ($symbols) { Compress-Archive -Path $symbols.FullName -DestinationPath (Join-Path $output "csweet-satellite-office-$version-$OperatingSystem-$Architecture-symbols.zip") -Force }
+if ($symbols) { Compress-Archive -Path $symbols.FullName -DestinationPath (Join-Path $output "csweet-office-$version-$OperatingSystem-$Architecture-symbols.zip") -Force }
 
 # Certification produces immutable guest images/evidence before this entry point. Hardened
 # runners provide their paths and signing identities as protected environment variables.
@@ -34,8 +34,8 @@ switch ($OperatingSystem) {
             -CertificationEvidence $env:CSWEET_CERTIFICATION_EVIDENCE -CertificationSuiteVersion 'production-v1' `
             -CertifiedAt ([DateTimeOffset]::UtcNow) -CertificationExpiresAt $env:CSWEET_CERTIFICATION_VALID_UNTIL `
             -PackageVersion $version -OutputRoot $payload
-        & (Join-Path $root 'scripts\windows\New-CSweetSatelliteOfficeMsi.ps1') -PayloadRoot $payload `
-            -OutputPath (Join-Path $output "csweet-satellite-office-$version-windows-x64.msi") -Version $version `
+        & (Join-Path $root 'scripts\windows\New-CSweetOfficeMsi.ps1') -PayloadRoot $payload `
+            -OutputPath (Join-Path $output "csweet-office-$version-windows-x64.msi") -Version $version `
             -CertificateThumbprint $env:CSWEET_WINDOWS_SIGNING_THUMBPRINT
     }
     'linux' {

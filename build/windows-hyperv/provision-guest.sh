@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-guest_source=/tmp/CSweet.SatelliteOffice.RuntimeGuest
-builder_source=/tmp/CSweet.SatelliteOffice.BuilderGuest
+guest_source=/tmp/CSweet.Office.RuntimeGuest
+builder_source=/tmp/CSweet.Office.BuilderGuest
+toolchain_source=/tmp/CSweet.Office.ToolchainGuest
+# The shared image builder stages profile payloads under one fixed guest path.
+# Keep the legacy source paths for the retained legacy Packer template.
+if [[ -d /tmp/csweet-image-payload ]]; then
+  guest_source=/tmp/csweet-image-payload/CSweet.Office.RuntimeGuest.bin
+  builder_source=/tmp/csweet-image-payload/CSweet.Office.BuilderGuest.bin
+  toolchain_source=/tmp/csweet-image-payload/CSweet.Office.ToolchainGuest.bin
+fi
 guest_root=/usr/lib/csweet/guest
 builder_root=/usr/lib/csweet/builder
-if [[ ! -f "$guest_source" || ! -f "$builder_source" ]]; then
+toolchain_root=/usr/lib/csweet/toolchain
+if [[ ! -f "$guest_source" || ! -f "$builder_source" || ! -f "$toolchain_source" ]]; then
   echo 'A published C-Sweet guest executable is missing.' >&2
   exit 2
 fi
 
-install -d -m 0755 "$guest_root" "$builder_root"
-install -o root -g root -m 0755 "$guest_source" "$guest_root/CSweet.SatelliteOffice.RuntimeGuest"
-install -o root -g root -m 0755 "$builder_source" "$builder_root/CSweet.SatelliteOffice.BuilderGuest"
+install -d -m 0755 "$guest_root" "$builder_root" "$toolchain_root"
+install -o root -g root -m 0755 "$guest_source" "$guest_root/CSweet.Office.RuntimeGuest"
+install -o root -g root -m 0755 "$builder_source" "$builder_root/CSweet.Office.BuilderGuest"
+install -o root -g root -m 0755 "$toolchain_source" "$toolchain_root/CSweet.Office.ToolchainGuest"
 if ! getent group csweet-workload >/dev/null; then
   groupadd --system csweet-workload
 fi
@@ -56,7 +66,7 @@ mkfs.ext4 -F -L CSWEET_SCRATCH "$scratch"
 mount -t ext4 -o rw,nosuid,nodev "$scratch" /run/csweet
 chmod 0711 /run/csweet
 install -d -o csweet-workload -g csweet-workload -m 0700 /run/csweet/workload
-exec /usr/lib/csweet/guest/CSweet.SatelliteOffice.RuntimeGuest
+exec /usr/lib/csweet/guest/CSweet.Office.RuntimeGuest
 SCRIPT
 chmod 0755 /usr/lib/csweet/prepare-runtime.sh
 
@@ -137,5 +147,5 @@ systemctl enable csweet-first-runtime-boot.service csweet-hv-sock.service csweet
 touch /etc/cloud/cloud-init.disabled
 rm -rf /var/lib/cloud/instances/*
 apt-get clean
-rm -rf /var/lib/apt/lists/* /tmp/CSweet.SatelliteOffice.RuntimeGuest /tmp/CSweet.SatelliteOffice.BuilderGuest
+rm -rf /var/lib/apt/lists/* /tmp/CSweet.Office.RuntimeGuest /tmp/CSweet.Office.BuilderGuest /tmp/CSweet.Office.ToolchainGuest
 sync

@@ -1,0 +1,24 @@
+[Unit]
+Description=C-Sweet Office node
+After=network-online.target csweet-office-runtime.service
+Wants=network-online.target
+Requires=csweet-office-runtime.service
+
+[Service]
+Type=notify
+User=csweet-node
+Group=csweet-node
+SupplementaryGroups=csweet-runtime
+EnvironmentFile=/etc/csweet/office.env
+ExecStart=/opt/csweet/office/CSweet.Office.Node
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/csweet/office /var/lib/csweet/artifact-media /run/csweet
+
+[Install]
+WantedBy=multi-user.target

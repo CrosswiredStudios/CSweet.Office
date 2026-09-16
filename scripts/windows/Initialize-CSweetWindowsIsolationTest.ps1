@@ -27,9 +27,12 @@ function Quote-ProcessArgument([string] $Value) {
 
 function Get-GuestBuildFingerprint([string] $RepositoryRoot) {
     $roots = @(
-        (Join-Path $RepositoryRoot 'src\CSweet.SatelliteOffice.RuntimeGuest'),
-        (Join-Path $RepositoryRoot 'src\CSweet.SatelliteOffice.BuilderGuest'),
-        (Join-Path $RepositoryRoot 'src\CSweet.SatelliteOffice.Runtime.Protocol'),
+        (Join-Path $RepositoryRoot 'src\CSweet.Office.RuntimeGuest'),
+        (Join-Path $RepositoryRoot 'src\CSweet.Office.BuilderGuest'),
+        (Join-Path $RepositoryRoot 'src\CSweet.Office.ToolchainGuest'),
+        (Join-Path $RepositoryRoot '..\CSweet.Isolation\tools\LinuxImage'),
+        (Join-Path $RepositoryRoot 'scripts\windows\New-CSweetHyperVTestGuest.ps1'),
+        (Join-Path $RepositoryRoot 'src\CSweet.Office.Runtime.Protocol'),
         (Join-Path $RepositoryRoot 'build\windows-hyperv')
     )
     $files = @($roots | ForEach-Object {
@@ -42,7 +45,7 @@ function Get-GuestBuildFingerprint([string] $RepositoryRoot) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) { $files += Get-Item -LiteralPath $candidate }
     }
     $records = $files | Sort-Object FullName | ForEach-Object {
-        $relative = $_.FullName.Substring($RepositoryRoot.TrimEnd('\').Length).TrimStart('\').Replace('\', '/')
+        $relative = $_.FullName.Substring((Split-Path -Parent $RepositoryRoot.TrimEnd('\')).Length).TrimStart('\').Replace('\', '/')
         "$relative`0$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())"
     }
     $bytes = [Text.Encoding]::UTF8.GetBytes(($records -join "`n"))
@@ -155,11 +158,27 @@ $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $guestFingerprint = Get-GuestBuildFingerprint $repositoryRoot
 $guestImageRoot = Join-Path $repositoryRoot 'artifacts\windows-runtime\source'
 $guestImage = Join-Path $guestImageRoot "csweet-agent-guest-$guestFingerprint.vhdx"
+# Prefer the latest complete build of this fingerprint, including a forced rebuild.
+# Keep older/installed images immutable instead of replacing disks they may reference.
+$cachedMarkers = @(Get-ChildItem -LiteralPath $guestImageRoot -File -Filter "csweet-agent-guest-$guestFingerprint*.vhdx.ready" -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 32)
+foreach ($marker in $cachedMarkers) {
+    $candidate = $marker.FullName.Substring(0, $marker.FullName.Length - '.ready'.Length)
+    if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and
+        ((Get-Content -LiteralPath $marker.FullName -Raw).Trim() -ceq $guestFingerprint)) {
+        $guestImage = $candidate
+        break
+    }
+}
 $guestReadyMarker = "$guestImage.ready"
 $guestCacheReady = (Test-Path -LiteralPath $guestImage -PathType Leaf) -and
     (Test-Path -LiteralPath $guestReadyMarker -PathType Leaf) -and
     ((Get-Content -LiteralPath $guestReadyMarker -Raw).Trim() -ceq $guestFingerprint)
 if ($RebuildGuest -or -not $guestCacheReady) {
+    if (Test-Path -LiteralPath $guestImage) {
+        $guestImage = Join-Path $guestImageRoot "csweet-agent-guest-$guestFingerprint-$([guid]::NewGuid().ToString('N')).vhdx"
+        $guestReadyMarker = "$guestImage.ready"
+    }
     & (Join-Path $PSScriptRoot 'New-CSweetHyperVTestGuest.ps1') -SwitchName $SwitchName -OutputPath $guestImage `
         -ProgressPath $ProgressPath -ProgressJobId $ProgressJobId
     if ($LASTEXITCODE -ne 0) { throw 'The C-Sweet test guest image build failed.' }
@@ -186,20 +205,20 @@ Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $p
     -State running -PhaseKey publish-components -PhaseDisplayName 'Publishing secure runtime components' `
     -Message 'C-Sweet is compiling the helper, guest probe, and certification runner.' -PercentComplete 60 `
     -EstimatedRemainingMinimumSeconds 180 -EstimatedRemainingMaximumSeconds 600
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.SatelliteOffice.Runtime.HyperV.Helper\CSweet.SatelliteOffice.Runtime.HyperV.Helper.csproj') `
+dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Runtime.HyperV.Helper\CSweet.Office.Runtime.HyperV.Helper.csproj') `
     -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $helperPublish
 if ($LASTEXITCODE -ne 0) { throw 'The Hyper-V helper publish failed.' }
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.SatelliteOffice.GuestProbe\CSweet.SatelliteOffice.GuestProbe.csproj') `
+dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.GuestProbe\CSweet.Office.GuestProbe.csproj') `
     -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true -o $probePublish
 if ($LASTEXITCODE -ne 0) { throw 'The Linux isolation probe publish failed.' }
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.SatelliteOffice.WindowsSmokeTest\CSweet.SatelliteOffice.WindowsSmokeTest.csproj') `
+dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.WindowsSmokeTest\CSweet.Office.WindowsSmokeTest.csproj') `
     -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $smokePublish
 if ($LASTEXITCODE -ne 0) { throw 'The Windows isolation certification runner publish failed.' }
 
-$helper = Join-Path $helperPublish 'CSweet.SatelliteOffice.Runtime.HyperV.Helper.exe'
-$probe = Join-Path $probePublish 'CSweet.SatelliteOffice.GuestProbe'
-$smoke = Join-Path $smokePublish 'CSweet.SatelliteOffice.WindowsSmokeTest.exe'
+$helper = Join-Path $helperPublish 'CSweet.Office.Runtime.HyperV.Helper.exe'
+$probe = Join-Path $probePublish 'CSweet.Office.GuestProbe'
+$smoke = Join-Path $smokePublish 'CSweet.Office.WindowsSmokeTest.exe'
 foreach ($required in @($helper, $probe, $smoke)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "A certification executable is missing: $required" }
 }
@@ -292,7 +311,7 @@ if ($LASTEXITCODE -ne 0) { throw 'The certified Windows runtime payload build fa
 
 if (-not $SkipInstall) {
     Write-Host 'Installing the certified development RuntimeHost payload...'
-    & (Join-Path $PSScriptRoot 'Install-CSweetSatelliteOfficeRuntimeHost.ps1') -PayloadRoot $payloadRoot `
+    & (Join-Path $PSScriptRoot 'Install-CSweetOfficeRuntimeHost.ps1') -PayloadRoot $payloadRoot `
         -ControlPlaneUserSid $ControlPlaneUserSid -ProgressPath $ProgressPath -ProgressJobId $ProgressJobId `
         -ProgressWorkflow $progressWorkflow -ControlPlaneUrl $ControlPlaneUrl `
         -EnrollmentTokenInputPath $EnrollmentTokenInputPath
@@ -317,17 +336,29 @@ if ($SkipInstall) {
 } catch {
     try {
         $failurePercent = 0
+        $failurePhaseKey = 'setup-paused'
+        $failurePhaseDisplayName = 'Secure runtime preparation paused'
+        $failureUserMessage = 'The guided preparation stopped at a recoverable step. Review the detail below, then try again.'
         if (Test-Path -LiteralPath $ProgressPath -PathType Leaf) {
             try {
                 $previousProgress = Get-Content -LiteralPath $ProgressPath -Raw | ConvertFrom-Json
                 if ([guid]$previousProgress.jobId -eq $ProgressJobId) {
                     $failurePercent = [Math]::Min(99, [Math]::Max(0, [int]$previousProgress.percentComplete))
+                    if (-not [String]::IsNullOrWhiteSpace([string]$previousProgress.phaseKey)) {
+                        $failurePhaseKey = [string]$previousProgress.phaseKey
+                    }
+                    if (-not [String]::IsNullOrWhiteSpace([string]$previousProgress.phaseDisplayName)) {
+                        $failurePhaseDisplayName = [string]$previousProgress.phaseDisplayName
+                    }
+                    if (-not [String]::IsNullOrWhiteSpace([string]$previousProgress.message)) {
+                        $failureUserMessage = [string]$previousProgress.message
+                    }
                 }
             } catch { }
         }
         Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
-            -State failed -PhaseKey setup-paused -PhaseDisplayName 'Secure runtime preparation paused' `
-            -Message 'The guided preparation stopped at a recoverable step. Review the detail below, then try again.' `
+            -State failed -PhaseKey $failurePhaseKey -PhaseDisplayName $failurePhaseDisplayName `
+            -Message $failureUserMessage `
             -PercentComplete $failurePercent `
             -ErrorCode 'developer-bootstrap-failed' -ErrorMessage $_.Exception.Message
     } catch { }

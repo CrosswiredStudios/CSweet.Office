@@ -35,38 +35,38 @@ fi
 
 script_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(cd "$script_root/../.." && pwd)
-helper_root="$repository_root/src/CSweet.SatelliteOffice.Runtime.AppleVirtualization.Helper"
+helper_root="$repository_root/src/CSweet.Office.Runtime.AppleVirtualization.Helper"
 build_root=$(mktemp -d)
 trap 'rm -rf -- "$build_root"' EXIT
 mkdir -p "$output_root/apple-virtualization" "$output_root/images" "$output_root/certificates" "$output_root/certification"
 
-dotnet publish "$repository_root/src/CSweet.SatelliteOffice.RuntimeHost/CSweet.SatelliteOffice.RuntimeHost.csproj" -c Release -r "$runtime_id" --self-contained true \
+dotnet publish "$repository_root/src/CSweet.Office.RuntimeHost/CSweet.Office.RuntimeHost.csproj" -c Release -r "$runtime_id" --self-contained true \
   -p:PublishSingleFile=true -p:DebugType=None -o "$build_root/runtime-host"
-dotnet publish "$repository_root/src/CSweet.SatelliteOffice.Node/CSweet.SatelliteOffice.Node.csproj" -c Release -r "$runtime_id" --self-contained true \
-  -p:PublishSingleFile=true -p:DebugType=None -o "$build_root/satellite-office"
+dotnet publish "$repository_root/src/CSweet.Office.Node/CSweet.Office.Node.csproj" -c Release -r "$runtime_id" --self-contained true \
+  -p:PublishSingleFile=true -p:DebugType=None -o "$build_root/office"
 swift build --package-path "$helper_root" -c release --arch "$swift_arch"
-helper_bin=$(swift build --package-path "$helper_root" -c release --arch "$swift_arch" --show-bin-path)/CSweet.SatelliteOffice.Runtime.AppleVirtualization.Helper
+helper_bin=$(swift build --package-path "$helper_root" -c release --arch "$swift_arch" --show-bin-path)/CSweet.Office.Runtime.AppleVirtualization.Helper
 
-install -m 0755 "$build_root/runtime-host/CSweet.SatelliteOffice.RuntimeHost" "$output_root/CSweet.SatelliteOffice.RuntimeHost"
-install -m 0755 "$build_root/satellite-office/CSweet.SatelliteOffice.Node" "$output_root/CSweet.SatelliteOffice.Node"
-install -m 0755 "$helper_bin" "$output_root/CSweet.SatelliteOffice.Runtime.AppleVirtualization.Helper"
+install -m 0755 "$build_root/runtime-host/CSweet.Office.RuntimeHost" "$output_root/CSweet.Office.RuntimeHost"
+install -m 0755 "$build_root/office/CSweet.Office.Node" "$output_root/CSweet.Office.Node"
+install -m 0755 "$helper_bin" "$output_root/CSweet.Office.Runtime.AppleVirtualization.Helper"
 install -m 0644 "$kernel" "$output_root/apple-virtualization/vmlinux"
 install -m 0644 "$guest" "$output_root/images/csweet-agent-guest.img"
 install -m 0644 "$guest_signature" "$output_root/images/csweet-agent-guest.img.sig"
 install -m 0644 "$signing_certificate" "$output_root/certificates/guest-image-signing.cer"
 install -m 0644 "$evidence" "$output_root/certification/macos-apple-virtualization.json"
-install -m 0755 "$script_root/install-satellite-office.sh" "$output_root/install-satellite-office.sh"
-install -m 0755 "$script_root/uninstall-satellite-office.sh" "$output_root/uninstall-satellite-office.sh"
-install -m 0644 "$script_root/com.csweet.satelliteoffice.runtime.plist" "$output_root/com.csweet.satelliteoffice.runtime.plist"
-install -m 0644 "$script_root/com.csweet.satelliteoffice.node.plist" "$output_root/com.csweet.satelliteoffice.node.plist"
+install -m 0755 "$script_root/install-office.sh" "$output_root/install-office.sh"
+install -m 0755 "$script_root/uninstall-office.sh" "$output_root/uninstall-office.sh"
+install -m 0644 "$script_root/com.csweet.office.runtime.plist" "$output_root/com.csweet.office.runtime.plist"
+install -m 0644 "$script_root/com.csweet.office.node.plist" "$output_root/com.csweet.office.node.plist"
 
 codesign --force --timestamp --options runtime --sign "$signing_identity" \
   --entitlements "$helper_root/CSweet.AppleVirtualization.entitlements" \
-  "$output_root/CSweet.SatelliteOffice.Runtime.AppleVirtualization.Helper"
-codesign --force --timestamp --options runtime --sign "$signing_identity" "$output_root/CSweet.SatelliteOffice.RuntimeHost"
-codesign --force --timestamp --options runtime --sign "$signing_identity" "$output_root/CSweet.SatelliteOffice.Node"
-codesign --verify --strict "$output_root/CSweet.SatelliteOffice.Runtime.AppleVirtualization.Helper"
-entitlement_value=$(codesign -d --entitlements :- "$output_root/CSweet.SatelliteOffice.Runtime.AppleVirtualization.Helper" 2>/dev/null | \
+  "$output_root/CSweet.Office.Runtime.AppleVirtualization.Helper"
+codesign --force --timestamp --options runtime --sign "$signing_identity" "$output_root/CSweet.Office.RuntimeHost"
+codesign --force --timestamp --options runtime --sign "$signing_identity" "$output_root/CSweet.Office.Node"
+codesign --verify --strict "$output_root/CSweet.Office.Runtime.AppleVirtualization.Helper"
+entitlement_value=$(codesign -d --entitlements :- "$output_root/CSweet.Office.Runtime.AppleVirtualization.Helper" 2>/dev/null | \
   plutil -extract com.apple.security.virtualization raw -o - -)
 [ "$entitlement_value" = "true" ] || { echo "The helper is missing the virtualization entitlement." >&2; exit 2; }
 
@@ -87,7 +87,7 @@ jq -s \
   --argjson expiration "$expiration" \
   '{schemaVersion:1,providerId:"apple-virtualization",providerVersion:"1.0.0",
     hostOperatingSystem:"macos",hostArchitecture:$architecture,
-    helperExecutable:"CSweet.SatelliteOffice.Runtime.AppleVirtualization.Helper",
+    helperExecutable:"CSweet.Office.Runtime.AppleVirtualization.Helper",
     guestImage:"images/csweet-agent-guest.img",guestImageDigest:$guestDigest,
     guestImageSignature:"images/csweet-agent-guest.img.sig",
     guestImageSigningCertificate:"certificates/guest-image-signing.cer",

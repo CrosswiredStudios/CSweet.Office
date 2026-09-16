@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <ItemGroup>
+    <PackageReference Include="Grpc.Net.Client" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.Office.Runtime.Abstractions\CSweet.Office.Runtime.Abstractions.csproj" />
+    <ProjectReference Include="..\CSweet.Office.Runtime.Artifacts\CSweet.Office.Runtime.Artifacts.csproj" />
+    <ProjectReference Include="..\CSweet.Office.Runtime.LocalRpc\CSweet.Office.Runtime.LocalRpc.csproj" />
+    <ProjectReference Include="..\CSweet.Office.Runtime.Protocol\CSweet.Office.Runtime.Protocol.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CSweet.Office.Tests" />
+  </ItemGroup>
+</Project>

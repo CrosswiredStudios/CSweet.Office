@@ -11,6 +11,6 @@ $arguments = @($payload, $rid, $env:CSWEET_FIRECRACKER, $env:CSWEET_JAILER, $env
     $env:CSWEET_CERTIFICATION_VALID_UNTIL)
 & bash (Join-Path $root 'scripts\linux\new-runtime-payload.sh') @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Linux payload creation failed.' }
-& bash (Join-Path $root 'scripts\linux\new-native-packages.sh') $payload $Output $Version --format all `
-    --deb-signing-key $env:CSWEET_LINUX_SIGNING_KEY_ID --rpm-signing-key $env:CSWEET_LINUX_SIGNING_KEY_ID
+& bash (Join-Path $root 'scripts\linux\new-native-packages.sh') $payload $Output $Version --format deb `
+    --deb-signing-key $env:CSWEET_LINUX_SIGNING_KEY_ID
 if ($LASTEXITCODE -ne 0) { throw 'Linux package creation failed.' }

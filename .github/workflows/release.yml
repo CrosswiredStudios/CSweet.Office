@@ -55,8 +55,8 @@ jobs:
       - name: Generate release manifest and consolidated checksums
         shell: pwsh
         run: |
-          $version = '${{ github.ref_name }}'.TrimStart('v')
-          ./scripts/release/New-SatelliteOfficeReleaseManifest.ps1 -Version $version -ContractsVersion '1.0.0' -AssetDirectory artifacts/release -OutputPath artifacts/release/satellite-office-release.json
+          $release = ./scripts/release/Get-OfficeReleaseMetadata.ps1 -Tag '${{ github.ref_name }}'
+          ./scripts/release/New-OfficeReleaseManifest.ps1 -Version $release.Version -ContractsVersion $release.ContractsVersion -AssetDirectory artifacts/release -OutputPath artifacts/release/office-release.json
           Get-ChildItem artifacts/release -File | Where-Object Name -ne SHA256SUMS | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content artifacts/release/SHA256SUMS -Encoding ascii
       - run: bash ./scripts/release/verify-release.sh artifacts/release
       - uses: actions/attest-build-provenance@v2
@@ -68,7 +68,6 @@ jobs:
           files: |
             artifacts/release/*.msi
             artifacts/release/*.deb
-            artifacts/release/*.rpm
             artifacts/release/*.pkg
             artifacts/release/*.img
             artifacts/release/*.sig

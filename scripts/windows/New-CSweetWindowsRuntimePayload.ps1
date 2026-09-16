@@ -27,25 +27,28 @@ New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 $runtimeRoot = Join-Path $OutputRoot 'runtime'
 $helperRoot = Join-Path $OutputRoot 'helper'
 $nodeRoot = Join-Path $OutputRoot 'node'
+$configuratorRoot = Join-Path $OutputRoot 'configurator'
 $imageRoot = Join-Path $OutputRoot 'images'
 $certificateRoot = Join-Path $OutputRoot 'certificates'
 $certificationRoot = Join-Path $OutputRoot 'certification'
-New-Item -ItemType Directory -Path $runtimeRoot, $helperRoot, $nodeRoot, $imageRoot, $certificateRoot, $certificationRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $runtimeRoot, $helperRoot, $nodeRoot, $configuratorRoot, $imageRoot, $certificateRoot, $certificationRoot -Force | Out-Null
 
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.SatelliteOffice.RuntimeHost\CSweet.SatelliteOffice.RuntimeHost.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $runtimeRoot
+dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.RuntimeHost\CSweet.Office.RuntimeHost.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $runtimeRoot
 if ($LASTEXITCODE -ne 0) { throw 'RuntimeHost publish failed.' }
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.SatelliteOffice.Runtime.HyperV.Helper\CSweet.SatelliteOffice.Runtime.HyperV.Helper.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $helperRoot
+dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Runtime.HyperV.Helper\CSweet.Office.Runtime.HyperV.Helper.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $helperRoot
 if ($LASTEXITCODE -ne 0) { throw 'Hyper-V helper publish failed.' }
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.SatelliteOffice.Node\CSweet.SatelliteOffice.Node.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $nodeRoot
-if ($LASTEXITCODE -ne 0) { throw 'SatelliteOffice publish failed.' }
-$publishedNodeExecutable = Join-Path $nodeRoot 'CSweet.SatelliteOffice.Node.exe'
+dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Node\CSweet.Office.Node.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $nodeRoot
+if ($LASTEXITCODE -ne 0) { throw 'Office publish failed.' }
+dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Configurator\CSweet.Office.Configurator.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $configuratorRoot
+if ($LASTEXITCODE -ne 0) { throw 'Office configurator publish failed.' }
+$publishedNodeExecutable = Join-Path $nodeRoot 'CSweet.Office.Node.exe'
 try {
     $publishedNodeVersion = [Version](Get-Item -LiteralPath $publishedNodeExecutable).VersionInfo.FileVersion
 } catch {
-    throw 'The published Satellite Office executable version is invalid.'
+    throw 'The published Office executable version is invalid.'
 }
-if ($publishedNodeVersion -lt [Version]'1.0.2.0') {
-    throw "The payload generator published Satellite Office $publishedNodeVersion. Version 1.0.2 or later is required for privileged signed-assignment enforcement."
+if ($publishedNodeVersion -lt [Version]'0.1.0.0') {
+    throw "The payload generator published Office $publishedNodeVersion. Version 1.0.2 or later is required for privileged signed-assignment enforcement."
 }
 
 $installedImage = Join-Path $imageRoot 'csweet-agent-guest.vhdx'
@@ -68,10 +71,11 @@ $files = @(Get-ChildItem -LiteralPath $OutputRoot -File -Recurse | Where-Object 
 $manifest = [ordered]@{
     schemaVersion = 1
     packageVersion = $PackageVersion
-    satelliteOfficeVersion = $publishedNodeVersion.ToString(3)
-    runtimeHostExecutable = "runtime/CSweet.SatelliteOffice.RuntimeHost.exe"
-    helperExecutable = "helper/CSweet.SatelliteOffice.Runtime.HyperV.Helper.exe"
-    satelliteOfficeExecutable = "node/CSweet.SatelliteOffice.Node.exe"
+    officeVersion = $publishedNodeVersion.ToString(3)
+    runtimeHostExecutable = "runtime/CSweet.Office.RuntimeHost.exe"
+    helperExecutable = "helper/CSweet.Office.Runtime.HyperV.Helper.exe"
+    officeExecutable = "node/CSweet.Office.Node.exe"
+    configuratorExecutable = "configurator/CSweet.Office.Configurator.exe"
     guestImage = "images/csweet-agent-guest.vhdx"
     guestImageDigest = "sha256:$(Digest $installedImage)"
     guestImageSignature = "images/csweet-agent-guest.vhdx.sig"

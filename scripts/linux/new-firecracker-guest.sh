@@ -38,17 +38,21 @@ trap 'rm -rf -- "$build_root"' EXIT
 rootfs="$build_root/rootfs"
 guest_publish="$build_root/guest"
 builder_publish="$build_root/builder"
+toolchain_publish="$build_root/toolchain"
 probe_publish="$build_root/probe"
-mkdir -p "$output_root" "$rootfs" "$guest_publish" "$builder_publish" "$probe_publish"
+mkdir -p "$output_root" "$rootfs" "$guest_publish" "$builder_publish" "$toolchain_publish" "$probe_publish"
 
 echo "Publishing the guest broker, agent builder, and certification probe..."
-dotnet publish "$repository_root/src/CSweet.SatelliteOffice.RuntimeGuest/CSweet.SatelliteOffice.RuntimeGuest.csproj" \
+dotnet publish "$repository_root/src/CSweet.Office.RuntimeGuest/CSweet.Office.RuntimeGuest.csproj" \
   -c Release -r "$runtime_id" --self-contained true -p:PublishSingleFile=true \
   -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o "$guest_publish"
-dotnet publish "$repository_root/src/CSweet.SatelliteOffice.BuilderGuest/CSweet.SatelliteOffice.BuilderGuest.csproj" \
+dotnet publish "$repository_root/src/CSweet.Office.BuilderGuest/CSweet.Office.BuilderGuest.csproj" \
   -c Release -r "$runtime_id" --self-contained true -p:PublishSingleFile=true \
   -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o "$builder_publish"
-dotnet publish "$repository_root/src/CSweet.SatelliteOffice.GuestProbe/CSweet.SatelliteOffice.GuestProbe.csproj" \
+dotnet publish "$repository_root/src/CSweet.Office.ToolchainGuest/CSweet.Office.ToolchainGuest.csproj" \
+  -c Release -r "$runtime_id" --self-contained true -p:PublishSingleFile=true \
+  -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o "$toolchain_publish"
+dotnet publish "$repository_root/src/CSweet.Office.GuestProbe/CSweet.Office.GuestProbe.csproj" \
   -c Release -r "$runtime_id" --self-contained true -p:PublishSingleFile=true \
   -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o "$probe_publish"
 
@@ -62,8 +66,9 @@ dotnet_root=$(dirname "$dotnet_executable")
 install -d -m 0755 "$rootfs/usr/share/dotnet"
 cp -a "$dotnet_root/." "$rootfs/usr/share/dotnet/"
 ln -s /usr/share/dotnet/dotnet "$rootfs/usr/bin/dotnet"
-install -m 0755 "$guest_publish/CSweet.SatelliteOffice.RuntimeGuest" "$rootfs/tmp/CSweet.SatelliteOffice.RuntimeGuest"
-install -m 0755 "$builder_publish/CSweet.SatelliteOffice.BuilderGuest" "$rootfs/tmp/CSweet.SatelliteOffice.BuilderGuest"
+install -m 0755 "$guest_publish/CSweet.Office.RuntimeGuest" "$rootfs/tmp/CSweet.Office.RuntimeGuest"
+install -m 0755 "$builder_publish/CSweet.Office.BuilderGuest" "$rootfs/tmp/CSweet.Office.BuilderGuest"
+install -m 0755 "$toolchain_publish/CSweet.Office.ToolchainGuest" "$rootfs/tmp/CSweet.Office.ToolchainGuest"
 install -m 0755 "$repository_root/build/linux-firecracker/provision-guest.sh" "$rootfs/tmp/provision-csweet-guest.sh"
 chroot "$rootfs" /bin/bash /tmp/provision-csweet-guest.sh
 chroot "$rootfs" /usr/bin/dotnet --list-sdks | grep -Eq '^10\.' || {
@@ -75,7 +80,7 @@ initrd=$(find "$rootfs/boot" -maxdepth 1 -type f -name 'initrd.img-*' | sort -V 
 [[ -n "$kernel" && -n "$initrd" ]] || { echo "The guest kernel or initrd was not produced." >&2; exit 2; }
 install -m 0644 "$kernel" "$output_root/vmlinux"
 install -m 0644 "$initrd" "$output_root/initrd.img"
-install -m 0755 "$probe_publish/CSweet.SatelliteOffice.GuestProbe" "$output_root/CSweet.SatelliteOffice.GuestProbe"
+install -m 0755 "$probe_publish/CSweet.Office.GuestProbe" "$output_root/CSweet.Office.GuestProbe"
 
 used_bytes=$(du -sx --block-size=1 "$rootfs" | awk '{print $1}')
 image_bytes=$((used_bytes + 768 * 1024 * 1024))

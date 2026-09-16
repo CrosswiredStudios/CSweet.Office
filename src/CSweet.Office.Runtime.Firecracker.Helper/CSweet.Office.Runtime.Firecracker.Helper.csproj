@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>CSweet.Office.Runtime.Firecracker.Helper</AssemblyName>
+    <Description>Privileged, narrow Firecracker/jailer lifecycle helper for C-Sweet RuntimeHost.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.Office.Runtime.Core\CSweet.Office.Runtime.Core.csproj" />
+    <ProjectReference Include="..\CSweet.Office.Runtime.Firecracker\CSweet.Office.Runtime.Firecracker.csproj" />
+  </ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.Office.Tests" /></ItemGroup>
+</Project>

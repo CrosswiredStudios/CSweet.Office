@@ -1,0 +1,28 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CSweet.Office.Runtime.Abstractions/CSweet.Office.Runtime.Abstractions.csproj" />
+    <Project Path="src/CSweet.Office.Runtime.Core/CSweet.Office.Runtime.Core.csproj" />
+    <Project Path="src/CSweet.Office.Runtime.Protocol/CSweet.Office.Runtime.Protocol.csproj" />
+    <Project Path="src/CSweet.Office.Runtime.LocalRpc/CSweet.Office.Runtime.LocalRpc.csproj" />
+    <Project Path="src/CSweet.Office.Runtime.Artifacts/CSweet.Office.Runtime.Artifacts.csproj" />
+    <Project Path="src/CSweet.Office.Runtime.HyperV/CSweet.Office.Runtime.HyperV.csproj" />
+    <Project Path="src/CSweet.Office.Runtime.HyperV.Helper/CSweet.Office.Runtime.HyperV.Helper.csproj" />
+    <Project Path="src/CSweet.Office.Runtime.Firecracker/CSweet.Office.Runtime.Firecracker.csproj" />
+    <Project Path="src/CSweet.Office.Runtime.Firecracker.Helper/CSweet.Office.Runtime.Firecracker.Helper.csproj" />
+    <Project Path="src/CSweet.Office.Runtime.AppleVirtualization/CSweet.Office.Runtime.AppleVirtualization.csproj" />
+    <Project Path="src/CSweet.Office.BuilderGuest/CSweet.Office.BuilderGuest.csproj" />
+    <Project Path="src/CSweet.Office.ToolchainGuest/CSweet.Office.ToolchainGuest.csproj" />
+    <Project Path="src/CSweet.Office.RuntimeGuest/CSweet.Office.RuntimeGuest.csproj" />
+    <Project Path="src/CSweet.Office.GuestProbe/CSweet.Office.GuestProbe.csproj" />
+    <Project Path="src/CSweet.Office.Node/CSweet.Office.Node.csproj" />
+    <Project Path="src/CSweet.Office.Configurator/CSweet.Office.Configurator.csproj" />
+    <Project Path="src/CSweet.Office.RuntimeHost/CSweet.Office.RuntimeHost.csproj" />
+    <Project Path="src/CSweet.Office.WindowsSmokeTest/CSweet.Office.WindowsSmokeTest.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CSweet.Office.Tests/CSweet.Office.Tests.csproj" />
+  </Folder>
+  <Folder Name="/dependencies/">
+    <Project Path="../CSweet.Office.Contracts/src/CSweet.Office.Contracts/CSweet.Office.Contracts.csproj" />
+  </Folder>
+</Solution>

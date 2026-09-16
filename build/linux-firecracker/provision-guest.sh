@@ -1,18 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
-guest_source=/tmp/CSweet.SatelliteOffice.RuntimeGuest
-builder_source=/tmp/CSweet.SatelliteOffice.BuilderGuest
+guest_source=/tmp/CSweet.Office.RuntimeGuest
+builder_source=/tmp/CSweet.Office.BuilderGuest
+toolchain_source=/tmp/CSweet.Office.ToolchainGuest
 guest_root=/usr/lib/csweet/guest
 builder_root=/usr/lib/csweet/builder
-if [[ ! -x "$guest_source" || ! -x "$builder_source" ]]; then
+toolchain_root=/usr/lib/csweet/toolchain
+if [[ ! -x "$guest_source" || ! -x "$builder_source" || ! -x "$toolchain_source" ]]; then
   echo 'A published C-Sweet guest executable is missing.' >&2
   exit 2
 fi
 
-install -d -m 0755 "$guest_root" "$builder_root"
-install -o root -g root -m 0755 "$guest_source" "$guest_root/CSweet.SatelliteOffice.RuntimeGuest"
-install -o root -g root -m 0755 "$builder_source" "$builder_root/CSweet.SatelliteOffice.BuilderGuest"
+install -d -m 0755 "$guest_root" "$builder_root" "$toolchain_root"
+install -o root -g root -m 0755 "$guest_source" "$guest_root/CSweet.Office.RuntimeGuest"
+install -o root -g root -m 0755 "$builder_source" "$builder_root/CSweet.Office.BuilderGuest"
+install -o root -g root -m 0755 "$toolchain_source" "$toolchain_root/CSweet.Office.ToolchainGuest"
 getent group csweet-workload >/dev/null || groupadd --system csweet-workload
 id csweet-workload >/dev/null 2>&1 || useradd --system --gid csweet-workload \
   --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin csweet-workload
@@ -41,7 +44,7 @@ mkfs.ext4 -F -L CSWEET_SCRATCH "$scratch"
 mount -t ext4 -o rw,nosuid,nodev "$scratch" /run/csweet
 chmod 0711 /run/csweet
 install -d -o csweet-workload -g csweet-workload -m 0700 /run/csweet/workload
-exec /usr/lib/csweet/guest/CSweet.SatelliteOffice.RuntimeGuest
+exec /usr/lib/csweet/guest/CSweet.Office.RuntimeGuest
 SCRIPT
 chmod 0755 /usr/lib/csweet/prepare-runtime.sh
 
@@ -102,5 +105,5 @@ FSTAB
 rm -f /etc/machine-id
 touch /etc/machine-id
 apt-get clean
-rm -rf /var/lib/apt/lists/* /tmp/CSweet.SatelliteOffice.RuntimeGuest /tmp/CSweet.SatelliteOffice.BuilderGuest
+rm -rf /var/lib/apt/lists/* /tmp/CSweet.Office.RuntimeGuest /tmp/CSweet.Office.BuilderGuest /tmp/CSweet.Office.ToolchainGuest
 sync

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "packageVersion": "1.0.0",
-  "runtimeHostExecutable": "CSweet.SatelliteOffice.RuntimeHost.exe",
-  "helperExecutable": "CSweet.SatelliteOffice.Runtime.HyperV.Helper.exe",
+  "runtimeHostExecutable": "CSweet.Office.RuntimeHost.exe",
+  "helperExecutable": "CSweet.Office.Runtime.HyperV.Helper.exe",
   "guestImage": "images/csweet-agent-guest.vhdx",
   "guestImageDigest": "sha256:REPLACE_WITH_64_LOWERCASE_HEX_CHARACTERS",
   "guestImageSignature": "images/csweet-agent-guest.vhdx.sig",
@@ -15,7 +15,7 @@
   "certificationExpiresAt": null,
   "files": [
     {
-      "path": "CSweet.SatelliteOffice.RuntimeHost.exe",
+      "path": "CSweet.Office.RuntimeHost.exe",
       "sha256": "REPLACE_WITH_64_LOWERCASE_HEX_CHARACTERS"
     }
   ]

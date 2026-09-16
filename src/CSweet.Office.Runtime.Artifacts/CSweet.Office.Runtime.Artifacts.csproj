@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\CSweet.Office.Runtime.Abstractions\CSweet.Office.Runtime.Abstractions.csproj" />
+    <ProjectReference Include="..\CSweet.Office.Runtime.Core\CSweet.Office.Runtime.Core.csproj" />
+  </ItemGroup>
+</Project>

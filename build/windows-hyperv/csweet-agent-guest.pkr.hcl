@@ -35,6 +35,10 @@ variable "builder_publish_directory" {
   type = string
 }
 
+variable "toolchain_publish_directory" {
+  type = string
+}
+
 variable "output_directory" {
   type = string
 }
@@ -82,13 +86,18 @@ build {
   sources = ["source.hyperv-iso.csweet_agent_guest"]
 
   provisioner "file" {
-    source      = "${var.guest_publish_directory}/CSweet.SatelliteOffice.RuntimeGuest"
-    destination = "/tmp/CSweet.SatelliteOffice.RuntimeGuest"
+    source      = "${var.guest_publish_directory}/CSweet.Office.RuntimeGuest"
+    destination = "/tmp/CSweet.Office.RuntimeGuest"
   }
 
   provisioner "file" {
-    source      = "${var.builder_publish_directory}/CSweet.SatelliteOffice.BuilderGuest"
-    destination = "/tmp/CSweet.SatelliteOffice.BuilderGuest"
+    source      = "${var.builder_publish_directory}/CSweet.Office.BuilderGuest"
+    destination = "/tmp/CSweet.Office.BuilderGuest"
+  }
+
+  provisioner "file" {
+    source      = "${var.toolchain_publish_directory}/CSweet.Office.ToolchainGuest"
+    destination = "/tmp/CSweet.Office.ToolchainGuest"
   }
 
   provisioner "shell" {
