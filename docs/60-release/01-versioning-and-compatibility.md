@@ -10,7 +10,7 @@ from a tag; the pipeline refuses to publish when the tag does not name the versi
 
 | Truth | File and property | Value at the time of writing | Changed by |
 |---|---|---|---|
-| Office version | `Directory.Build.props` → `VersionPrefix` | `0.5.3` | The contributor cutting the release |
+| Office version | `Directory.Build.props` → `VersionPrefix` | `0.5.4` | The contributor cutting the release |
 | Contracts version | `Directory.Packages.props` → `PackageVersion Include="CSweet.Office.Contracts"` | `0.7.0` | The contributor taking a new contracts package |
 | Release identity | The git tag | `vMAJOR.MINOR.PATCH` | Whoever pushes the tag |
 
@@ -123,4 +123,4 @@ Consequences:
 `scripts/linux/new-native-packages.sh`, `scripts/macos/new-installer-package.sh`, `releases/{0.4.0,0.5.2,0.5.3}.md`,
 `.github/workflows/ci.yml`, `docs/20-security/11-security-invariants.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-16.

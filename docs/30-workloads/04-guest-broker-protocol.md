@@ -129,9 +129,10 @@ Note the asymmetry: kind 0 gets the `build.*` purposes but **not** `/mcp`, and k
 | Paths | `/mcp`, `/build/fetch`, `/build/artifact`, `/build/progress`. |
 | Protocol | HTTP/1.1. |
 | Headers | At most 32 KiB. |
-| Body | At most 1 MiB, with **exactly one** framing mode: `Content-Length` xor `Transfer-Encoding: chunked`, with bounded trailers. |
+| Body | At most 16 MiB minus 64 KiB reserved for headers and the protobuf envelope, with **exactly one** framing mode: `Content-Length` xor `Transfer-Encoding: chunked`, with bounded trailers. |
 | Forwarding | Strips `Host`, `Connection`, `Content-Length`, and `Transfer-Encoding` from requests; strips hop-by-hop headers and `Content-Length` from responses. |
 | Responses | Always `Connection: close`. |
+| Oversized input | HTTP 413 with a JSON-RPC error and the byte limit; no forwarding. Smaller configured frame ceilings are checked before sending the envelope. |
 | Malformed input | `400 broker request rejected`. |
 
 The SDK is pointed at it by the fixed environment: `CSweet__Agent__McpEndpoint = http://localhost/mcp` and
@@ -152,4 +153,4 @@ guest cannot do so.
 `src/CSweet.Office.WindowsSmokeTest/CertificationBrokerHost.cs`,
 `tests/CSweet.Office.Tests/GuestLocalBrokerProxyTests.cs`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-16.

@@ -138,3 +138,25 @@ VM, and an unrecognized provider record. Run it after touching
 `docs/20-security/11-security-invariants.md`, `docs/30-workloads/01-assignment-and-lease-semantics.md`.
 
 Verified: 2026-09-15.
+
+## Guided local debug builds
+
+The Headquarters Office page exposes Build and update (debug) for the explicitly configured local
+development source, including same-version source edits. The existing drain, certification and
+identity-preserving upgrade gates still apply.
+
+Source: scripts/windows/CSweet.DevelopmentBuild.ps1 serializes bootstrap processes with a machine-wide
+mutex and waits for live developer-bootstrap progress owners, including command-line builds started
+before this helper existed. It never terminates existing work. Unreadable progress fails closed;
+waiting is bounded at two hours. Older running records without a valid owner process are ignored only
+when their update timestamp predates the Windows boot time. Current-boot or unverifiable ownerless
+records stop setup with a recovery message, preserving concurrent-build exclusion after database resets.
+Completed image markers remain reusable, but a subsequent operation
+may certify that image again.
+
+Source: scripts/windows/Initialize-CSweetWindowsIsolationTest.ps1 returns the exact completed payload
+through -PayloadResultPath. The Headquarters development launcher consumes that result and does not
+select a payload directory by its timestamp. Verify coordination with
+scripts/tests/Test-DevelopmentBuildCoordination.ps1.
+
+Verified: 2026-09-16.

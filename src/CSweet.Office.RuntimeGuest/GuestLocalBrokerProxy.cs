@@ -24,7 +24,9 @@ public sealed class GuestLocalBrokerProxy(
     Func<GuestLocalBrokerRequest, CancellationToken, Task<GuestLocalBrokerResponse>> forward) : IAsyncDisposable
 {
     private const int MaximumHeaderBytes = 32 * 1024;
-    private const int MaximumBodyBytes = 1024 * 1024;
+    // The host transport uses 16 MiB frames. Reserve room for the bounded headers
+    // and protobuf envelope; the MCP/model service still enforces its own payload limit.
+    internal const int MaximumBodyBytes = 16 * 1024 * 1024 - 64 * 1024;
     private static readonly HashSet<string> HopByHopHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
         "Connection",
@@ -75,19 +77,35 @@ public sealed class GuestLocalBrokerProxy(
         using (client)
         await using (var stream = new NetworkStream(client, ownsSocket: false))
         {
-            try
-            {
-                var request = await ReadRequestAsync(stream, cancellationToken);
-                var response = await forward(request, cancellationToken);
-                await WriteResponseAsync(stream, response, cancellationToken);
-            }
-            catch (Exception exception) when (exception is InvalidDataException or IOException)
-            {
-                await WriteResponseAsync(
-                    stream,
-                    new GuestLocalBrokerResponse(400, new Dictionary<string, string>(), Encoding.UTF8.GetBytes("broker request rejected")),
-                    CancellationToken.None);
-            }
+            await HandleRequestAsync(stream, cancellationToken);
+        }
+    }
+
+    internal async Task HandleRequestAsync(Stream stream, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var request = await ReadRequestAsync(stream, cancellationToken);
+            var response = await forward(request, cancellationToken);
+            await WriteResponseAsync(stream, response, cancellationToken);
+        }
+        catch (BrokerBodyTooLargeException exception)
+        {
+            await WriteResponseAsync(stream,
+                new GuestLocalBrokerResponse(413,
+                    new Dictionary<string, string> { ["Content-Type"] = "application/json" },
+                    Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        jsonrpc = "2.0", error = new { code = -32600, message = exception.Message }
+                    }))),
+                CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or IOException)
+        {
+            await WriteResponseAsync(
+                stream,
+                new GuestLocalBrokerResponse(400, new Dictionary<string, string>(), Encoding.UTF8.GetBytes("broker request rejected")),
+                CancellationToken.None);
         }
     }
 
@@ -136,9 +154,10 @@ public sealed class GuestLocalBrokerProxy(
         byte[] body;
         if (hasLength)
         {
-            if (!int.TryParse(lengthValue, out var length) || length is < 0 or > MaximumBodyBytes)
+            if (!long.TryParse(lengthValue, out var declaredLength) || declaredLength < 0)
                 throw new InvalidDataException("The local broker content length is invalid.");
-            body = new byte[length];
+            if (declaredLength > MaximumBodyBytes) throw new BrokerBodyTooLargeException();
+            body = new byte[(int)declaredLength];
             await stream.ReadExactlyAsync(body, cancellationToken);
         }
         else
@@ -176,7 +195,7 @@ public sealed class GuestLocalBrokerProxy(
                 }
             }
             if (body.Length + size > MaximumBodyBytes)
-                throw new InvalidDataException("The local broker chunked body exceeds its limit.");
+                throw new BrokerBodyTooLargeException();
             var chunk = new byte[size];
             await stream.ReadExactlyAsync(chunk, cancellationToken);
             await body.WriteAsync(chunk, cancellationToken);
@@ -243,6 +262,9 @@ public sealed class GuestLocalBrokerProxy(
         _lifetime?.Dispose();
         if (File.Exists(socketPath)) File.Delete(socketPath);
     }
+
+    internal sealed class BrokerBodyTooLargeException(int maximumBytes = MaximumBodyBytes) : IOException(
+        $"The MCP request exceeds the guest broker {maximumBytes}-byte transport limit.");
 
     private static string Reason(int status) => status switch
     {

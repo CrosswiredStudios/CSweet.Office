@@ -5,6 +5,57 @@ namespace CSweet.Office.Tests;
 
 public sealed class GuestLocalBrokerProxyTests
 {
+    [Theory]
+    [InlineData(false, 2578964)]
+    [InlineData(true, 2578964)]
+    [InlineData(false, GuestLocalBrokerProxy.MaximumBodyBytes)]
+    [InlineData(true, GuestLocalBrokerProxy.MaximumBodyBytes)]
+    public async Task ReadRequestAsync_AcceptsProductionSizedBodies(bool chunked, int size)
+    {
+        var body = new string('x', size);
+        var wire = chunked
+            ? $"POST /mcp HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n{size:x}\r\n{body}\r\n0\r\n\r\n"
+            : $"POST /mcp HTTP/1.1\r\nContent-Length: {size}\r\n\r\n{body}";
+        await using var stream = new MemoryStream(Encoding.ASCII.GetBytes(wire));
+        var request = await GuestLocalBrokerProxy.ReadRequestAsync(stream, CancellationToken.None);
+        Assert.Equal(body, Encoding.ASCII.GetString(request.Body.Span));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HandleRequestAsync_OversizedBodyReturns413WithoutForwarding(bool chunked)
+    {
+        var size = GuestLocalBrokerProxy.MaximumBodyBytes + 1;
+        var wire = chunked
+            ? $"POST /mcp HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n{size:x}\r\n"
+            : $"POST /mcp HTTP/1.1\r\nContent-Length: {size}\r\n\r\n";
+        await using var stream = new MemoryStream();
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(wire));
+        stream.Position = 0;
+        var forwarded = false;
+        await using var proxy = new GuestLocalBrokerProxy(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")),
+            (_, _) =>
+            {
+                forwarded = true;
+                throw new InvalidOperationException("An oversized request must not be forwarded.");
+            });
+        await proxy.HandleRequestAsync(stream, CancellationToken.None);
+        var response = Encoding.UTF8.GetString(stream.ToArray(), wire.Length, (int)stream.Length - wire.Length);
+        Assert.StartsWith("HTTP/1.1 413 Content Too Large", response);
+        Assert.Contains("exceeds the guest broker", response);
+        Assert.False(forwarded);
+    }
+
+    [Fact]
+    public async Task WriteResponseAsync_AcceptsProductionSizedResponse()
+    {
+        var body = new byte[2578964];
+        await using var stream = new MemoryStream();
+        await GuestLocalBrokerProxy.WriteResponseAsync(stream,
+            new GuestLocalBrokerResponse(200, new Dictionary<string, string>(), body), CancellationToken.None);
+        Assert.True(stream.Length > body.Length);
+    }
     [Fact]
     public async Task ReadRequestAsync_AcceptsBoundedChunkedJsonContent()
     {

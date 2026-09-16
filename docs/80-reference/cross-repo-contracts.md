@@ -50,7 +50,7 @@ global using CSweet.Office.Contracts.Workloads;
 | Truth | Location | Current value |
 |---|---|---|
 | Contracts package version | `Directory.Packages.props` → `<PackageVersion Include="CSweet.Office.Contracts" Version="…" />` | `0.7.0` |
-| Office runtime version | `Directory.Build.props` → `<VersionPrefix>` | `0.5.3` |
+| Office runtime version | `Directory.Build.props` → `<VersionPrefix>` | `0.5.4` |
 | Release tag | Git tag `vX.Y.Z` | must equal `VersionPrefix` |
 
 `scripts/release/Get-OfficeReleaseMetadata.ps1` is the only script that compares these: it rejects a tag that
@@ -218,4 +218,4 @@ the sequence is always: change in `CSweet.Office.Contracts` → bump, pack, publ
 and the sibling checkouts `..\CSweet.Office.Contracts\src\CSweet.Office.Contracts\{CSweet.Office.Contracts.csproj,ProtocolVersions.cs,ControlPlane\*.cs,Guest\*.cs,Security\AssignmentEnvelope.cs,Workloads\WorkloadModels.cs}`
 and `..\CSweet.Isolation\` (directory layout).
 
-Verified: 2026-09-15.
+Verified: 2026-09-16.

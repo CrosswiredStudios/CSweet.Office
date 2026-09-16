@@ -14,7 +14,7 @@ the repository is inconsistent, the inconsistency is named rather than smoothed 
 | `Nullable` | `enable` |
 | `LangVersion` | `latest` |
 | `EnforceCodeStyleInBuild` | `true` |
-| `VersionPrefix` | `0.5.3` |
+| `VersionPrefix` | `0.5.4` |
 
 Package versions live only in `Directory.Packages.props` (central package management with transitive
 pinning); see [02-build-and-test.md](02-build-and-test.md) for the two-edit workflow.
@@ -116,4 +116,4 @@ comment is often the only in-code record of the invariant (`SEC-INV-05` is that 
 `src/CSweet.Office.Node/OfficeCertificateLease.cs`, `src/CSweet.Office.RuntimeGuest/GuestArtifactMaterializer.cs`,
 `tests/CSweet.Office.Tests/IsolationProviderSelectorTests.cs`, `docs/70-contributing/02-documentation-style.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-16.

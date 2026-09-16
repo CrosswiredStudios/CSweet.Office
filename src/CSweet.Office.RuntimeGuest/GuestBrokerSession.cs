@@ -150,12 +150,17 @@ public sealed class GuestBrokerSession(
                 Body = Google.Protobuf.ByteString.CopyFrom(request.Body.Span)
             };
             foreach (var header in request.Headers) proxy.Headers.Add(header.Key, header.Value);
-            await WriteAsync(output, new GuestEnvelope
+            var envelope = new GuestEnvelope
             {
                 ProtocolVersion = options.ProtocolVersion,
                 MessageId = Guid.NewGuid().ToString("N"),
                 ProxyRequest = proxy
-            }, cancellationToken);
+            };
+            // A deployment can configure a smaller frame ceiling. Reject explicitly before
+            // writing so an oversized request cannot disrupt the shared broker channel.
+            if (envelope.CalculateSize() > options.MaximumFrameBytes)
+                throw new GuestLocalBrokerProxy.BrokerBodyTooLargeException(options.MaximumFrameBytes);
+            await WriteAsync(output, envelope, cancellationToken);
             var response = await completion.Task.WaitAsync(cancellationToken);
             return new GuestLocalBrokerResponse(
                 response.StatusCode,

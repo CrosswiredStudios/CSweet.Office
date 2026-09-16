@@ -117,7 +117,7 @@ timeout.
 | `ExternalPlatformStdioGuestChannelConnectorTests` | Handshake reads stop at the newline without consuming broker bytes; oversized or ambiguous framing rejected; wrong provider and control characters rejected; only the certified transport is accepted. |
 | `FirecrackerHelperSecurityTests` | Fixed argument surface; jailer namespaces and hard limits without networking; protected-path traversal rejected; vsock handshake bounds and byte preservation; reaper selects only expired runtime instances; strict tool version parsing (`SEC-INV-20`). |
 | `GuestArtifactMaterializerTests` | Only provider-owned fixed devices are mountable; arbitrary guest paths rejected; artifact root stays root-owned and group-readable (`SEC-INV-22`). |
-| `GuestLocalBrokerProxyTests` | Bounded chunked JSON accepted; conflicting body framing rejected; responses reframed without hop-by-hop headers. |
+| `GuestLocalBrokerProxyTests` | Fixed-length and chunked production-sized bodies accepted up to the ceiling; oversize input returns 413 without forwarding; conflicting framing rejected; responses reframed without hop-by-hop headers. |
 | `HyperVInstanceReapingTests` | Reaping retains a running VM with an active lease, reaps expired or powered-off runtime instances, gives new instances a grace period, reaps legacy instances without a lease, and never reaps a builder VM. |
 | `InMemoryIsolationProviderTests` | The test double's lifecycle stays deterministic and `Destroy` is final; duplicate workload identity rejected. |
 | `IsolationProviderSelectorTests` | Shared-kernel providers rejected at every trust level; providers without certification rejected; certifications bound to a different image rejected; highest assurance wins; digest discovery without a pin; no fallback when a preferred provider is unavailable (`SEC-INV-10`). |
@@ -153,4 +153,4 @@ timeout.
 `scripts/office-e2e.ps1`, `scripts/windows/New-CSweetOfficeMsi.ps1`, `.github/workflows/ci.yml`,
 `docs/20-security/11-security-invariants.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-16.

@@ -93,9 +93,9 @@ Behavioural.
 - Mode sanitization forces directories to `rwxr-x---`, data files to `r--r-----`, and executables to
   `r-xr-x---` from the workload's perspective.
 
-## `GuestLocalBrokerProxyTests` (3 tests)
+## `GuestLocalBrokerProxyTests` (10 cases)
 
-Behavioural, in-memory streams.
+Behavioural, in-memory streams. Includes the observed 2,578,964-byte request, exact-ceiling fixed-length and chunked bodies, HTTP 413 without forwarding above the ceiling, and a multi-megabyte response.
 
 - Chunked request framing is decoded, `Transfer-Encoding` is removed from the forwarded headers, and the body
   round-trips exactly.
@@ -440,4 +440,4 @@ invariants page either. Changing any of the five is a change to an untested guar
 `scripts/tests/Test-OfficeUpgradeProbe.ps1`, `scripts/windows/Get-CSweetOfficeRecoveryState.ps1`,
 `docs/20-security/11-security-invariants.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-16.

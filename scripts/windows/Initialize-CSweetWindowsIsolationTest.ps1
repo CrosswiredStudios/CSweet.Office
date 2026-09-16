@@ -3,6 +3,7 @@ param(
     [string] $SwitchName = 'Default Switch',
     [switch] $RebuildGuest,
     [switch] $SkipInstall,
+    [string] $PayloadResultPath,
     [switch] $NoElevation,
     [string] $ControlPlaneUserSid,
     [string] $ControlPlaneUrl,
@@ -72,6 +73,7 @@ if (-not (Test-Administrator)) {
         '-ProgressJobId', (Quote-ProcessArgument $ProgressJobId.ToString('D')), '-NoElevation')
     if ($RebuildGuest) { $arguments += '-RebuildGuest' }
     if ($SkipInstall) { $arguments += '-SkipInstall' }
+    if ($PayloadResultPath) { $arguments += @('-PayloadResultPath', (Quote-ProcessArgument $PayloadResultPath)) }
     $process = Start-Process -FilePath $hostExecutable -Verb RunAs -Wait -PassThru -ArgumentList ($arguments -join ' ')
     if ($process.ExitCode -ne 0) { throw "The elevated Windows isolation test exited with code $($process.ExitCode)." }
     return
@@ -105,7 +107,14 @@ function Start-CertificationHeartbeat {
     } -ArgumentList $progressHelper, $ProgressPath, $ProgressJobId, $ownerProcessId
 }
 
+. (Join-Path $PSScriptRoot 'CSweet.DevelopmentBuild.ps1')
+$buildLock = $null
 try {
+$buildLock = Enter-CSweetDevelopmentBuild -OnWaiting {
+    Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
+        -State running -PhaseKey wait-existing-build -PhaseDisplayName 'Waiting for the existing Office build' `
+        -Message 'Another Office build is already running. It will not be interrupted or duplicated.' -PercentComplete 1
+}
 Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
     -State running -PhaseKey host-preflight -PhaseDisplayName 'Checking Windows and Hyper-V' `
     -Message 'C-Sweet is validating the Windows host before making changes.' -PercentComplete 2 `
@@ -319,6 +328,9 @@ if (-not $SkipInstall) {
 }
 
 Write-Host ''
+if (-not [string]::IsNullOrWhiteSpace($PayloadResultPath)) {
+    [IO.File]::WriteAllText($PayloadResultPath, $payloadRoot, [Text.UTF8Encoding]::new($false))
+}
 Write-Host 'C-Sweet Windows Hyper-V isolation is ready for application testing.' -ForegroundColor Green
 Write-Host "Certification evidence: $evidencePath"
 Write-Host "Development payload: $payloadRoot"
@@ -363,4 +375,11 @@ if ($SkipInstall) {
             -ErrorCode 'developer-bootstrap-failed' -ErrorMessage $_.Exception.Message
     } catch { }
     throw
+}
+
+finally {
+    if ($null -ne $buildLock) {
+        $buildLock.ReleaseMutex()
+        $buildLock.Dispose()
+    }
 }
