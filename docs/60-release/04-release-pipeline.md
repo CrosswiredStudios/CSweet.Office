@@ -2,7 +2,7 @@
 
 **Audience:** release engineers, and reviewers of `.github/workflows/`.
 
-The default tagged release path is now [GitHub-hosted development bundles](07-hosted-development-bundles.md).
+The default version-driven release path is now [GitHub-hosted development bundles](07-hosted-development-bundles.md).
 It needs no signing secrets and certifies/signs locally on each destination host. `ci.yml` verifies
 the published contracts boundary. The production `release.yml` workflow described below is
 manual-only and still requires hardened runners and production signing inputs.

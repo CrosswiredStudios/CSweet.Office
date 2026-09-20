@@ -4,9 +4,9 @@
 
 Release notes live in `releases/`, one Markdown file per version, named for the version: `releases/0.4.0.md`,
 `releases/0.5.0.md`, `releases/0.5.1.md`, `releases/0.5.2.md`, `releases/0.5.3.md`. They are the human-facing
-record that accompanies a tag; nothing in the build, packaging, or publishing pipeline reads them. The
-convention matters because they are the only place where deployment ordering and prerequisites are stated
-before an operator upgrades a live machine.
+record that accompanies a tag. `hosted-release.yml` checks for `releases/<version>.md` before building
+and uses its contents as the GitHub Release body. Include the notes in the version-bump push so
+operators receive deployment ordering and prerequisites with the published artifacts.
 
 ## The convention
 
@@ -44,7 +44,7 @@ The same notes show each of the required content types:
 
 ## Writing the next one
 
-1. Start the file in the same change that moves `VersionPrefix`, or before the tag is pushed. The tag must
+1. Start the file in the same change that moves `VersionPrefix`, before pushing to `main`. The tag must
    equal `VersionPrefix`, and the file name must equal the tag's version — see
    [01-versioning-and-compatibility.md](01-versioning-and-compatibility.md).
 2. Write bullets in the imperative or declarative present tense, as the existing files do. Describe behaviour
@@ -62,6 +62,6 @@ The same notes show each of the required content types:
 ## Sources
 
 `releases/{0.4.0,0.5.0,0.5.1,0.5.2,0.5.3}.md`, `Directory.Build.props`, `scripts/release/Get-OfficeReleaseMetadata.ps1`,
-`.github/workflows/release.yml`, `docs/20-security/11-security-invariants.md`, `docs/30-workloads/06-guest-images.md`.
+`.github/workflows/{release,hosted-release}.yml`, `docs/20-security/11-security-invariants.md`, `docs/30-workloads/06-guest-images.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-19.

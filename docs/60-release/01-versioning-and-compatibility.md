@@ -4,7 +4,8 @@
 pin.
 
 Office follows semantic versioning, carries its own `vX.Y.Z` tags, and never updates itself. A release is cut
-from a tag; the pipeline refuses to publish when the tag does not name the version the source tree builds as.
+from `VersionPrefix`: pushing its change to `main` starts the hosted workflow, which creates the matching
+tag during publication. Explicit tag runs also verify that the tag matches the source version.
 
 ## The three places version truth lives
 
@@ -12,7 +13,7 @@ from a tag; the pipeline refuses to publish when the tag does not name the versi
 |---|---|---|---|
 | Office version | `Directory.Build.props` → `VersionPrefix` | `0.6.0` | The contributor cutting the release |
 | Contracts version | `Directory.Packages.props` → `PackageVersion Include="CSweet.Office.Contracts"` | `0.7.0` | The contributor taking a new contracts package |
-| Release identity | The git tag | `vMAJOR.MINOR.PATCH` | Whoever pushes the tag |
+| Release identity | The git tag | `vMAJOR.MINOR.PATCH` | The hosted workflow, or an explicit tag push |
 
 `VersionPrefix` feeds the assembly and file version of every project. The payload generator reads the published
 `node/CSweet.Office.Node.exe` file version and publishes it as `officeVersion` in the payload manifest, so the
@@ -34,7 +35,8 @@ number an operator sees in a payload is the number the assemblies were built wit
 The production workflow calls the same script in every `certify-and-package` matrix job (through
 `Invoke-PlatformRelease.ps1`) and once in the `publish` job that generates the release manifest. Nothing else
 in the repository compares a tag with a build property, and no other file validates the contracts pin.
-The hosted development workflow also resolves its tag through this script before building bundles.
+The hosted development workflow validates `VersionPrefix` through this script before building bundles;
+explicit tag runs use its tag validation path.
 
 Downstream, three packaging surfaces also require the version format:
 
@@ -103,7 +105,7 @@ Consequences:
 | `csweet-office_<version>_<arch>.deb` file name and package `Version` field | `new-native-packages.sh`. |
 | `csweet-office-<version>-macos-<arch>.pkg` | `Invoke-MacRelease.ps1`. |
 | `officeVersion` and `contractsVersion` in `office-release.json` | `Get-OfficeReleaseMetadata.ps1` and `New-OfficeReleaseManifest.ps1`. |
-| Tag | The person pushing `vX.Y.Z`. |
+| Tag | The hosted workflow creates `vX.Y.Z` at the triggering commit; explicit tag pushes are also supported. |
 | Release notes | `releases/<version>.md`. |
 
 ## Cutting a version
@@ -114,7 +116,9 @@ Consequences:
    [06-release-notes-process.md](06-release-notes-process.md).
 4. Confirm the contracts pin in `Directory.Packages.props` is the released package the release requires.
 5. Build and test with `-p:UseLocalOfficeContracts=false`.
-6. Push the tag. The pipeline's first act is to refuse it if steps 2 and 6 disagree.
+6. Push the version bump and notes to `main`. The hosted workflow skips published versions, otherwise
+   builds and creates `v<version>` and its release automatically. Manual dispatch on `main` can retry
+   an unpublished version. See [07-hosted-development-bundles.md](07-hosted-development-bundles.md).
 
 ## Sources
 
@@ -122,6 +126,6 @@ Consequences:
 `scripts/release/Invoke-PlatformRelease.ps1`, `scripts/release/New-OfficeReleaseManifest.ps1`,
 `scripts/windows/New-CSweetWindowsRuntimePayload.ps1`, `scripts/windows/New-CSweetOfficeMsi.ps1`,
 `scripts/linux/new-native-packages.sh`, `scripts/macos/new-installer-package.sh`, `releases/{0.4.0,0.5.2,0.5.3}.md`,
-`.github/workflows/ci.yml`, `docs/20-security/11-security-invariants.md`.
+`.github/workflows/{ci,hosted-release}.yml`, `docs/20-security/11-security-invariants.md`.
 
-Verified: 2026-09-16.
+Verified: 2026-09-19.

@@ -1,31 +1,87 @@
 name: hosted-development-release
 on:
   push:
+    branches: [main]
+    paths:
+      - Directory.Build.props
+      - .github/workflows/hosted-release.yml
     tags: ['v*.*.*']
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: office-hosted-release-${{ github.ref }}
+  group: office-hosted-release
   cancel-in-progress: false
 jobs:
   metadata:
+    if: github.ref_type == 'tag' || github.ref_name == 'main'
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      should-publish: ${{ steps.check.outputs.should-publish }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - id: release
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
         run: |
-          if ($env:REF_TYPE -ne 'tag') { throw 'Run this workflow against a vMAJOR.MINOR.PATCH tag.' }
-          $release = ./scripts/release/Get-OfficeReleaseMetadata.ps1 -Tag $env:RELEASE_TAG
+          if ($env:REF_TYPE -eq 'tag') {
+            $release = ./scripts/release/Get-OfficeReleaseMetadata.ps1 -Tag $env:RELEASE_TAG
+          } else {
+            [xml]$build = Get-Content Directory.Build.props -Raw
+            $release = ./scripts/release/Get-OfficeReleaseMetadata.ps1 -Version ([string]$build.Project.PropertyGroup.VersionPrefix)
+          }
           "version=$($release.Version)" >> $env:GITHUB_OUTPUT
+          "tag=v$($release.Version)" >> $env:GITHUB_OUTPUT
+      - name: Check whether this version needs publishing
+        id: check
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            let release;
+            try {
+              ({ data: release } = await github.rest.repos.getReleaseByTag({ ...context.repo, tag }));
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            if (release) {
+              if (release.draft) throw new Error(`Inspect/remove the unpublished draft ${tag} before retrying.`);
+              core.info(`${tag} is already published; skipping builds and leaving its assets unchanged.`);
+              core.setOutput('should-publish', 'false');
+              return;
+            }
+            core.setOutput('should-publish', 'true');
+      - name: Validate unpublished tag and release notes
+        if: steps.check.outputs.should-publish == 'true'
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          $tagCommit = git rev-parse --verify --quiet "refs/tags/$env:RELEASE_TAG^{commit}"
+          if ($LASTEXITCODE -eq 0) {
+            $checkoutCommit = git rev-parse HEAD
+            if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $checkoutCommit) {
+              throw 'The existing unpublished tag points at another commit. Dispatch against that tag or use a new version.'
+            }
+          } elseif ($LASTEXITCODE -ne 1) {
+            throw 'Could not check the existing release tag.'
+          }
+          if (-not (Test-Path -LiteralPath "releases/$env:RELEASE_VERSION.md" -PathType Leaf)) {
+            throw "Add releases/$env:RELEASE_VERSION.md before publishing this version."
+          }
+          $global:LASTEXITCODE = 0
   binaries:
     needs: metadata
+    if: needs.metadata.outputs.should-publish == 'true'
     strategy:
       matrix:
         include:
@@ -52,6 +108,7 @@ jobs:
           if-no-files-found: error
   images:
     needs: metadata
+    if: needs.metadata.outputs.should-publish == 'true'
     runs-on: ubuntu-24.04
     env:
       DOTNET_INSTALL_DIR: ${{ github.workspace }}/.dotnet-image-sdk
@@ -104,14 +161,15 @@ jobs:
       - name: Publish tagged release atomically
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_COMMIT: ${{ github.sha }}
         shell: pwsh
         run: |
           gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) { throw 'Release already exists; use a new version. Published assets must not be replaced.' }
           $assets = @(Get-ChildItem artifacts/release -File | ForEach-Object FullName)
-          gh release create $env:RELEASE_TAG --verify-tag --draft --title "Office $env:RELEASE_VERSION (development signing)" --notes-file "releases/$env:RELEASE_VERSION.md" --repo $env:GITHUB_REPOSITORY @assets
+          gh release create $env:RELEASE_TAG --target $env:RELEASE_COMMIT --draft --title "Office $env:RELEASE_VERSION (development signing)" --notes-file "releases/$env:RELEASE_VERSION.md" --repo $env:GITHUB_REPOSITORY @assets
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed. Inspect the draft before retrying.' }
           gh release edit $env:RELEASE_TAG --draft=false --latest --repo $env:GITHUB_REPOSITORY
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

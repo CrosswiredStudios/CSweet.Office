@@ -3,9 +3,11 @@
 **Audience:** release engineers, and contributors preparing a tagged version. Operators who are installing or
 upgrading an Office should read `docs/40-operations/` instead.
 
-Office is an independently versioned installable deliverable. The default tagged workflow builds
+Office is an independently versioned installable deliverable. The default version-driven workflow builds
 [GitHub-hosted development bundles](07-hosted-development-bundles.md) without production signing
-keys; the destination host performs certification and development signing before installation.
+keys. Push a `VersionPrefix` bump and matching release notes to `main`; the workflow creates the
+tag and release automatically. The destination host performs certification and development signing
+before installation.
 The separate, manually dispatched production workflow packages signed installers on hardened runners.
 
 Production signing and certification remain restricted to hardened workflows. Hosted development

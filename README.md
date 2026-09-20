@@ -45,7 +45,9 @@ identity-preservation rules, live in [`AGENTS.md`](AGENTS.md).
 
 ## Prebuilt development releases
 
-Windows x64 and Ubuntu 24.04 x64 bundles are built by the GitHub-hosted tagged release workflow.
+Windows x64 and Ubuntu 24.04 x64 bundles are built by the GitHub-hosted release workflow when
+`VersionPrefix` in `Directory.Build.props` is bumped and pushed to `main`. The workflow creates
+the matching tag and GitHub Release automatically; include `releases/<version>.md` in the push.
 They include prebuilt guest images and self-contained executables; the destination host performs
 isolation certification and development signing. No production signing key is required.
 See [hosted development bundles](docs/60-release/07-hosted-development-bundles.md) for release and

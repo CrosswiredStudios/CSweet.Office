@@ -2,8 +2,17 @@
 
 **Audience:** developers preparing a release or installing without a source checkout.
 
-`hosted-release.yml` runs for `vMAJOR.MINOR.PATCH` tags (or manual dispatch against a tag).
-`Get-OfficeReleaseMetadata.ps1` checks the tag against `VersionPrefix`. Builds explicitly use the
+`hosted-release.yml` runs when a push to `main` changes `Directory.Build.props` or the workflow
+itself. Bump `VersionPrefix` and add `releases/<version>.md` in the same push. The workflow reads
+the version through `Get-OfficeReleaseMetadata.ps1`, skips already-published versions before
+building, and creates `v<version>` at the triggering commit when publishing. No manual tag push
+is needed. Changes to other files alone run ordinary CI without starting a release.
+
+Manual dispatch on `main` and explicit `vMAJOR.MINOR.PATCH` tag pushes remain available. Tag runs
+must match `VersionPrefix`. An unpublished tag pointing at another commit is rejected; dispatch
+against that tag to release its original source, or bump the version for the new source. Missing
+release notes and release-discovery errors fail before expensive builds. Release runs share one
+concurrency group so branch and tag runs cannot publish simultaneously. Builds explicitly use the
 published Office.Contracts pin. Windows x64 binaries build on `windows-2022`; Linux x64 binaries
 and guest images build on `ubuntu-24.04`. No repository secrets or signing identity are required.
 
@@ -22,8 +31,10 @@ The Ubuntu job customizes a checksum-verified Canonical cloud image with the exi
 provisioner and converts it to VHDX. It does not execute Hyper-V certification. The Firecracker
 guest uses `new-firecracker-guest.sh`. `Publish-HostedOfficeAssets.ps1` rejects assets at or above
 GitHub's 2 GiB per-file limit. The workflow uploads a draft first and publishes only after upload
-succeeds. An existing release causes failure rather than replacing assets. A failed draft needs
-inspection/removal before retrying the same unpublished tag.
+succeeds. Published releases are skipped; a release appearing during the build fails publication
+rather than replacing assets. A failed draft needs inspection/removal before retrying the same
+unpublished version. Deleting a draft does not remove its tag; retries must use the same tagged
+commit, or a new version.
 
 ## Signing and installation
 
