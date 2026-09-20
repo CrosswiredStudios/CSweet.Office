@@ -14,9 +14,21 @@ Copy-Item "$images/linux-guest" "$linux/guest" -Recurse
 Copy-Item "$images/linux-tools" "$linux/tools" -Recurse
 # Restored artifact permissions are intentionally normalized before packaging on Linux.
 & chmod -R u+rwX,go+rX $linux
-& chmod +x "$linux/tools/firecracker" "$linux/tools/jailer"
-Get-ChildItem "$linux/components" -File -Recurse | Where-Object Extension -eq '' | ForEach-Object { & chmod +x $_.FullName }
-Get-ChildItem "$linux/scripts" -Filter '*.sh' -Recurse | ForEach-Object { & chmod +x $_.FullName }
+if ($LASTEXITCODE -ne 0) { throw 'Linux bundle permission normalization failed.' }
+# .NET apphost names contain dots, so FileInfo.Extension cannot identify executables.
+$linuxExecutables = @(
+    'tools/firecracker', 'tools/jailer',
+    'components/runtime/CSweet.Office.RuntimeHost', 'components/node/CSweet.Office.Node',
+    'components/helper/CSweet.Office.Runtime.Firecracker.Helper',
+    'components/smoke/CSweet.Office.WindowsSmokeTest', 'components/probe/CSweet.Office.GuestProbe',
+    'guest/CSweet.Office.GuestProbe'
+) | ForEach-Object { Join-Path $linux $_ }
+$linuxExecutables += @(Get-ChildItem "$linux/scripts" -Filter '*.sh' -File -Recurse | ForEach-Object FullName)
+foreach ($executable in $linuxExecutables) {
+    if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { throw "A Linux bundle executable is missing: $executable" }
+    & chmod +x $executable
+    if ($LASTEXITCODE -ne 0) { throw "Could not make the Linux bundle executable: $executable" }
+}
 $support = "csweet-office-$Version-windows-support.zip"
 $winAsset = "csweet-office-$Version-windows-x64.zip"
 $linuxAsset = "csweet-office-$Version-linux-x64.tar.gz"

@@ -6,12 +6,22 @@ $version = ([xml](Get-Content "$repository/Directory.Build.props" -Raw)).Project
 try {
     foreach ($relative in @('binaries-win-x64/scripts/windows/setup.ps1',
         'binaries-win-x64/Directory.Build.props', 'binaries-win-x64/office-bundle.json',
-        'binaries-linux-x64/components/node/CSweet.Office.Node', 'binaries-linux-x64/scripts/linux/setup.sh',
+        'binaries-linux-x64/components/node/CSweet.Office.Node',
+        'binaries-linux-x64/components/runtime/CSweet.Office.RuntimeHost',
+        'binaries-linux-x64/components/runtime/appsettings.json',
+        'binaries-linux-x64/components/helper/CSweet.Office.Runtime.Firecracker.Helper',
+        'binaries-linux-x64/components/smoke/CSweet.Office.WindowsSmokeTest',
+        'binaries-linux-x64/components/probe/CSweet.Office.GuestProbe', 'binaries-linux-x64/scripts/linux/setup.sh',
+        'guest-images/linux-guest/CSweet.Office.GuestProbe',
         'guest-images/windows-guest/csweet-agent-guest.vhdx', 'guest-images/linux-guest/csweet-agent-guest.ext4',
         'guest-images/linux-tools/firecracker', 'guest-images/linux-tools/jailer')) {
         $path = Join-Path "$root/input" $relative
         New-Item -ItemType Directory (Split-Path -Parent $path) -Force | Out-Null
         [IO.File]::WriteAllText($path, 'test fixture only')
+        if ($env:OS -ne 'Windows_NT') {
+            & chmod 0644 $path # Match actions/download-artifact's restored file modes.
+            if ($LASTEXITCODE -ne 0) { throw 'Could not initialize artifact fixture permissions.' }
+        }
     }
     if ($env:OS -eq 'Windows_NT') {
         # Exercise the same packaging script on Windows without installing Unix zip/chmod.
@@ -35,6 +45,23 @@ try {
     try {
         if ($null -eq $zip.GetEntry('guest/csweet-agent-guest.vhdx')) { throw 'Windows image is missing from the archive.' }
     } finally { $zip.Dispose() }
+    if ($env:OS -ne 'Windows_NT') {
+        $extracted = Join-Path $root 'extracted-linux'
+        New-Item -ItemType Directory $extracted | Out-Null
+        & tar -xzf "$root/output/csweet-office-$version-linux-x64.tar.gz" -C $extracted
+        if ($LASTEXITCODE -ne 0) { throw 'Could not extract the Linux release archive.' }
+        $executeBits = [IO.UnixFileMode]::UserExecute -bor [IO.UnixFileMode]::GroupExecute -bor [IO.UnixFileMode]::OtherExecute
+        foreach ($relative in @('components/node/CSweet.Office.Node', 'components/runtime/CSweet.Office.RuntimeHost',
+            'components/helper/CSweet.Office.Runtime.Firecracker.Helper', 'components/smoke/CSweet.Office.WindowsSmokeTest',
+            'components/probe/CSweet.Office.GuestProbe', 'guest/CSweet.Office.GuestProbe',
+            'tools/firecracker', 'tools/jailer', 'scripts/linux/setup.sh')) {
+            $mode = [IO.File]::GetUnixFileMode((Join-Path $extracted $relative))
+            if (($mode -band $executeBits) -ne $executeBits) { throw "Linux archive executable permissions were lost: $relative" }
+        }
+        $dataMode = [IO.File]::GetUnixFileMode((Join-Path $extracted 'components/runtime/appsettings.json'))
+        if (($dataMode -band $executeBits) -ne 0) { throw 'Linux data files must not be marked executable.' }
+        Write-Host 'Extracted Linux executable and data file modes passed.'
+    }
     Write-Host 'Hosted archive layout, manifest schema, sizes, hashes, and immutable URLs passed.'
 } finally {
     if ([IO.Path]::GetFullPath($root).StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()), [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $root)) {

@@ -11,7 +11,7 @@ tag during publication. Explicit tag runs also verify that the tag matches the s
 
 | Truth | File and property | Value at the time of writing | Changed by |
 |---|---|---|---|
-| Office version | `Directory.Build.props` → `VersionPrefix` | `0.6.0` | The contributor cutting the release |
+| Office version | `Directory.Build.props` → `VersionPrefix` | `0.6.1` | The contributor cutting the release |
 | Contracts version | `Directory.Packages.props` → `PackageVersion Include="CSweet.Office.Contracts"` | `0.7.1` | The contributor taking a new contracts package |
 | Release identity | The git tag | `vMAJOR.MINOR.PATCH` | The hosted workflow, or an explicit tag push |
 
@@ -128,4 +128,4 @@ Consequences:
 `scripts/linux/new-native-packages.sh`, `scripts/macos/new-installer-package.sh`, `releases/{0.4.0,0.5.2,0.5.3}.md`,
 `.github/workflows/{ci,hosted-release}.yml`, `docs/20-security/11-security-invariants.md`.
 
-Verified: 2026-09-19.
+Verified: 2026-09-20.

@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <VersionPrefix>0.6.0</VersionPrefix>
+    <VersionPrefix>0.6.1</VersionPrefix>
     <CSweetOfficeContractsRepositoryRoot Condition="'$(CSweetOfficeContractsRepositoryRoot)' == ''">$(MSBuildThisFileDirectory)..\CSweet.Office.Contracts</CSweetOfficeContractsRepositoryRoot>
     <UseLocalOfficeContracts Condition="'$(UseLocalOfficeContracts)' == '' and Exists('$(CSweetOfficeContractsRepositoryRoot)\src\CSweet.Office.Contracts\CSweet.Office.Contracts.csproj')">true</UseLocalOfficeContracts>
     <UseLocalOfficeContracts Condition="'$(UseLocalOfficeContracts)' == ''">false</UseLocalOfficeContracts>

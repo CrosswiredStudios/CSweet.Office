@@ -18,6 +18,12 @@ concurrency group so branch and tag runs cannot publish simultaneously. Builds e
 published Office.Contracts pin. Windows x64 binaries build on `windows-2022`; Linux x64 binaries
 and guest images build on `ubuntu-24.04`. No repository secrets or signing identity are required.
 
+`Publish-HostedOfficeAssets.ps1` restores execute permission for the explicitly named Linux
+Office apphosts, certification runner, probes, Firecracker tools, and shell scripts after artifact
+download. `Test-HostedManifest.ps1` checks those modes after extracting the final tarball and
+keeps configuration files non-executable. This corrects the Linux 0.6.0 archive, whose dotted
+Office executable names were skipped by the former extension-based check.
+
 The release contains:
 
 - `office-bootstrap.json`: schema 1, Office/contracts/protocol versions, development signing label,
@@ -108,4 +114,4 @@ the development workflow does not label its archives as signed MSI/DEB installer
 `scripts/windows/{Initialize-CSweetWindowsIsolationTest,New-CSweetWindowsRuntimePayload}.ps1`,
 `scripts/linux/{new-firecracker-guest,initialize-firecracker-test,new-runtime-payload}.sh`.
 
-Verified: 2026-09-19. Target-host validation awaits the first hosted artifacts.
+Verified: 2026-09-20. Target-host validation awaits the first hosted artifacts.
