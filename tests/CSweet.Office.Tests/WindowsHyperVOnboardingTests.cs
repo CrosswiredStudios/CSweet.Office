@@ -492,12 +492,19 @@ public sealed class WindowsHyperVOnboardingTests
     {
         var bootstrap = File.ReadAllText(Path.Combine(
             RepositoryRoot(), "scripts", "windows", "Initialize-CSweetWindowsIsolationTest.ps1"));
-        var guestBuilder = File.ReadAllText(Path.Combine(
-            RepositoryRoot(), "..", "CSweet.Isolation", "tools", "LinuxImage", "CSweet.LinuxImage.psm1"));
 
         Assert.Contains("$failurePhaseKey = [string]$previousProgress.phaseKey", bootstrap, StringComparison.Ordinal);
         Assert.Contains("$failurePhaseDisplayName = [string]$previousProgress.phaseDisplayName", bootstrap, StringComparison.Ordinal);
         Assert.Contains("-State failed -PhaseKey $failurePhaseKey", bootstrap, StringComparison.Ordinal);
+
+        // The guest-builder module lives in the sibling CSweet.Isolation checkout, which is a
+        // local-dev-only companion: GitHub Actions must never depend on sibling checkouts.
+        // Skip these assertions when the sibling is absent; local devs with the sibling cloned
+        // still get drift detection.
+        var guestBuilderPath = Path.Combine(
+            RepositoryRoot(), "..", "CSweet.Isolation", "tools", "LinuxImage", "CSweet.LinuxImage.psm1");
+        if (!File.Exists(guestBuilderPath)) return;
+        var guestBuilder = File.ReadAllText(guestBuilderPath);
         Assert.Contains("function Invoke-CSweetDownload", guestBuilder, StringComparison.Ordinal);
         Assert.Contains("The published HashiCorp Packer checksums", guestBuilder, StringComparison.Ordinal);
         Assert.Contains("The pinned HashiCorp Packer archive", guestBuilder, StringComparison.Ordinal);
@@ -785,6 +792,19 @@ public sealed class WindowsHyperVOnboardingTests
                 WindowsRuntimeHostProvisioner.DeveloperBootstrapEnvironmentVariable,
                 bootstrap);
             var jobId = Guid.NewGuid();
+            // Anchor the fixture to the actual host boot time (same clock as GetProgress):
+            // startedAt must postdate boot by >1min to skip the boot-recency branch, while
+            // updatedAt stays stale on the heartbeat check but fresh inside the expected
+            // phase window (maxSeconds + 2min grace), so the dead-owner branch
+            // ("preparation-stopped") is reached deterministically on any host, including
+            // a freshly-booted CI VM.
+            var now = DateTimeOffset.UtcNow;
+            var bootedAt = now - TimeSpan.FromMilliseconds(Environment.TickCount64);
+            var startedAt = bootedAt.AddMinutes(2);
+            if (startedAt > now.AddMinutes(-1)) startedAt = now.AddMinutes(-1);
+            var updatedAt = now.Subtract(
+                WindowsRuntimeHostProvisioner.LegacyProgressHeartbeatTimeout).AddSeconds(-5);
+            if (updatedAt < startedAt) updatedAt = startedAt;
             File.WriteAllText(
                 WindowsRuntimeHostProgressStore.CreatePath(jobId),
                 JsonSerializer.Serialize(new
@@ -797,11 +817,10 @@ public sealed class WindowsHyperVOnboardingTests
                     phaseDisplayName = "Building the hardened guest image",
                     message = "Ubuntu is installing.",
                     percentComplete = 24,
-                    startedAt = DateTimeOffset.UtcNow.AddMinutes(-10),
-                    updatedAt = DateTimeOffset.UtcNow.Subtract(
-                        WindowsRuntimeHostProvisioner.LegacyProgressHeartbeatTimeout).AddSeconds(-5),
+                    startedAt,
+                    updatedAt,
                     estimatedRemainingMinimumSeconds = 0,
-                    estimatedRemainingMaximumSeconds = 180,
+                    estimatedRemainingMaximumSeconds = 86_400,
                     requiresRestart = false,
                     errorCode = (string?)null,
                     errorMessage = (string?)null
