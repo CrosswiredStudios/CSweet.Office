@@ -831,11 +831,15 @@ public sealed class WindowsHyperVOnboardingTests
 
             var provisioner = new WindowsRuntimeHostProvisioner();
             var progress = provisioner.GetProgress();
-            var info = provisioner.GetProvisioningInfo();
 
             Assert.NotNull(progress);
             Assert.Equal(WindowsRuntimeHostProvisioningState.Failed, progress.State);
             Assert.Equal("preparation-stopped", progress.ErrorCode);
+
+            // GetProvisioningInfo is Windows-only (returns Unavailable on Linux CI runners),
+            // while the progress-file logic above is OS-agnostic.
+            if (!OperatingSystem.IsWindows()) return;
+            var info = provisioner.GetProvisioningInfo();
             Assert.True(info.CanLaunch);
             Assert.Equal(WindowsRuntimeHostProvisioningMode.DeveloperBootstrap, info.Mode);
         }
