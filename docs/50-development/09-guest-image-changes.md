@@ -15,7 +15,7 @@ files that are not build inputs. This page exists so that cost is a decision, no
 | Guest | Contents | Built by |
 |---|---|---|
 | Hyper-V (`csweet-agent-guest-*.vhdx`) | Ubuntu guest with the three runners installed under `/usr/lib/csweet/guest/`, the `csweet-agent-guest.service` unit, and `prepare-runtime.sh` as the service entry point. | The sibling `CSweet.Isolation` module `tools/LinuxImage` through the profile in `build/windows-hyperv`, driven by `New-CSweetHyperVTestGuest.ps1`. |
-| Firecracker (`csweet-agent-guest.ext4`) | Minimal Ubuntu `noble` root filesystem (`systemd-sysv`, `udev`, `e2fsprogs`, `util-linux`, `kmod`, `ca-certificates`, `libicu74`, `libssl3t64`, `zlib1g`, `linux-image-virtual`), the three runners plus the certification probe, the copied host .NET root at `/usr/share/dotnet`, and the guest service provisioned by `build/linux-firecracker/provision-guest.sh`. | `scripts/linux/new-firecracker-guest.sh` on the development host. |
+| Firecracker (`csweet-agent-guest.ext4`) | Minimal Ubuntu `noble` root filesystem (`systemd-sysv`, `udev`, `e2fsprogs`, `util-linux`, `kmod`, `ca-certificates`, `libicu74`, `libssl3t64`, `zlib1g`, `initramfs-tools`, `linux-image-virtual`), the three runners plus the certification probe, the copied host .NET root at `/usr/share/dotnet`, and the guest service provisioned by `build/linux-firecracker/provision-guest.sh`. | `scripts/linux/new-firecracker-guest.sh` on the development host. |
 | Kernel and initrd | Extracted from each root filesystem (`vmlinux`/`vmlinuz`, `initrd.img`) and shipped in the payload beside the image. | Same scripts as the image. |
 
 The in-image layout is asserted by tests, not assumed: `WindowsHyperVOnboardingTests.GuestService_KeepsScratchMountInBrokerProcess`

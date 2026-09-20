@@ -9,7 +9,7 @@ if [[ $(id -u) -ne 0 ]]; then
   echo "Run this guest-image builder as root." >&2
   exit 2
 fi
-for command_name in chroot debootstrap dotnet e2fsck mkfs.ext4 resize2fs; do
+for command_name in chroot debootstrap dotnet e2fsck mkfs.ext4 resize2fs mount mountpoint umount; do
   command -v "$command_name" >/dev/null 2>&1 || { echo "$command_name is required." >&2; exit 2; }
 done
 
@@ -34,7 +34,27 @@ fi
 script_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(realpath "$script_root/../..")
 build_root=$(mktemp -d)
-trap 'rm -rf -- "$build_root"' EXIT
+guest_mounts=()
+unmount_guest() {
+  local failed=0 index
+  for ((index=${#guest_mounts[@]}-1; index>=0; index--)); do
+    if mountpoint -q "${guest_mounts[index]}"; then
+      umount "${guest_mounts[index]}" || failed=1
+    fi
+  done
+  return "$failed"
+}
+cleanup() {
+  local result=$?
+  if unmount_guest; then
+    rm -rf -- "$build_root"
+  else
+    echo "Could not unmount guest filesystems; preserving $build_root for cleanup." >&2
+    result=1
+  fi
+  return "$result"
+}
+trap cleanup EXIT
 rootfs="$build_root/rootfs"
 guest_publish="$build_root/guest"
 builder_publish="$build_root/builder"
@@ -58,8 +78,15 @@ dotnet publish "$repository_root/src/CSweet.Office.GuestProbe/CSweet.Office.Gues
 
 echo "Creating the minimal Ubuntu $ubuntu_suite root filesystem..."
 debootstrap --arch="$architecture" --variant=minbase --components=main,universe \
-  --include=systemd-sysv,udev,e2fsprogs,util-linux,kmod,ca-certificates,libicu74,libssl3t64,zlib1g,linux-image-virtual \
+  --include=systemd-sysv,udev,e2fsprogs,util-linux,kmod,ca-certificates,libicu74,libssl3t64,zlib1g,initramfs-tools,linux-image-virtual \
   "$ubuntu_suite" "$rootfs" "$ubuntu_mirror"
+
+# Provision in a complete chroot, then unmount before measuring or copying its tree.
+for filesystem in proc sys; do
+  guest_mounts+=("$rootfs/$filesystem")
+done
+mount -t proc -o nosuid,nodev,noexec proc "$rootfs/proc"
+mount -t sysfs -o ro,nosuid,nodev,noexec sysfs "$rootfs/sys"
 
 dotnet_executable=$(readlink -f "$(command -v dotnet)")
 dotnet_root=$(dirname "$dotnet_executable")
@@ -76,8 +103,16 @@ chroot "$rootfs" /usr/bin/dotnet --list-sdks | grep -Eq '^10\.' || {
 }
 
 kernel=$(find "$rootfs/boot" -maxdepth 1 -type f -name 'vmlinuz-*' | sort -V | tail -n 1)
-initrd=$(find "$rootfs/boot" -maxdepth 1 -type f -name 'initrd.img-*' | sort -V | tail -n 1)
-[[ -n "$kernel" && -n "$initrd" ]] || { echo "The guest kernel or initrd was not produced." >&2; exit 2; }
+[[ -n "$kernel" && -s "$kernel" ]] || { echo "No guest kernel was installed in /boot." >&2; exit 2; }
+kernel_version=${kernel##*/vmlinuz-}
+initrd="$rootfs/boot/initrd.img-$kernel_version"
+# minbase omits recommended packages. Include initramfs-tools above and explicitly
+# generate/update the matching initrd rather than relying on kernel package hooks.
+initrd_mode=-c
+[[ ! -e "$initrd" ]] || initrd_mode=-u
+chroot "$rootfs" /usr/sbin/update-initramfs "$initrd_mode" -k "$kernel_version"
+[[ -s "$initrd" ]] || { echo "No initrd was produced for guest kernel $kernel_version." >&2; exit 2; }
+unmount_guest
 install -m 0644 "$kernel" "$output_root/vmlinux"
 install -m 0644 "$initrd" "$output_root/initrd.img"
 install -m 0755 "$probe_publish/CSweet.Office.GuestProbe" "$output_root/CSweet.Office.GuestProbe"

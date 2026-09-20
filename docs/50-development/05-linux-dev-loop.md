@@ -20,7 +20,7 @@ that explicit.
 | cgroup v2 | `/sys/fs/cgroup/cgroup.controllers` must be readable. |
 | KVM | `/dev/kvm` must be readable and writable. |
 | Architecture | `x86_64` or `aarch64`; anything else is rejected with a message. |
-| Guest builder only | `chroot`, `debootstrap`, `e2fsck`, `mkfs.ext4`, `resize2fs`, and a `dotnet` installation that contains the .NET 10 SDK. |
+| Guest builder only | `chroot`, `debootstrap`, `e2fsck`, `mkfs.ext4`, `resize2fs`, `mount`, `mountpoint`, `umount`, and a `dotnet` installation that contains the .NET 10 SDK. |
 | Native build host | The guest builder requires the host architecture to match the requested RID. |
 
 ## Parameters
@@ -96,11 +96,15 @@ sudo ./scripts/linux/new-firecracker-guest.sh <EMPTY-OUTPUT-DIR> linux-x64
 - Usage: `new-firecracker-guest.sh OUTPUT_ROOT RID [UBUNTU_SUITE] [UBUNTU_MIRROR]`; `RID` is `linux-x64`
   or `linux-arm64`, the suite defaults to `noble`, and the mirror defaults to the architecture's Ubuntu
   archive.
-- Runs as root and needs `chroot`, `debootstrap`, `dotnet`, `e2fsck`, `mkfs.ext4`, and `resize2fs`.
+- Runs as root and needs `chroot`, `debootstrap`, `dotnet`, `e2fsck`, `mkfs.ext4`, `resize2fs`, `mount`, `mountpoint`, and `umount`.
 - The output directory must be empty; the script refuses otherwise.
 - Publishes `RuntimeGuest`, `BuilderGuest`, `ToolchainGuest`, and `GuestProbe` as self-contained
   single-file linux executables, copies the host's .NET root into the image, and verifies that a .NET 10
   SDK is present before producing the kernel, initrd, probe, and `csweet-agent-guest.ext4`.
+- Includes `initramfs-tools` explicitly because the minimal bootstrap omits recommended packages.
+  Mounts `/proc` and `/sys` for chroot provisioning, generates an initrd for the selected kernel,
+  and unmounts both before assembling the ext4 image. Cleanup also unmounts on failure; if an
+  unmount fails, the temporary build directory is retained rather than recursively removed.
 - Prints the guest digest. The image is not signed and has no certification evidence; both come from a
   full loop run or from the steps below.
 
@@ -142,4 +146,4 @@ certificate, and evidence (`linux-firecracker.json`, `SUITE_VERSION` and `CERTIF
 `scripts/linux/new-runtime-payload.sh`, `scripts/linux/install-office.sh`, `build/linux-firecracker/provision-guest.sh`,
 `src/CSweet.Office.WindowsSmokeTest/Program.cs`, `src/CSweet.Office.Runtime.Firecracker.Helper/HelperArguments.cs`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-19.

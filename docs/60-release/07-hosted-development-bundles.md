@@ -50,7 +50,9 @@ provisioner and converts it to VHDX. `build-hosted-hyperv-image.sh` uploads the 
 runs it explicitly with `/bin/bash` through `--run-command`, and removes the temporary script.
 This preserves Bash features such as `pipefail`; `virt-customize --run` passes script contents
 through the guest's `/bin/sh`. It does not execute Hyper-V certification. The Firecracker
-guest uses `new-firecracker-guest.sh`. `Publish-HostedOfficeAssets.ps1` rejects assets at or above
+guest uses `new-firecracker-guest.sh`, which explicitly installs `initramfs-tools` and generates
+an initrd matching the selected kernel. Its temporary `/proc` and `/sys` mounts are removed
+before ext4 assembly. `Publish-HostedOfficeAssets.ps1` rejects assets at or above
 GitHub's 2 GiB per-file limit. The workflow uploads a draft first and publishes only after upload
 succeeds. Published releases are skipped; a release appearing during the build fails publication
 rather than replacing assets. A failed draft needs inspection/removal before retrying the same
