@@ -10,6 +10,7 @@ param(
     [Parameter(Mandatory = $true)] [string] $PackageVersion,
     [string] $CertificationExpiresAt,
     [string] $RuntimeIdentifier = 'win-x64',
+    [string] $PrebuiltRoot,
     [string] $OutputRoot = "$PSScriptRoot\..\..\artifacts\windows-runtime\payload"
 )
 
@@ -33,14 +34,22 @@ $certificateRoot = Join-Path $OutputRoot 'certificates'
 $certificationRoot = Join-Path $OutputRoot 'certification'
 New-Item -ItemType Directory -Path $runtimeRoot, $helperRoot, $nodeRoot, $configuratorRoot, $imageRoot, $certificateRoot, $certificationRoot -Force | Out-Null
 
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.RuntimeHost\CSweet.Office.RuntimeHost.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $runtimeRoot
-if ($LASTEXITCODE -ne 0) { throw 'RuntimeHost publish failed.' }
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Runtime.HyperV.Helper\CSweet.Office.Runtime.HyperV.Helper.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $helperRoot
-if ($LASTEXITCODE -ne 0) { throw 'Hyper-V helper publish failed.' }
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Node\CSweet.Office.Node.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $nodeRoot
-if ($LASTEXITCODE -ne 0) { throw 'Office publish failed.' }
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Configurator\CSweet.Office.Configurator.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $configuratorRoot
-if ($LASTEXITCODE -ne 0) { throw 'Office configurator publish failed.' }
+if ($PrebuiltRoot) {
+    foreach ($component in @('runtime', 'helper', 'node', 'configurator')) {
+        $source = Join-Path $PrebuiltRoot "components\$component"
+        if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw "Missing prebuilt component: $component" }
+        Copy-Item (Join-Path $source '*') (Join-Path $OutputRoot $component) -Recurse
+    }
+} else {
+    dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.RuntimeHost\CSweet.Office.RuntimeHost.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $runtimeRoot
+    if ($LASTEXITCODE -ne 0) { throw 'RuntimeHost publish failed.' }
+    dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Runtime.HyperV.Helper\CSweet.Office.Runtime.HyperV.Helper.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $helperRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Hyper-V helper publish failed.' }
+    dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Node\CSweet.Office.Node.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $nodeRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Office publish failed.' }
+    dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Configurator\CSweet.Office.Configurator.csproj') -c Release -r $RuntimeIdentifier --self-contained true -o $configuratorRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Office configurator publish failed.' }
+}
 $publishedNodeExecutable = Join-Path $nodeRoot 'CSweet.Office.Node.exe'
 try {
     $publishedNodeVersion = [Version](Get-Item -LiteralPath $publishedNodeExecutable).VersionInfo.FileVersion

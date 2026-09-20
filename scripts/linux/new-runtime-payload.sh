@@ -5,7 +5,7 @@ if [ "$#" -lt 13 ] || [ "$#" -gt 14 ]; then
   echo "usage: $0 OUTPUT_ROOT RID FIRECRACKER JAILER VMLINUX INITRD GUEST_EXT4 GUEST_SIG SIGNING_CERT CERT_THUMBPRINT EVIDENCE SUITE_VERSION CERTIFIED_AT [EXPIRES_AT]" >&2
   exit 2
 fi
-for command_name in dotnet jq sha256sum; do
+for command_name in jq sha256sum; do
   command -v "$command_name" >/dev/null 2>&1 || { echo "$command_name is required." >&2; exit 2; }
 done
 
@@ -49,6 +49,12 @@ build_root=$(mktemp -d)
 trap 'rm -rf -- "$build_root"' EXIT
 mkdir -p "$output_root/firecracker" "$output_root/images" "$output_root/certificates" "$output_root/certification"
 
+if [ -n "${CSWEET_OFFICE_PREBUILT_ROOT:-}" ]; then
+  mkdir -p "$build_root/runtime-host" "$build_root/office" "$build_root/helper"
+  cp -a "$CSWEET_OFFICE_PREBUILT_ROOT/components/runtime/." "$build_root/runtime-host/"
+  cp -a "$CSWEET_OFFICE_PREBUILT_ROOT/components/node/." "$build_root/office/"
+  cp -a "$CSWEET_OFFICE_PREBUILT_ROOT/components/helper/." "$build_root/helper/"
+else
 dotnet publish "$repository_root/src/CSweet.Office.RuntimeHost/CSweet.Office.RuntimeHost.csproj" -c Release -r "$runtime_id" --self-contained true \
   -p:PublishSingleFile=true -p:DebugType=None -o "$build_root/runtime-host"
 dotnet publish "$repository_root/src/CSweet.Office.Node/CSweet.Office.Node.csproj" -c Release -r "$runtime_id" --self-contained true \
@@ -56,6 +62,7 @@ dotnet publish "$repository_root/src/CSweet.Office.Node/CSweet.Office.Node.cspro
 dotnet publish "$repository_root/src/CSweet.Office.Runtime.Firecracker.Helper/CSweet.Office.Runtime.Firecracker.Helper.csproj" \
   -c Release -r "$runtime_id" --self-contained true -p:PublishSingleFile=true -p:DebugType=None -o "$build_root/helper"
 
+fi
 install -m 0755 "$build_root/runtime-host/CSweet.Office.RuntimeHost" "$output_root/CSweet.Office.RuntimeHost"
 install -m 0755 "$build_root/office/CSweet.Office.Node" "$output_root/CSweet.Office.Node"
 install -m 0755 "$build_root/helper/CSweet.Office.Runtime.Firecracker.Helper" "$output_root/CSweet.Office.Runtime.Firecracker.Helper"

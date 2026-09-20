@@ -89,7 +89,7 @@ image_bytes=$(((image_bytes + alignment - 1) / alignment * alignment))
 guest_image="$output_root/csweet-agent-guest.ext4"
 truncate -s "$image_bytes" "$guest_image"
 mkfs.ext4 -q -F -L CSWEET_ROOT -d "$rootfs" "$guest_image"
-e2fsck -fy "$guest_image" >/dev/null
+e2fsck -fy "$guest_image" >/dev/null || [[ $? -eq 1 ]]
 resize2fs -M "$guest_image" >/dev/null
 minimum_blocks=$(dumpe2fs -h "$guest_image" 2>/dev/null | awk '/Block count:/ {blocks=$3} /Block size:/ {size=$3} END {print blocks * size}')
 truncate -s "$minimum_blocks" "$guest_image"

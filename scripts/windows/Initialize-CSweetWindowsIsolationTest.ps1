@@ -2,6 +2,7 @@
 param(
     [string] $SwitchName = 'Default Switch',
     [switch] $RebuildGuest,
+    [string] $PrebuiltRoot,
     [switch] $SkipInstall,
     [string] $PayloadResultPath,
     [switch] $NoElevation,
@@ -71,6 +72,7 @@ if (-not (Test-Administrator)) {
         '-SwitchName', (Quote-ProcessArgument $SwitchName), '-ControlPlaneUserSid',
         (Quote-ProcessArgument $ControlPlaneUserSid), '-ProgressPath', (Quote-ProcessArgument $ProgressPath),
         '-ProgressJobId', (Quote-ProcessArgument $ProgressJobId.ToString('D')), '-NoElevation')
+    if ($PrebuiltRoot) { $arguments += @('-PrebuiltRoot', (Quote-ProcessArgument $PrebuiltRoot)) }
     if ($RebuildGuest) { $arguments += '-RebuildGuest' }
     if ($SkipInstall) { $arguments += '-SkipInstall' }
     if ($PayloadResultPath) { $arguments += @('-PayloadResultPath', (Quote-ProcessArgument $PayloadResultPath)) }
@@ -153,7 +155,7 @@ if ($vmms.Status -ne 'Running') {
 }
 try { $null = Get-VMHost -ErrorAction Stop }
 catch { throw 'The Hyper-V hypervisor is not ready. Restart Windows and verify that virtualization is enabled in UEFI/BIOS.' }
-if (-not (Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue)) {
+if (-not $PrebuiltRoot -and -not (Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue)) {
     $available = @(Get-VMSwitch | Select-Object -ExpandProperty Name)
     throw "The Hyper-V build switch '$SwitchName' is unavailable. Choose one with -SwitchName. Available switches: $($available -join ', ')"
 }
@@ -164,40 +166,52 @@ Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $p
     -EstimatedRemainingMinimumSeconds 900 -EstimatedRemainingMaximumSeconds 2700
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-$guestFingerprint = Get-GuestBuildFingerprint $repositoryRoot
-$guestImageRoot = Join-Path $repositoryRoot 'artifacts\windows-runtime\source'
-$guestImage = Join-Path $guestImageRoot "csweet-agent-guest-$guestFingerprint.vhdx"
-# Prefer the latest complete build of this fingerprint, including a forced rebuild.
-# Keep older/installed images immutable instead of replacing disks they may reference.
-$cachedMarkers = @(Get-ChildItem -LiteralPath $guestImageRoot -File -Filter "csweet-agent-guest-$guestFingerprint*.vhdx.ready" -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 32)
-foreach ($marker in $cachedMarkers) {
-    $candidate = $marker.FullName.Substring(0, $marker.FullName.Length - '.ready'.Length)
-    if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and
-        ((Get-Content -LiteralPath $marker.FullName -Raw).Trim() -ceq $guestFingerprint)) {
-        $guestImage = $candidate
-        break
+if ($PrebuiltRoot) {
+    $PrebuiltRoot = [IO.Path]::GetFullPath($PrebuiltRoot)
+    $bundle = Get-Content (Join-Path $PrebuiltRoot 'office-bundle.json') -Raw | ConvertFrom-Json
+    if ($bundle.schemaVersion -ne 1 -or $bundle.runtimeIdentifier -cne 'win-x64' -or
+        $bundle.signing -cne 'development' -or $bundle.requiresHostCertification -ne $true) {
+        throw 'The prebuilt Office bundle is incompatible.'
     }
-}
-$guestReadyMarker = "$guestImage.ready"
-$guestCacheReady = (Test-Path -LiteralPath $guestImage -PathType Leaf) -and
-    (Test-Path -LiteralPath $guestReadyMarker -PathType Leaf) -and
-    ((Get-Content -LiteralPath $guestReadyMarker -Raw).Trim() -ceq $guestFingerprint)
-if ($RebuildGuest -or -not $guestCacheReady) {
-    if (Test-Path -LiteralPath $guestImage) {
-        $guestImage = Join-Path $guestImageRoot "csweet-agent-guest-$guestFingerprint-$([guid]::NewGuid().ToString('N')).vhdx"
-        $guestReadyMarker = "$guestImage.ready"
-    }
-    & (Join-Path $PSScriptRoot 'New-CSweetHyperVTestGuest.ps1') -SwitchName $SwitchName -OutputPath $guestImage `
-        -ProgressPath $ProgressPath -ProgressJobId $ProgressJobId
-    if ($LASTEXITCODE -ne 0) { throw 'The C-Sweet test guest image build failed.' }
-    [IO.File]::WriteAllText($guestReadyMarker, $guestFingerprint, [Text.UTF8Encoding]::new($false))
+    $guestImage = Join-Path $PrebuiltRoot 'guest\csweet-agent-guest.vhdx'
+    if (-not (Test-Path -LiteralPath $guestImage -PathType Leaf)) { throw 'The prebuilt guest image is missing.' }
 } else {
-    Write-Host "Reusing the existing test guest image: $guestImage"
-    Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
-        -State running -PhaseKey guest-cache -PhaseDisplayName 'Reusing the secure guest image' `
-        -Message 'The previously prepared guest image passed the cache check.' -PercentComplete 55 `
-        -EstimatedRemainingMinimumSeconds 180 -EstimatedRemainingMaximumSeconds 600
+    $guestFingerprint = Get-GuestBuildFingerprint $repositoryRoot
+    $guestImageRoot = Join-Path $repositoryRoot 'artifacts\windows-runtime\source'
+    $guestImage = Join-Path $guestImageRoot "csweet-agent-guest-$guestFingerprint.vhdx"
+    # Prefer the latest complete build of this fingerprint, including a forced rebuild.
+    # Keep older/installed images immutable instead of replacing disks they may reference.
+    $cachedMarkers = @(Get-ChildItem -LiteralPath $guestImageRoot -File -Filter "csweet-agent-guest-$guestFingerprint*.vhdx.ready" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 32)
+    foreach ($marker in $cachedMarkers) {
+        $candidate = $marker.FullName.Substring(0, $marker.FullName.Length - '.ready'.Length)
+        if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and
+            ((Get-Content -LiteralPath $marker.FullName -Raw).Trim() -ceq $guestFingerprint)) {
+            $guestImage = $candidate
+            break
+        }
+    }
+    $guestReadyMarker = "$guestImage.ready"
+    $guestCacheReady = (Test-Path -LiteralPath $guestImage -PathType Leaf) -and
+        (Test-Path -LiteralPath $guestReadyMarker -PathType Leaf) -and
+        ((Get-Content -LiteralPath $guestReadyMarker -Raw).Trim() -ceq $guestFingerprint)
+    if ($RebuildGuest -or -not $guestCacheReady) {
+        if (Test-Path -LiteralPath $guestImage) {
+            $guestImage = Join-Path $guestImageRoot "csweet-agent-guest-$guestFingerprint-$([guid]::NewGuid().ToString('N')).vhdx"
+            $guestReadyMarker = "$guestImage.ready"
+        }
+        & (Join-Path $PSScriptRoot 'New-CSweetHyperVTestGuest.ps1') -SwitchName $SwitchName -OutputPath $guestImage `
+            -ProgressPath $ProgressPath -ProgressJobId $ProgressJobId
+        if ($LASTEXITCODE -ne 0) { throw 'The C-Sweet test guest image build failed.' }
+        [IO.File]::WriteAllText($guestReadyMarker, $guestFingerprint, [Text.UTF8Encoding]::new($false))
+    } else {
+        Write-Host "Reusing the existing test guest image: $guestImage"
+        Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
+            -State running -PhaseKey guest-cache -PhaseDisplayName 'Reusing the secure guest image' `
+            -Message 'The previously prepared guest image passed the cache check.' -PercentComplete 55 `
+            -EstimatedRemainingMinimumSeconds 180 -EstimatedRemainingMaximumSeconds 600
+    }
+
 }
 
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -209,21 +223,28 @@ $smokeOutput = Join-Path $runRoot 'output'
 $evidencePath = Join-Path $runRoot 'windows-hyperv.json'
 New-Item -ItemType Directory -Path $helperPublish, $probePublish, $smokePublish, $smokeOutput -Force | Out-Null
 
-Write-Host 'Publishing the Windows helper, Linux probe, and certification runner...'
-Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
-    -State running -PhaseKey publish-components -PhaseDisplayName 'Publishing secure runtime components' `
-    -Message 'C-Sweet is compiling the helper, guest probe, and certification runner.' -PercentComplete 60 `
-    -EstimatedRemainingMinimumSeconds 180 -EstimatedRemainingMaximumSeconds 600
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Runtime.HyperV.Helper\CSweet.Office.Runtime.HyperV.Helper.csproj') `
-    -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $helperPublish
-if ($LASTEXITCODE -ne 0) { throw 'The Hyper-V helper publish failed.' }
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.GuestProbe\CSweet.Office.GuestProbe.csproj') `
-    -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true `
-    -p:IncludeNativeLibrariesForSelfExtract=true -o $probePublish
-if ($LASTEXITCODE -ne 0) { throw 'The Linux isolation probe publish failed.' }
-dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.WindowsSmokeTest\CSweet.Office.WindowsSmokeTest.csproj') `
-    -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $smokePublish
-if ($LASTEXITCODE -ne 0) { throw 'The Windows isolation certification runner publish failed.' }
+if ($PrebuiltRoot) {
+    Copy-Item (Join-Path $PrebuiltRoot 'components\helper\*') $helperPublish -Recurse
+    Copy-Item (Join-Path $PrebuiltRoot 'components\probe\*') $probePublish -Recurse
+    Copy-Item (Join-Path $PrebuiltRoot 'components\smoke\*') $smokePublish -Recurse
+} else {
+    Write-Host 'Publishing the Windows helper, Linux probe, and certification runner...'
+    Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
+        -State running -PhaseKey publish-components -PhaseDisplayName 'Publishing secure runtime components' `
+        -Message 'C-Sweet is compiling the helper, guest probe, and certification runner.' -PercentComplete 60 `
+        -EstimatedRemainingMinimumSeconds 180 -EstimatedRemainingMaximumSeconds 600
+    dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.Runtime.HyperV.Helper\CSweet.Office.Runtime.HyperV.Helper.csproj') `
+        -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $helperPublish
+    if ($LASTEXITCODE -ne 0) { throw 'The Hyper-V helper publish failed.' }
+    dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.GuestProbe\CSweet.Office.GuestProbe.csproj') `
+        -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true `
+        -p:IncludeNativeLibrariesForSelfExtract=true -o $probePublish
+    if ($LASTEXITCODE -ne 0) { throw 'The Linux isolation probe publish failed.' }
+    dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Office.WindowsSmokeTest\CSweet.Office.WindowsSmokeTest.csproj') `
+        -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $smokePublish
+    if ($LASTEXITCODE -ne 0) { throw 'The Windows isolation certification runner publish failed.' }
+
+}
 
 $helper = Join-Path $helperPublish 'CSweet.Office.Runtime.HyperV.Helper.exe'
 $probe = Join-Path $probePublish 'CSweet.Office.GuestProbe'
@@ -315,7 +336,7 @@ Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $p
     -CertifiedAt ([datetimeoffset]$evidence.certifiedAt) `
     -CertificationExpiresAt ([string]$evidence.certificationExpiresAt) `
     -PackageVersion $packageVersion `
-    -OutputRoot $payloadRoot
+    -OutputRoot $payloadRoot -PrebuiltRoot $PrebuiltRoot
 if ($LASTEXITCODE -ne 0) { throw 'The certified Windows runtime payload build failed.' }
 
 if (-not $SkipInstall) {

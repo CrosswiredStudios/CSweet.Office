@@ -14,7 +14,7 @@ the repository is inconsistent, the inconsistency is named rather than smoothed 
 | `Nullable` | `enable` |
 | `LangVersion` | `latest` |
 | `EnforceCodeStyleInBuild` | `true` |
-| `VersionPrefix` | `0.5.4` |
+| `VersionPrefix` | `0.6.0` |
 
 Package versions live only in `Directory.Packages.props` (central package management with transitive
 pinning); see [02-build-and-test.md](02-build-and-test.md) for the two-edit workflow.

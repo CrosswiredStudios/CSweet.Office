@@ -30,7 +30,7 @@ The version lives in exactly one place, `Directory.Packages.props`:
 <PackageVersion Include="CSweet.Office.Contracts" Version="0.7.0" />
 ```
 
-This is independent of `VersionPrefix` (`0.5.4` in `Directory.Build.props`), which is the Office version.
+This is independent of `VersionPrefix` (`0.6.0` in `Directory.Build.props`), which is the Office version.
 Do not "align" the two numbers; they version different artifacts and are released on their own tags.
 
 ## The sibling-repo auto-detect footgun

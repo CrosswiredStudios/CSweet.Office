@@ -10,7 +10,7 @@ from a tag; the pipeline refuses to publish when the tag does not name the versi
 
 | Truth | File and property | Value at the time of writing | Changed by |
 |---|---|---|---|
-| Office version | `Directory.Build.props` → `VersionPrefix` | `0.5.4` | The contributor cutting the release |
+| Office version | `Directory.Build.props` → `VersionPrefix` | `0.6.0` | The contributor cutting the release |
 | Contracts version | `Directory.Packages.props` → `PackageVersion Include="CSweet.Office.Contracts"` | `0.7.0` | The contributor taking a new contracts package |
 | Release identity | The git tag | `vMAJOR.MINOR.PATCH` | Whoever pushes the tag |
 
@@ -31,9 +31,10 @@ number an operator sees in a payload is the number the assemblies were built wit
    `MAJOR.MINOR.PATCH`, otherwise *"A single Office contracts package version is required."*;
 4. returns `{ Version, ContractsVersion }` for the rest of the pipeline.
 
-The same script runs twice per release: once in every `certify-and-package` matrix job (through
+The production workflow calls the same script in every `certify-and-package` matrix job (through
 `Invoke-PlatformRelease.ps1`) and once in the `publish` job that generates the release manifest. Nothing else
 in the repository compares a tag with a build property, and no other file validates the contracts pin.
+The hosted development workflow also resolves its tag through this script before building bundles.
 
 Downstream, three packaging surfaces also require the version format:
 

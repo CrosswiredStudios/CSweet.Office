@@ -15,3 +15,6 @@ jobs:
       - run: dotnet restore CSweet.Office.Independent.slnx -p:UseLocalOfficeContracts=false
       - run: dotnet build CSweet.Office.Independent.slnx -c Release --no-restore -p:UseLocalOfficeContracts=false
       - run: dotnet test tests/CSweet.Office.Tests/CSweet.Office.Tests.csproj -c Release --no-build -p:UseLocalOfficeContracts=false
+      - name: Test hosted release manifest and archive layout
+        shell: pwsh
+        run: ./scripts/tests/Test-HostedManifest.ps1

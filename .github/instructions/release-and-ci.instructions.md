@@ -11,9 +11,11 @@ before editing.
 
 ## The one rule that matters most
 
-**Never publish or sign from an ordinary development runner.** Signing and certification run only on the
-hardened platform workflows. If a local command would produce a signed artifact or a release asset, stop and
-use the workflow.
+**Production signing and certification run only on the hardened platform workflows.**
+The user-authorized `hosted-release.yml` path publishes explicitly labeled development bundles on
+GitHub-hosted runners, without production keys. Target hosts certify and development-sign those
+guests before use. See `docs/60-release/07-hosted-development-bundles.md`. Local fixture tests and
+compilation do not publish releases.
 
 ## CI
 
@@ -39,9 +41,9 @@ Three values must agree, and only `Get-OfficeReleaseMetadata.ps1` enforces it (t
 
 When you bump one, check the other two. Office tags are independent of C-Sweet headquarters tags.
 
-## Release workflow conventions
+## Production release workflow conventions
 
-- Trigger is a `v*.*.*` tag.
+- Production signing uses manual dispatch; tagged builds default to the hosted development workflow.
 - Platform jobs run on the hardened self-hosted runner matrix inside the `production-signing` environment; the
   publish job runs in `production-release`.
 - Required inputs come from repository secrets and variables, not from command-line arguments.

@@ -1,11 +1,5 @@
 name: signed-release
 on:
-  push:
-    branches: [main]
-    paths:
-      - Directory.Build.props
-      - Directory.Packages.props
-    tags: ['v*.*.*']
   workflow_dispatch:
 permissions:
   contents: write

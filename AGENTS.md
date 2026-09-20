@@ -2,7 +2,7 @@
 
 - This repository is an independently versioned installable deliverable. Do not couple its tags to C-Sweet headquarters tags.
 - If `CSweet.Office.Contracts` changes, bump that package using semantic versioning, pack it, update this repository and C-Sweet to the same released pin, and verify both with local project references disabled.
-- Never publish or sign from an ordinary development runner. Release signing and certification require the hardened platform workflows.
+- Production release signing and certification require the hardened platform workflows. The user-authorized `hosted-release.yml` exception publishes development bundles from GitHub-hosted runners without signing secrets; each destination host certifies and development-signs its guest before installation. Do not represent hosted bundles as production-signed or CI-certified.
 - Preserve Office identity on upgrades only after the office is drained and has zero active assignments. A first install removes legacy Execution Node services but always enrolls a fresh identity.
 
 ## What this repository is

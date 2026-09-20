@@ -2,9 +2,13 @@
 
 **Audience:** release engineers, and reviewers of `.github/workflows/`.
 
-Two workflows exist. `ci.yml` proves that the repository builds and tests against the published
-`CSweet.Office.Contracts` package. `release.yml` builds, certifies, packages, signs, and publishes a tagged
-version from hardened self-hosted runners.
+The default tagged release path is now [GitHub-hosted development bundles](07-hosted-development-bundles.md).
+It needs no signing secrets and certifies/signs locally on each destination host. `ci.yml` verifies
+the published contracts boundary. The production `release.yml` workflow described below is
+manual-only and still requires hardened runners and production signing inputs.
+
+**Historical detail:** the production publish table below predates its current `gh release` commands.
+Use `.github/workflows/release.yml` as the authority; it is not the hosted development pipeline.
 
 ## `ci.yml`
 
@@ -34,7 +38,7 @@ step; those are release-only.
 | Property | Value |
 |---|---|
 | Workflow name | `signed-release` |
-| Trigger | `push` of a tag matching `v*.*.*` |
+| Trigger | `workflow_dispatch` on main or a matching release tag |
 | Permissions | `contents: write`, `id-token: write`, `attestations: write` |
 | Jobs | `certify-and-package` (matrix), `publish` |
 
@@ -138,4 +142,4 @@ Firecracker and jailer pair from the same release at `1.14.0` or later.
 `scripts/release/verify-release.sh`, `scripts/windows/New-CSweetOfficeMsi.ps1`, `scripts/linux/new-native-packages.sh`,
 `scripts/macos/new-installer-package.sh`, `docs/10-system/04-solution-map.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-19.

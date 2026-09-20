@@ -43,6 +43,15 @@ The headquarters gateway, scheduling, enrollment approval, certificates, artifac
 Contributor instructions that apply to every change, including the contract-versioning and
 identity-preservation rules, live in [`AGENTS.md`](AGENTS.md).
 
+## Prebuilt development releases
+
+Windows x64 and Ubuntu 24.04 x64 bundles are built by the GitHub-hosted tagged release workflow.
+They include prebuilt guest images and self-contained executables; the destination host performs
+isolation certification and development signing. No production signing key is required.
+See [hosted development bundles](docs/60-release/07-hosted-development-bundles.md) for release and
+installation instructions. The guided C-Sweet Windows setup prefers these bundles and falls back
+to local source when no compatible release is available.
+
 ## Development
 
 ```powershell

@@ -3,14 +3,13 @@
 **Audience:** release engineers, and contributors preparing a tagged version. Operators who are installing or
 upgrading an Office should read `docs/40-operations/` instead.
 
-Office is an independently versioned installable deliverable. A release is a signed, certified,
-manifest-verified set of installers published to GitHub Releases. This section documents how a version becomes
-a release, and what an administrator is actually holding when one arrives.
+Office is an independently versioned installable deliverable. The default tagged workflow builds
+[GitHub-hosted development bundles](07-hosted-development-bundles.md) without production signing
+keys; the destination host performs certification and development signing before installation.
+The separate, manually dispatched production workflow packages signed installers on hardened runners.
 
-> **Never publish or sign from an ordinary development runner.** Release signing and certification require the
-> hardened platform workflows (`.github/workflows/release.yml` and the self-hosted runner images behind it).
-> A development machine may build a payload and run the development certification path; it must not produce a
-> signed, published asset.
+Production signing and certification remain restricted to hardened workflows. Hosted development
+bundles are explicitly labeled and are not represented as production-signed or CI-certified.
 
 | Page | Covers |
 |---|---|
@@ -21,7 +20,7 @@ a release, and what an administrator is actually holding when one arrives.
 | [05-signing-and-provenance.md](05-signing-and-provenance.md) | Per-platform signing, the SBOM, provenance attestation, and the release manifest. |
 | [06-release-notes-process.md](06-release-notes-process.md) | The `releases/*.md` convention, with 0.4.0 through 0.5.3 as a worked example. |
 
-## How the pieces relate
+## Production installer pipeline
 
 ```mermaid
 graph LR
@@ -49,6 +48,6 @@ environment variables and fails immediately when any of them is absent. See [03-
 
 ## Sources
 
-`AGENTS.md`, `README.md`, `.github/workflows/{ci.yml,release.yml}`, `scripts/release/*`, `release/office-release.schema.json`.
+`AGENTS.md`, `README.md`, `.github/workflows/{ci.yml,release.yml,hosted-release.yml}`, `scripts/release/*`, `release/office-release.schema.json`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-19.

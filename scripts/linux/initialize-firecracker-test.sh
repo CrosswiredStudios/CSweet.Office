@@ -5,11 +5,13 @@ control_plane_url=
 output_root=
 firecracker_version=v1.16.1
 skip_install=false
+prebuilt_root=
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --control-plane) [[ $# -ge 2 ]] || { echo "--control-plane requires a value." >&2; exit 2; }; control_plane_url=$2; shift 2 ;;
     --output-root) [[ $# -ge 2 ]] || { echo "--output-root requires a value." >&2; exit 2; }; output_root=$2; shift 2 ;;
     --firecracker-version) [[ $# -ge 2 ]] || { echo "--firecracker-version requires a value." >&2; exit 2; }; firecracker_version=$2; shift 2 ;;
+    --prebuilt-root) [[ $# -ge 2 ]] || exit 2; prebuilt_root=$(realpath "$2"); shift 2 ;;
     --skip-install) skip_install=true; shift ;;
     *) echo "usage: $0 [--control-plane https://host] [--output-root PATH] [--firecracker-version vX.Y.Z] [--skip-install]" >&2; exit 2 ;;
   esac
@@ -19,9 +21,12 @@ if [[ $skip_install == false && $control_plane_url != https://* ]]; then
   echo "--control-plane with an HTTPS URL is required unless --skip-install is used." >&2; exit 2
 fi
 case "$firecracker_version" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "The Firecracker version is invalid." >&2; exit 2;; esac
-for command_name in curl dotnet jq openssl sha256sum tar; do
+for command_name in jq openssl sha256sum tar; do
   command -v "$command_name" >/dev/null 2>&1 || { echo "$command_name is required." >&2; exit 2; }
 done
+if [[ -z "$prebuilt_root" ]]; then
+  command -v dotnet >/dev/null; command -v curl >/dev/null
+fi
 if [[ ! -r /sys/fs/cgroup/cgroup.controllers || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
   echo "A cgroup v2 host with read/write /dev/kvm access is required." >&2; exit 2
 fi
@@ -47,6 +52,10 @@ smoke_root="$run_root/smoke"
 payload_root="$run_root/payload"
 mkdir -p "$run_root" "$cache_root"
 
+if [[ -n "$prebuilt_root" ]]; then
+  jq -e --arg rid "$runtime_id" '.schemaVersion == 1 and .runtimeIdentifier == $rid and .signing == "development" and .requiresHostCertification == true' "$prebuilt_root/office-bundle.json" >/dev/null
+  tools_root="$prebuilt_root/tools"
+else
 archive="firecracker-$firecracker_version-$architecture.tgz"
 archive_path="$cache_root/$archive"
 checksum_path="$cache_root/$archive.sha256.txt"
@@ -68,19 +77,29 @@ if [[ ! -x "$tools_root/firecracker" || ! -x "$tools_root/jailer" ]]; then
   install -m 0755 "$release_root/firecracker-$firecracker_version-$architecture" "$tools_root/firecracker"
   install -m 0755 "$release_root/jailer-$firecracker_version-$architecture" "$tools_root/jailer"
 fi
+fi
 "$tools_root/firecracker" --version
 "$tools_root/jailer" --version
 
 echo "Building the immutable Firecracker guest filesystem..."
-"$script_root/new-firecracker-guest.sh" "$guest_root" "$runtime_id"
+if [[ -n "$prebuilt_root" ]]; then
+  guest_root="$prebuilt_root/guest"
+else
+  "$script_root/new-firecracker-guest.sh" "$guest_root" "$runtime_id"
+fi
 
 helper_publish="$run_root/helper"
 smoke_publish="$run_root/smoke-runner"
 mkdir -p "$helper_publish" "$smoke_publish" "$smoke_root" "$smoke_root/package"
+if [[ -n "$prebuilt_root" ]]; then
+  cp -a "$prebuilt_root/components/helper/." "$helper_publish/"
+  cp -a "$prebuilt_root/components/smoke/." "$smoke_publish/"
+else
 dotnet publish "$repository_root/src/CSweet.Office.Runtime.Firecracker.Helper/CSweet.Office.Runtime.Firecracker.Helper.csproj" \
   -c Release -r "$runtime_id" --self-contained true -p:PublishSingleFile=true -p:DebugType=None -o "$helper_publish"
 dotnet publish "$repository_root/src/CSweet.Office.WindowsSmokeTest/CSweet.Office.WindowsSmokeTest.csproj" \
   -c Release -r "$runtime_id" --self-contained true -p:PublishSingleFile=true -p:DebugType=None -o "$smoke_publish"
+fi
 install -m 0755 "$tools_root/firecracker" "$smoke_root/package/firecracker"
 install -m 0755 "$tools_root/jailer" "$smoke_root/package/jailer"
 install -m 0644 "$guest_root/vmlinux" "$smoke_root/package/vmlinux"
@@ -126,7 +145,7 @@ suite_version=$(jq -r '.certificationSuiteVersion' "$evidence_path")
 certified_at=$(jq -r '.certifiedAt' "$evidence_path")
 expires_at=$(jq -r '.certificationExpiresAt // empty' "$evidence_path")
 
-"$script_root/new-runtime-payload.sh" \
+CSWEET_OFFICE_PREBUILT_ROOT="$prebuilt_root" "$script_root/new-runtime-payload.sh" \
   "$payload_root" "$runtime_id" "$tools_root/firecracker" "$tools_root/jailer" \
   "$guest_root/vmlinux" "$guest_root/initrd.img" "$guest_root/csweet-agent-guest.ext4" \
   "$signature_path" "$certificate_der" "$certificate_thumbprint" "$evidence_path" \

@@ -1,0 +1,117 @@
+name: hosted-development-release
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: office-hosted-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: release
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if ($env:REF_TYPE -ne 'tag') { throw 'Run this workflow against a vMAJOR.MINOR.PATCH tag.' }
+          $release = ./scripts/release/Get-OfficeReleaseMetadata.ps1 -Tag $env:RELEASE_TAG
+          "version=$($release.Version)" >> $env:GITHUB_OUTPUT
+  binaries:
+    needs: metadata
+    strategy:
+      matrix:
+        include:
+          - runner: windows-2022
+            rid: win-x64
+          - runner: ubuntu-24.04
+            rid: linux-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - run: dotnet test CSweet.Office.Independent.slnx -c Release -p:UseLocalOfficeContracts=false
+      - shell: pwsh
+        run: ./scripts/release/Build-HostedOfficeBundle.ps1 -RuntimeIdentifier '${{ matrix.rid }}' -OutputRoot artifacts/bundle
+      - name: Verify prebuilt payload avoids compilation
+        if: matrix.rid == 'win-x64'
+        shell: powershell
+        run: ./scripts/tests/Test-PrebuiltPayload.ps1 -NodeExecutable artifacts/bundle/components/node/CSweet.Office.Node.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.rid }}
+          path: artifacts/bundle
+          if-no-files-found: error
+  images:
+    needs: metadata
+    runs-on: ubuntu-24.04
+    env:
+      DOTNET_INSTALL_DIR: ${{ github.workspace }}/.dotnet-image-sdk
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - run: sudo apt-get update && sudo apt-get install -y libguestfs-tools qemu-utils debootstrap
+      - name: Build Hyper-V image without nested virtualization
+        run: bash scripts/release/build-hosted-hyperv-image.sh artifacts/windows-guest
+      - name: Build Firecracker image
+        run: sudo env "PATH=$PATH" bash scripts/linux/new-firecracker-guest.sh artifacts/linux-guest linux-x64
+      - name: Include verified Firecracker tools for offline installation
+        run: |
+          mkdir -p artifacts/linux-tools
+          cd artifacts/linux-tools
+          base=https://github.com/firecracker-microvm/firecracker/releases/download/v1.16.1
+          curl --fail --location --proto '=https' "$base/firecracker-v1.16.1-x86_64.tgz" -o firecracker-v1.16.1-x86_64.tgz
+          curl --fail --location --proto '=https' "$base/firecracker-v1.16.1-x86_64.tgz.sha256.txt" -o checksums
+          sha256sum -c checksums
+          tar -xzf firecracker-v1.16.1-x86_64.tgz
+          cp release-v1.16.1-x86_64/firecracker-v1.16.1-x86_64 firecracker
+          cp release-v1.16.1-x86_64/jailer-v1.16.1-x86_64 jailer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: guest-images
+          path: |
+            artifacts/windows-guest/*
+            artifacts/linux-guest/*
+            artifacts/linux-tools/firecracker
+            artifacts/linux-tools/jailer
+          compression-level: 0
+          if-no-files-found: error
+  publish:
+    needs: [metadata, binaries, images]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts/download }
+      - name: Test hosted release manifest and archive layout
+        shell: pwsh
+        run: ./scripts/tests/Test-HostedManifest.ps1
+      - name: Package immutable development bundles and checksums
+        shell: pwsh
+        run: ./scripts/release/Publish-HostedOfficeAssets.ps1 -Version '${{ needs.metadata.outputs.version }}' -InputRoot artifacts/download -OutputRoot artifacts/release
+      - name: Publish tagged release atomically
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        shell: pwsh
+        run: |
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'Release already exists; use a new version. Published assets must not be replaced.' }
+          $assets = @(Get-ChildItem artifacts/release -File | ForEach-Object FullName)
+          gh release create $env:RELEASE_TAG --verify-tag --draft --title "Office $env:RELEASE_VERSION (development signing)" --notes-file "releases/$env:RELEASE_VERSION.md" --repo $env:GITHUB_REPOSITORY @assets
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed. Inspect the draft before retrying.' }
+          gh release edit $env:RELEASE_TAG --draft=false --latest --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

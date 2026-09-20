@@ -50,7 +50,7 @@ global using CSweet.Office.Contracts.Workloads;
 | Truth | Location | Current value |
 |---|---|---|
 | Contracts package version | `Directory.Packages.props` → `<PackageVersion Include="CSweet.Office.Contracts" Version="…" />` | `0.7.0` |
-| Office runtime version | `Directory.Build.props` → `<VersionPrefix>` | `0.5.4` |
+| Office runtime version | `Directory.Build.props` → `<VersionPrefix>` | `0.6.0` |
 | Release tag | Git tag `vX.Y.Z` | must equal `VersionPrefix` |
 
 `scripts/release/Get-OfficeReleaseMetadata.ps1` is the only script that compares these: it rejects a tag that

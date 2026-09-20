@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "C-Sweet Office hosted development bootstrap",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "officeVersion", "contractsVersion", "protocolVersion", "signing", "requiresHostCertification", "assets"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "officeVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "contractsVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "protocolVersion": { "const": "1.0" },
+    "signing": { "const": "development" },
+    "requiresHostCertification": { "const": true },
+    "assets": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["name", "size", "sha256", "url"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^csweet-office-[0-9]+\\.[0-9]+\\.[0-9]+-(windows-support\\.zip|windows-x64\\.zip|linux-x64\\.tar\\.gz)$" },
+          "size": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "url": { "type": "string", "pattern": "^https://github\\.com/CrosswiredStudios/CSweet\\.Office/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/csweet-office-" }
+        }
+      }
+    }
+  }
+}
