@@ -58,7 +58,7 @@ dotnet publish "$repository_root/src/CSweet.Office.GuestProbe/CSweet.Office.Gues
 
 echo "Creating the minimal Ubuntu $ubuntu_suite root filesystem..."
 debootstrap --arch="$architecture" --variant=minbase --components=main,universe \
-  --include=systemd-sysv,udev,e2fsprogs,util-linux,kmod,ca-certificates,libicu74,libssl3,zlib1g,linux-image-virtual \
+  --include=systemd-sysv,udev,e2fsprogs,util-linux,kmod,ca-certificates,libicu74,libssl3t64,zlib1g,linux-image-virtual \
   "$ubuntu_suite" "$rootfs" "$ubuntu_mirror"
 
 dotnet_executable=$(readlink -f "$(command -v dotnet)")

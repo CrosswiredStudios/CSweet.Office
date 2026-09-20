@@ -3,7 +3,9 @@
 **Audience:** developers preparing a release or installing without a source checkout.
 
 `hosted-release.yml` runs when a push to `main` changes `Directory.Build.props`, the workflow,
-or `scripts/release/**`. Release-script fixes therefore retry an unpublished version automatically. Bump `VersionPrefix` and add `releases/<version>.md` in the same push. The workflow reads
+`scripts/release/**`, or `scripts/linux/new-firecracker-guest.sh`. Fixes to these build scripts
+therefore retry an unpublished version automatically. Bump `VersionPrefix` and add
+`releases/<version>.md` in the same push. The workflow reads
 the version through `Get-OfficeReleaseMetadata.ps1`, skips already-published versions before
 building, and creates `v<version>` at the triggering commit when publishing. No manual tag push
 is needed. Changes to other files alone run ordinary CI without starting a release.

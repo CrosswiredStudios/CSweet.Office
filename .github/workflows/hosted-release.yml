@@ -6,6 +6,7 @@ on:
       - Directory.Build.props
       - .github/workflows/hosted-release.yml
       - scripts/release/**
+      - scripts/linux/new-firecracker-guest.sh
     tags: ['v*.*.*']
   workflow_dispatch:
 permissions:
