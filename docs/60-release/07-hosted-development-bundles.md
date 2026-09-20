@@ -32,9 +32,12 @@ file, and sets `SUPERMIN_KERNEL`, `SUPERMIN_KERNEL_VERSION`, and `SUPERMIN_MODUL
 and its matching module tree. The runner removes the optional `passt` package so libguestfs uses
 QEMU's built-in SLIRP networking for image construction. This avoids Ubuntu's `passt` AppArmor
 profile rejecting libguestfs's temporary PID files, without disabling AppArmor. `libguestfs-test-tool`
-checks the appliance, then `guestfish --network` launches an appliance with a scratch disk to test
-the network-enabled startup used by `virt-customize`. Both checks run before image download or
-guest compilation; the network check verifies startup, not external DNS or package-server access.
+checks the appliance, then `guestfish --network` launches an appliance with a scratch disk and
+requires a nonempty `/etc/resolv.conf` and successful DNS lookups for `archive.ubuntu.com` and
+`security.ubuntu.com`. The runner explicitly installs `isc-dhcp-client`, which Ubuntu 24.04's
+supermin package list includes; its default host DHCP dependency can otherwise leave the
+appliance without a DHCP executable. Both checks run before image download or guest compilation.
+The network check verifies DNS, while the later package installation verifies package-server access.
 This avoids relying on the runner's Azure kernel or root-only kernel file permissions.
 Debug/trace logging stays enabled; failed jobs upload `image-build-diagnostics` with
 the preflight and image build logs for seven days. These changes affect only the build runner;
