@@ -795,9 +795,10 @@ public sealed class WindowsHyperVOnboardingTests
             // Anchor the fixture to the actual host boot time (same clock as GetProgress):
             // startedAt must postdate boot by >1min to skip the boot-recency branch, while
             // updatedAt stays stale on the heartbeat check but fresh inside the expected
-            // phase window (maxSeconds + 2min grace), so the dead-owner branch
-            // ("preparation-stopped") is reached deterministically on any host, including
-            // a freshly-booted CI VM.
+            // phase window (maxSeconds + 2min grace). A dead owner PID makes the owner
+            // check deterministic regardless of host clock skew, so the dead-owner branch
+            // ("preparation-stopped") is reached on any host, including a freshly-booted
+            // CI VM.
             var now = DateTimeOffset.UtcNow;
             var bootedAt = now - TimeSpan.FromMilliseconds(Environment.TickCount64);
             var startedAt = bootedAt.AddMinutes(2);
@@ -805,6 +806,7 @@ public sealed class WindowsHyperVOnboardingTests
             var updatedAt = now.Subtract(
                 WindowsRuntimeHostProvisioner.LegacyProgressHeartbeatTimeout).AddSeconds(-5);
             if (updatedAt < startedAt) updatedAt = startedAt;
+            const int deadOwnerProcessId = 1 << 22; // Far above any real PID; GetProcessById throws, treated as dead.
             File.WriteAllText(
                 WindowsRuntimeHostProgressStore.CreatePath(jobId),
                 JsonSerializer.Serialize(new
@@ -819,6 +821,7 @@ public sealed class WindowsHyperVOnboardingTests
                     percentComplete = 24,
                     startedAt,
                     updatedAt,
+                    ownerProcessId = deadOwnerProcessId,
                     estimatedRemainingMinimumSeconds = 0,
                     estimatedRemainingMaximumSeconds = 86_400,
                     requiresRestart = false,
