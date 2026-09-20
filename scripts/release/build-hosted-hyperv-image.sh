@@ -24,7 +24,9 @@ virt-resize --expand /dev/sda1 "$work/$image" "$work/expanded.qcow2"
 virt-customize -a "$work/expanded.qcow2" --memsize 4096 \
   --install dotnet-sdk-10.0,linux-tools-virtual,linux-cloud-tools-virtual \
   --copy-in "$work/csweet-image-payload:/tmp" \
-  --run "$root/build/windows-hyperv/provision-guest.sh" \
+  --upload "$root/build/windows-hyperv/provision-guest.sh:/tmp/csweet-provision-guest.sh" \
+  --run-command '/bin/bash /tmp/csweet-provision-guest.sh' \
+  --delete /tmp/csweet-provision-guest.sh \
   --run-command 'systemctl mask ssh.service ssh.socket && passwd -l root && if getent passwd ubuntu >/dev/null; then passwd -l ubuntu; fi' \
   --run-command 'rm -f /etc/ssh/ssh_host_* /root/.ssh/authorized_keys /home/ubuntu/.ssh/authorized_keys; rm -rf /tmp/csweet-image-payload; apt-get clean; sync'
 qemu-img convert -O vhdx -o subformat=dynamic "$work/expanded.qcow2" "$output/csweet-agent-guest.vhdx"

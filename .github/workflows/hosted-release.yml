@@ -5,6 +5,7 @@ on:
     paths:
       - Directory.Build.props
       - .github/workflows/hosted-release.yml
+      - scripts/release/**
     tags: ['v*.*.*']
   workflow_dispatch:
 permissions:

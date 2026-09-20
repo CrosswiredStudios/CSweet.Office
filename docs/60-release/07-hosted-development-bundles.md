@@ -2,8 +2,8 @@
 
 **Audience:** developers preparing a release or installing without a source checkout.
 
-`hosted-release.yml` runs when a push to `main` changes `Directory.Build.props` or the workflow
-itself. Bump `VersionPrefix` and add `releases/<version>.md` in the same push. The workflow reads
+`hosted-release.yml` runs when a push to `main` changes `Directory.Build.props`, the workflow,
+or `scripts/release/**`. Release-script fixes therefore retry an unpublished version automatically. Bump `VersionPrefix` and add `releases/<version>.md` in the same push. The workflow reads
 the version through `Get-OfficeReleaseMetadata.ps1`, skips already-published versions before
 building, and creates `v<version>` at the triggering commit when publishing. No manual tag push
 is needed. Changes to other files alone run ordinary CI without starting a release.
@@ -44,7 +44,10 @@ the preflight and image build logs for seven days. These changes affect only the
 the shipped guest continues to use its own Ubuntu kernel and target-host certification.
 
 The Ubuntu job customizes a checksum-verified Canonical cloud image with the existing Hyper-V
-provisioner and converts it to VHDX. It does not execute Hyper-V certification. The Firecracker
+provisioner and converts it to VHDX. `build-hosted-hyperv-image.sh` uploads the provisioner,
+runs it explicitly with `/bin/bash` through `--run-command`, and removes the temporary script.
+This preserves Bash features such as `pipefail`; `virt-customize --run` passes script contents
+through the guest's `/bin/sh`. It does not execute Hyper-V certification. The Firecracker
 guest uses `new-firecracker-guest.sh`. `Publish-HostedOfficeAssets.ps1` rejects assets at or above
 GitHub's 2 GiB per-file limit. The workflow uploads a draft first and publishes only after upload
 succeeds. Published releases are skipped; a release appearing during the build fails publication
