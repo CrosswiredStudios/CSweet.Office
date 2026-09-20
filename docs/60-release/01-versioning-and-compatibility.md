@@ -12,7 +12,7 @@ tag during publication. Explicit tag runs also verify that the tag matches the s
 | Truth | File and property | Value at the time of writing | Changed by |
 |---|---|---|---|
 | Office version | `Directory.Build.props` → `VersionPrefix` | `0.6.0` | The contributor cutting the release |
-| Contracts version | `Directory.Packages.props` → `PackageVersion Include="CSweet.Office.Contracts"` | `0.7.0` | The contributor taking a new contracts package |
+| Contracts version | `Directory.Packages.props` → `PackageVersion Include="CSweet.Office.Contracts"` | `0.7.1` | The contributor taking a new contracts package |
 | Release identity | The git tag | `vMAJOR.MINOR.PATCH` | The hosted workflow, or an explicit tag push |
 
 `VersionPrefix` feeds the assembly and file version of every project. The payload generator reads the published

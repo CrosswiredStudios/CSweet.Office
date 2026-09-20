@@ -27,7 +27,7 @@ sibling source checkout.
 The version lives in exactly one place, `Directory.Packages.props`:
 
 ```xml
-<PackageVersion Include="CSweet.Office.Contracts" Version="0.7.0" />
+<PackageVersion Include="CSweet.Office.Contracts" Version="0.7.1" />
 ```
 
 This is independent of `VersionPrefix` (`0.6.0` in `Directory.Build.props`), which is the Office version.
@@ -83,4 +83,4 @@ dotnet test tests/CSweet.Office.Tests/CSweet.Office.Tests.csproj -c Release -p:U
 `Office.GlobalUsings.cs`, `.github/workflows/ci.yml`, `docs/10-system/04-solution-map.md`,
 `src/CSweet.Office.Runtime.LocalRpc/RuntimeHostProtocolMapper.cs`.
 
-Verified: 2026-09-16.
+Verified: 2026-09-19.

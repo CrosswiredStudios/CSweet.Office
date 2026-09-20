@@ -27,6 +27,14 @@ The release contains:
   probe, kernel, initrd, and guest filesystem.
 - `SHA256SUMS`: checksums for every published file above.
 
+The image job installs `linux-image-generic`, copies its kernel to a runner-readable temporary
+file, and sets `SUPERMIN_KERNEL`, `SUPERMIN_KERNEL_VERSION`, and `SUPERMIN_MODULES` to that kernel
+and its matching module tree. `libguestfs-test-tool` checks the appliance before any image download
+or guest compilation. This avoids relying on the runner's Azure kernel or root-only kernel file
+permissions. Debug/trace logging stays enabled; failed jobs upload `image-build-diagnostics` with
+the preflight and image build logs for seven days. These changes affect only the build runner;
+the shipped guest continues to use its own Ubuntu kernel and target-host certification.
+
 The Ubuntu job customizes a checksum-verified Canonical cloud image with the existing Hyper-V
 provisioner and converts it to VHDX. It does not execute Hyper-V certification. The Firecracker
 guest uses `new-firecracker-guest.sh`. `Publish-HostedOfficeAssets.ps1` rejects assets at or above

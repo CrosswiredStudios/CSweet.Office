@@ -112,16 +112,43 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       DOTNET_INSTALL_DIR: ${{ github.workspace }}/.dotnet-image-sdk
+      LIBGUESTFS_BACKEND: direct
+      LIBGUESTFS_DEBUG: '1'
+      LIBGUESTFS_TRACE: '1'
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
-      - run: sudo apt-get update && sudo apt-get install -y libguestfs-tools qemu-utils debootstrap
+      - run: sudo apt-get update && sudo apt-get install -y libguestfs-tools qemu-utils debootstrap linux-image-generic
+      - name: Prepare and test libguestfs appliance
+        shell: bash
+        run: |
+          mkdir -p artifacts/image-diagnostics
+          # Ubuntu restricts /boot/vmlinuz to root. Copy one generic kernel for the
+          # unprivileged appliance builder and select its matching modules explicitly.
+          kernel=$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*-generic' | sort -V | tail -n 1)
+          if [[ -z "$kernel" ]]; then
+            echo 'No generic kernel found after installing linux-image-generic.' >&2
+            exit 1
+          fi
+          version=${kernel##*/vmlinuz-}
+          if [[ ! -d "/lib/modules/$version" ]]; then
+            echo "Missing modules for libguestfs kernel $version." >&2
+            exit 1
+          fi
+          sudo install -m 0644 "$kernel" "$RUNNER_TEMP/libguestfs-vmlinuz"
+          export SUPERMIN_KERNEL="$RUNNER_TEMP/libguestfs-vmlinuz"
+          export SUPERMIN_KERNEL_VERSION="$version"
+          export SUPERMIN_MODULES="/lib/modules/$version"
+          printf '%s\n' "SUPERMIN_KERNEL=$SUPERMIN_KERNEL" "SUPERMIN_KERNEL_VERSION=$SUPERMIN_KERNEL_VERSION" "SUPERMIN_MODULES=$SUPERMIN_MODULES" >> "$GITHUB_ENV"
+          libguestfs-test-tool 2>&1 | tee artifacts/image-diagnostics/libguestfs-preflight.log
       - name: Build Hyper-V image without nested virtualization
-        run: bash scripts/release/build-hosted-hyperv-image.sh artifacts/windows-guest
+        shell: bash
+        run: bash scripts/release/build-hosted-hyperv-image.sh artifacts/windows-guest 2>&1 | tee artifacts/image-diagnostics/hyperv-build.log
       - name: Build Firecracker image
-        run: sudo env "PATH=$PATH" bash scripts/linux/new-firecracker-guest.sh artifacts/linux-guest linux-x64
+        shell: bash
+        run: sudo env "PATH=$PATH" bash scripts/linux/new-firecracker-guest.sh artifacts/linux-guest linux-x64 2>&1 | tee artifacts/image-diagnostics/firecracker-build.log
       - name: Include verified Firecracker tools for offline installation
         run: |
           mkdir -p artifacts/linux-tools
@@ -143,6 +170,14 @@ jobs:
             artifacts/linux-tools/jailer
           compression-level: 0
           if-no-files-found: error
+      - name: Upload image diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-build-diagnostics
+          path: artifacts/image-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
   publish:
     needs: [metadata, binaries, images]
     runs-on: ubuntu-24.04

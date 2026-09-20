@@ -81,7 +81,7 @@ example in this repository). The current pins are:
 
 | Package | Version |
 |---|---|
-| `CSweet.Office.Contracts` | 0.7.0 |
+| `CSweet.Office.Contracts` | 0.7.1 |
 | `Google.Protobuf` | 3.35.1 |
 | `Grpc.Core.Api`, `Grpc.Net.Client`, `Grpc.Tools` | 2.83.0 |
 | `Microsoft.Extensions.Hosting`, `.Hosting.Systemd`, `.Hosting.WindowsServices`, `.Http`, `.Logging.Abstractions` | 10.0.9 |
@@ -147,4 +147,4 @@ the restore graph differs; `dotnet test` with no `--no-build` is the safe defaul
 `tests/CSweet.Office.Tests/CSweet.Office.Tests.csproj`, `docs/10-system/04-solution-map.md`,
 `src/CSweet.Office.Runtime.AppleVirtualization.Helper/Package.swift`, `scripts/windows/New-CSweetOfficeMsi.ps1`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-19.
