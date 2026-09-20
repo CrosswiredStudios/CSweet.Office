@@ -1,15 +1,23 @@
-[CmdletBinding()]
-param([Parameter(Mandatory)][string] $Tag)
+[CmdletBinding(DefaultParameterSetName = 'Tag')]
+param(
+    [Parameter(ParameterSetName = 'Tag', Mandatory)] [string] $Tag,
+    [Parameter(ParameterSetName = 'Version', Mandatory)] [string] $Version
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-if ($Tag -notmatch '^v(?<version>[0-9]+[.][0-9]+[.][0-9]+)$') { throw 'Release tag must be vMAJOR.MINOR.PATCH.' }
-$version = $Matches.version
+if ($PSCmdlet.ParameterSetName -eq 'Tag') {
+    if ($Tag -notmatch '^v(?<version>[0-9]+[.][0-9]+[.][0-9]+)$') { throw 'Release tag must be vMAJOR.MINOR.PATCH.' }
+    $Version = $Matches.version
+}
+elseif ($Version -notmatch '^[0-9]+[.][0-9]+[.][0-9]+$') { throw 'Release version must be MAJOR.MINOR.PATCH.' }
+$version = $Version
 [xml]$build = Get-Content (Join-Path $root 'Directory.Build.props') -Raw
 $runtimeVersion = [string]$build.Project.PropertyGroup.VersionPrefix
 if ($runtimeVersion -cne $version) {
-    throw "Release tag $Tag does not match the runtime version $runtimeVersion in Directory.Build.props."
+    $source = if ($PSCmdlet.ParameterSetName -eq 'Tag') { "Release tag $Tag" } else { "Release version $version" }
+    throw "$source does not match the runtime version $runtimeVersion in Directory.Build.props."
 }
 [xml]$packages = Get-Content (Join-Path $root 'Directory.Packages.props') -Raw
 $contract = @($packages.SelectNodes('//PackageVersion[@Include="CSweet.Office.Contracts"]'))

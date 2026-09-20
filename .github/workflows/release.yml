@@ -1,22 +1,49 @@
 name: signed-release
 on:
   push:
+    branches: [main]
+    paths:
+      - Directory.Build.props
+      - Directory.Packages.props
     tags: ['v*.*.*']
+  workflow_dispatch:
 permissions:
   contents: write
   id-token: write
   attestations: write
+concurrency:
+  group: office-release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
+  resolve:
+    if: github.ref_type == 'tag' || github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      matrix: ${{ steps.metadata.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve release version and platform matrix
+        id: metadata
+        shell: pwsh
+        run: |
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $release = ./scripts/release/Get-OfficeReleaseMetadata.ps1 -Tag '${{ github.ref_name }}'
+            $matrix = '[{"os":"windows","arch":"x64","runner":"csweet-hardened-windows-signing"},{"os":"linux","arch":"x64","runner":"csweet-hardened-linux-x64"},{"os":"linux","arch":"arm64","runner":"csweet-hardened-linux-arm64"},{"os":"macos","arch":"x64","runner":"csweet-hardened-macos-x64"},{"os":"macos","arch":"arm64","runner":"csweet-hardened-macos-arm64"}]'
+          } else {
+            $release = ./scripts/release/Get-OfficeReleaseMetadata.ps1 -Version (Select-Xml -Path Directory.Build.props -XPath '//VersionPrefix' | Select-Object -ExpandProperty Node | Select-Object -ExpandProperty '#text')
+            $matrix = '[{"os":"windows","arch":"x64","runner":"csweet-hardened-windows-signing"},{"os":"linux","arch":"x64","runner":"csweet-hardened-linux-x64"}]'
+          }
+          "version=$($release.Version)" >> $env:GITHUB_OUTPUT
+          "tag=v$($release.Version)" >> $env:GITHUB_OUTPUT
+          "matrix=$matrix" >> $env:GITHUB_OUTPUT
   certify-and-package:
+    needs: resolve
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - { os: windows, arch: x64, runner: csweet-hardened-windows-signing }
-          - { os: linux, arch: x64, runner: csweet-hardened-linux-x64 }
-          - { os: linux, arch: arm64, runner: csweet-hardened-linux-arm64 }
-          - { os: macos, arch: x64, runner: csweet-hardened-macos-x64 }
-          - { os: macos, arch: arm64, runner: csweet-hardened-macos-arm64 }
+        include: ${{ fromJson(needs.resolve.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     environment: production-signing
     steps:
@@ -25,7 +52,7 @@ jobs:
         with: { dotnet-version: '10.0.x' }
       - name: Build, test, certify, package, sign, and emit SBOM
         shell: pwsh
-        run: ./scripts/release/Invoke-PlatformRelease.ps1 -OperatingSystem '${{ matrix.os }}' -Architecture '${{ matrix.arch }}' -Tag '${{ github.ref_name }}'
+        run: ./scripts/release/Invoke-PlatformRelease.ps1 -OperatingSystem '${{ matrix.os }}' -Architecture '${{ matrix.arch }}' -Version '${{ needs.resolve.outputs.version }}'
         env:
           CSWEET_WINDOWS_SIGNING_THUMBPRINT: ${{ secrets.CSWEET_WINDOWS_SIGNING_THUMBPRINT }}
           CSWEET_LINUX_SIGNING_KEY_ID: ${{ secrets.CSWEET_LINUX_SIGNING_KEY_ID }}
@@ -45,7 +72,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: 'release-${{ matrix.os }}-${{ matrix.arch }}', path: artifacts/release/* }
   publish:
-    needs: certify-and-package
+    needs: [resolve, certify-and-package]
     runs-on: ubuntu-latest
     environment: production-release
     steps:
@@ -55,22 +82,22 @@ jobs:
       - name: Generate release manifest and consolidated checksums
         shell: pwsh
         run: |
-          $release = ./scripts/release/Get-OfficeReleaseMetadata.ps1 -Tag '${{ github.ref_name }}'
+          $release = ./scripts/release/Get-OfficeReleaseMetadata.ps1 -Version '${{ needs.resolve.outputs.version }}'
           ./scripts/release/New-OfficeReleaseManifest.ps1 -Version $release.Version -ContractsVersion $release.ContractsVersion -AssetDirectory artifacts/release -OutputPath artifacts/release/office-release.json
           Get-ChildItem artifacts/release -File | Where-Object Name -ne SHA256SUMS | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content artifacts/release/SHA256SUMS -Encoding ascii
       - run: bash ./scripts/release/verify-release.sh artifacts/release
       - uses: actions/attest-build-provenance@v2
         with: { subject-path: 'artifacts/release/*' }
-      - uses: softprops/action-gh-release@v2
-        with:
-          make_latest: true
-          fail_on_unmatched_files: true
-          files: |
-            artifacts/release/*.msi
-            artifacts/release/*.deb
-            artifacts/release/*.pkg
-            artifacts/release/*.img
-            artifacts/release/*.sig
-            artifacts/release/*.json
-            artifacts/release/*.zip
-            artifacts/release/SHA256SUMS
+      - name: Create or update version release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = '${{ needs.resolve.outputs.tag }}'
+          if ('${{ github.ref_type }}' -eq 'tag') { $tag = '${{ github.ref_name }}' }
+          $notes = if (Test-Path "releases/$('${{ needs.resolve.outputs.version }}').md") { "--notes-file releases/$('${{ needs.resolve.outputs.version }}').md" } else { "--notes `"Office $('${{ needs.resolve.outputs.version }}') signed release.`"" }
+          if (gh release view $tag --repo '${{ github.repository }}' 2>$null) {
+            gh release upload $tag artifacts/release/*.msi artifacts/release/*.deb artifacts/release/*.pkg artifacts/release/*.img artifacts/release/*.sig artifacts/release/*.json artifacts/release/*.zip artifacts/release/SHA256SUMS --clobber --repo '${{ github.repository }}'
+          } else {
+            gh release create $tag $notes --latest --repo '${{ github.repository }}' artifacts/release/*.msi artifacts/release/*.deb artifacts/release/*.pkg artifacts/release/*.img artifacts/release/*.sig artifacts/release/*.json artifacts/release/*.zip artifacts/release/SHA256SUMS
+          }

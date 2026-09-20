@@ -1,13 +1,18 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'Tag')]
 param(
     [Parameter(Mandatory)] [ValidateSet('windows','linux','macos')] [string] $OperatingSystem,
     [Parameter(Mandatory)] [ValidateSet('x64','arm64')] [string] $Architecture,
-    [Parameter(Mandatory)] [string] $Tag
+    [Parameter(ParameterSetName = 'Tag', Mandatory)] [string] $Tag,
+    [Parameter(ParameterSetName = 'Version', Mandatory)] [string] $Version
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$release = & (Join-Path $PSScriptRoot 'Get-OfficeReleaseMetadata.ps1') -Tag $Tag
+$release = if ($PSCmdlet.ParameterSetName -eq 'Tag') {
+    & (Join-Path $PSScriptRoot 'Get-OfficeReleaseMetadata.ps1') -Tag $Tag
+} else {
+    & (Join-Path $PSScriptRoot 'Get-OfficeReleaseMetadata.ps1') -Version $Version
+}
 $version = $release.Version
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $output = Join-Path $root 'artifacts\release'
