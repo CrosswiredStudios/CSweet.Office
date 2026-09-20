@@ -121,6 +121,17 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - run: sudo apt-get update && sudo apt-get install -y libguestfs-tools qemu-utils debootstrap linux-image-generic
+      - name: Select QEMU user networking for image construction
+        shell: bash
+        run: |
+          # Noble's passt profile rejects libguestfs's temporary PID files. Without
+          # this optional helper, libguestfs uses QEMU's built-in SLIRP networking.
+          # Keep AppArmor enabled and leave the guest's no-network policy unchanged.
+          sudo apt-get remove -y --no-auto-remove passt
+          if command -v passt >/dev/null 2>&1; then
+            echo 'passt is still on PATH; cannot select QEMU user networking.' >&2
+            exit 1
+          fi
       - name: Prepare and test libguestfs appliance
         shell: bash
         run: |
@@ -143,6 +154,11 @@ jobs:
           export SUPERMIN_MODULES="/lib/modules/$version"
           printf '%s\n' "SUPERMIN_KERNEL=$SUPERMIN_KERNEL" "SUPERMIN_KERNEL_VERSION=$SUPERMIN_KERNEL_VERSION" "SUPERMIN_MODULES=$SUPERMIN_MODULES" >> "$GITHUB_ENV"
           libguestfs-test-tool 2>&1 | tee artifacts/image-diagnostics/libguestfs-preflight.log
+          # The basic test does not exercise the networking used by virt-customize.
+          guestfish --network 2>&1 <<'GUESTFISH' | tee artifacts/image-diagnostics/libguestfs-network-preflight.log
+          add-drive-scratch 64M
+          run
+          GUESTFISH
       - name: Build Hyper-V image without nested virtualization
         shell: bash
         run: bash scripts/release/build-hosted-hyperv-image.sh artifacts/windows-guest 2>&1 | tee artifacts/image-diagnostics/hyperv-build.log
