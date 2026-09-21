@@ -64,3 +64,18 @@ function Enter-CSweetDevelopmentBuild {
         throw
     }
 }
+
+function Enter-CSweetOfficePreparation {
+    param([string] $PrebuiltRoot,
+          [Parameter(Mandatory = $true)][scriptblock] $OnWaiting,
+          [int] $TimeoutSeconds = 7200,
+          [string] $MutexName = 'Global\CSweet.Office.DevelopmentBuild',
+          [string] $ProgressRoot = (Join-Path $env:ProgramData 'CSweet\Setup'))
+
+    # A hosted bundle already contains the binaries and guest image. Its unique extraction and
+    # certification directories do not touch the source-build cache, so a source build must not
+    # delay or mislabel prebuilt preparation.
+    if (-not [String]::IsNullOrWhiteSpace($PrebuiltRoot)) { return $null }
+    return Enter-CSweetDevelopmentBuild -OnWaiting $OnWaiting -TimeoutSeconds $TimeoutSeconds `
+        -MutexName $MutexName -ProgressRoot $ProgressRoot
+}

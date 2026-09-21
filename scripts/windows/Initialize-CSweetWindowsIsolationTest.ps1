@@ -112,10 +112,10 @@ function Start-CertificationHeartbeat {
 . (Join-Path $PSScriptRoot 'CSweet.DevelopmentBuild.ps1')
 $buildLock = $null
 try {
-$buildLock = Enter-CSweetDevelopmentBuild -OnWaiting {
+$buildLock = Enter-CSweetOfficePreparation -PrebuiltRoot $PrebuiltRoot -OnWaiting {
     Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
-        -State running -PhaseKey wait-existing-build -PhaseDisplayName 'Waiting for the existing Office build' `
-        -Message 'Another Office build is already running. It will not be interrupted or duplicated.' -PercentComplete 1
+        -State running -PhaseKey wait-existing-build -PhaseDisplayName 'Waiting for the existing Office source build' `
+        -Message 'Another Office source build is already running. It will not be interrupted or duplicated.' -PercentComplete 1
 }
 Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
     -State running -PhaseKey host-preflight -PhaseDisplayName 'Checking Windows and Hyper-V' `

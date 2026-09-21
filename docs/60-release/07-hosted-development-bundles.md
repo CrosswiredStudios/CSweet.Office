@@ -72,7 +72,9 @@ certification is mandatory (`SEC-INV-10`). Windows runs `Initialize-CSweetWindow
 -PrebuiltRoot <bundle>`; Linux runs `initialize-firecracker-test.sh --prebuilt-root <bundle>`.
 Both paths use the supplied binaries and image, execute real no-network certification VMs, and
 create development signing material locally. No production signing key is needed. Certification
-failure prevents installation. Existing upgrade and identity rules still apply (`SEC-INV-18`).
+failure prevents installation. The Windows prebuilt path uses its unique extraction and certification
+directories directly and does not wait on the source-build mutex; only explicit source fallback is
+serialized with other source builds. Existing upgrade and identity rules still apply (`SEC-INV-18`).
 
 > **Out of repo:** C-Sweet's `CSweet.OfficeRelease.ps1` discovers up to 20 recent GitHub releases,
 > skips drafts/prereleases and releases without compatible bundles, verifies downloads, and rejects
@@ -114,4 +116,5 @@ the development workflow does not label its archives as signed MSI/DEB installer
 `scripts/windows/{Initialize-CSweetWindowsIsolationTest,New-CSweetWindowsRuntimePayload}.ps1`,
 `scripts/linux/{new-firecracker-guest,initialize-firecracker-test,new-runtime-payload}.sh`.
 
-Verified: 2026-09-20. Target-host validation awaits the first hosted artifacts.
+Verified: 2026-09-20. `Test-DevelopmentBuildCoordination.ps1` covers prebuilt bypass and source-build exclusion;
+target-host certification remains mandatory.

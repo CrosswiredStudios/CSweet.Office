@@ -22,6 +22,12 @@ try {
         if ([DateTimeOffset]::UtcNow -gt $deadline) { throw 'Test worker did not start.' }
         Start-Sleep -Milliseconds 100
     }
+    $prebuiltWaits = 0
+    $prebuiltLock = Enter-CSweetOfficePreparation -PrebuiltRoot (Join-Path $root 'prebuilt') `
+        -MutexName $name -ProgressRoot $root -TimeoutSeconds 0 -OnWaiting { $script:prebuiltWaits++ }
+    if ($null -ne $prebuiltLock -or $prebuiltWaits -ne 0) {
+        throw 'Prebuilt preparation waited on the source-build coordinator.'
+    }
     $blocked = $false
     try { $unexpected = Enter-CSweetDevelopmentBuild -MutexName $name -ProgressRoot $root -TimeoutSeconds 0 -OnWaiting {} }
     catch { $blocked = $_.Exception.Message -like '*No competing build*' }
@@ -68,7 +74,7 @@ try {
     try { $unexpected = Enter-CSweetDevelopmentBuild -MutexName $name -ProgressRoot $root -TimeoutSeconds 0 -OnWaiting {} }
     catch { $blocked = $_.Exception.Message -like '*completion cannot be verified*' }
     if (-not $blocked) { throw 'An unverifiable ownerless build was ignored.' }
-    Write-Host 'PASS: concurrent exclusion, legacy build detection, completion, waiting-peer recovery, and ownerless progress compatibility.'
+    Write-Host 'PASS: prebuilt bypass, source-build exclusion, legacy detection, waiting-peer recovery, and ownerless compatibility.'
 }
 finally {
     if ($job) { Stop-Job $job -ErrorAction SilentlyContinue; Remove-Job $job -Force -ErrorAction SilentlyContinue }
