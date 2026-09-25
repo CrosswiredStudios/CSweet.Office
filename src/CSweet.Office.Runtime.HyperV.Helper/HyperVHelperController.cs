@@ -230,7 +230,6 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
             }
 
             if (metadata is null || metadata.InstanceId != instanceId ||
-                metadata.Kind == WorkloadKind.Builder ||
                 !metadata.VmName.StartsWith("CSweet-", StringComparison.Ordinal))
                 continue;
 
@@ -260,7 +259,7 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
         HyperVInstanceMetadata metadata,
         string? hyperVState,
         DateTimeOffset now) =>
-        metadata.Kind is WorkloadKind.Runtime or WorkloadKind.ToolchainBuild &&
+        metadata.Kind is WorkloadKind.Builder or WorkloadKind.Runtime or WorkloadKind.ToolchainBuild &&
         (metadata.LeaseExpiresAt is null ||
          metadata.LeaseExpiresAt <= now ||
          metadata.FinishedAt is not null ||

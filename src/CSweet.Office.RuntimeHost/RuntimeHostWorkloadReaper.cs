@@ -20,7 +20,7 @@ public sealed class RuntimeHostWorkloadReaper(
                     var removed = await reaper.ReapAbandonedWorkloadsAsync(stoppingToken);
                     if (removed > 0)
                         logger.LogInformation(
-                            "RuntimeHost destroyed {WorkloadCount} stopped, expired, or legacy runtime workloads.",
+                            "RuntimeHost destroyed {WorkloadCount} stopped, expired, or legacy workloads.",
                             removed);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

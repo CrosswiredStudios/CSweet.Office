@@ -81,7 +81,7 @@ public sealed class FirecrackerHelperSecurityTests
     }
 
     [Fact]
-    public void ReaperOnlySelectsExpiredRuntimeInstances()
+    public void ReaperSelectsExpiredWorkloadsAndRetainsActiveLeases()
     {
         var now = DateTimeOffset.UtcNow;
         var metadata = new FirecrackerInstanceMetadata(
@@ -89,8 +89,10 @@ public sealed class FirecrackerHelperSecurityTests
             3, now.AddMinutes(-10), now.AddMinutes(-9), null, now.AddSeconds(-1));
 
         Assert.True(FirecrackerHelperController.ShouldReap(metadata, now));
-        Assert.False(FirecrackerHelperController.ShouldReap(
+        Assert.True(FirecrackerHelperController.ShouldReap(
             metadata with { Kind = WorkloadKind.Builder }, now));
+        Assert.False(FirecrackerHelperController.ShouldReap(
+            metadata with { Kind = WorkloadKind.Builder, LeaseExpiresAt = now.AddMinutes(1), ProcessId = Environment.ProcessId }, now));
         Assert.False(FirecrackerHelperController.ShouldReap(
             metadata with { LeaseExpiresAt = now.AddMinutes(1), ProcessId = Environment.ProcessId }, now));
     }

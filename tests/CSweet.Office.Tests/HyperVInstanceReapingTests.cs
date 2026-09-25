@@ -52,11 +52,19 @@ public sealed class HyperVInstanceReapingTests
     }
 
     [Fact]
-    public void BuilderIsNeverReapedByRuntimeSweep()
+    public void BuilderWithExpiredLease_IsReaped()
     {
         var metadata = Metadata(WorkloadKind.Builder, Now.AddSeconds(-1));
 
-        Assert.False(HyperVHelperController.ShouldReap(metadata, "Off", Now));
+        Assert.True(HyperVHelperController.ShouldReap(metadata, "Running", Now));
+    }
+
+    [Fact]
+    public void BuilderWithActiveLease_IsRetained()
+    {
+        var metadata = Metadata(WorkloadKind.Builder, Now.AddMinutes(1));
+
+        Assert.False(HyperVHelperController.ShouldReap(metadata, "Running", Now));
     }
 
     private static HyperVInstanceMetadata Metadata(WorkloadKind kind, DateTimeOffset? expiresAt) =>

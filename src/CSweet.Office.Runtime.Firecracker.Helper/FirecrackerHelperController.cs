@@ -287,7 +287,6 @@ internal sealed class FirecrackerHelperController(FirecrackerHelperPaths paths)
                 metadata.InstanceId != directoryId ||
                 !string.Equals(metadata.JailId, $"csweet-{directoryId:N}", StringComparison.Ordinal) ||
                 !string.Equals(metadata.JailRoot, paths.JailDirectory(metadata.JailId), StringComparison.Ordinal) ||
-                metadata.Kind == WorkloadKind.Builder ||
                 !ShouldReap(metadata, DateTimeOffset.UtcNow)) continue;
             try
             {
@@ -301,7 +300,7 @@ internal sealed class FirecrackerHelperController(FirecrackerHelperPaths paths)
     }
 
     internal static bool ShouldReap(FirecrackerInstanceMetadata metadata, DateTimeOffset now) =>
-        metadata.Kind is WorkloadKind.Runtime or WorkloadKind.ToolchainBuild &&
+        metadata.Kind is WorkloadKind.Builder or WorkloadKind.Runtime or WorkloadKind.ToolchainBuild &&
         (metadata.LeaseExpiresAt is null || metadata.LeaseExpiresAt <= now || metadata.FinishedAt is not null ||
          !IsProcessRunning(metadata.ProcessId) ||
          metadata.StartedAt is null && metadata.CreatedAt <= now - CreationGracePeriod);
