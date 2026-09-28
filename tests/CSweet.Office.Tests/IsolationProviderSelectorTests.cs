@@ -87,6 +87,33 @@ public sealed class IsolationProviderSelectorTests
         Assert.Equal(0, alternative.ProbeCount);
     }
 
+    [Theory]
+    [InlineData(8)]
+    [InlineData(3650)]
+    public async Task SelectAsync_NonExpiringCertificationRemainsUsableAfterTimePasses(int daysLater)
+    {
+        var provider = new FakeProvider("hyperv", IsolationAssurance.CertifiedHardwareVirtualMachine, certified: true);
+        var selector = new FailClosedIsolationProviderSelector([provider], new FixedTimeProvider(Now.AddDays(daysLater)));
+
+        var selection = await selector.SelectAsync(CreateRequest(AgentTrustLevel.UntrustedRepository));
+
+        Assert.Same(provider, selection.Provider);
+        Assert.Null(selection.Probe.Certification!.ExpiresAt);
+        Assert.Equal(1, provider.ProbeCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SelectAsync_StillRejectsExplicitlyExpiredOrRevokedCertification(bool revoked)
+    {
+        var provider = new FakeProvider("hyperv", IsolationAssurance.CertifiedHardwareVirtualMachine,
+            certified: true, expiresAt: revoked ? null : Now, revokedAt: revoked ? Now : null);
+
+        await Assert.ThrowsAsync<IsolationUnavailableException>(() =>
+            CreateSelector(provider).SelectAsync(CreateRequest(AgentTrustLevel.UntrustedRepository)));
+    }
+
     private static FailClosedIsolationProviderSelector CreateSelector(params IAgentIsolationProvider[] providers) =>
         new(providers, new FixedTimeProvider(Now));
 
@@ -111,7 +138,9 @@ public sealed class IsolationProviderSelectorTests
             IsolationAssurance assurance,
             bool certified,
             bool available = true,
-            string certifiedImageDigest = "sha256:guest")
+            string certifiedImageDigest = "sha256:guest",
+            DateTimeOffset? expiresAt = null,
+            DateTimeOffset? revokedAt = null)
         {
             _available = available;
             Descriptor = new IsolationProviderDescriptor(
@@ -133,7 +162,7 @@ public sealed class IsolationProviderSelectorTests
                     "1.0",
                     "1.0",
                     "sha256:evidence",
-                    Now.AddDays(-1));
+                    Now.AddDays(-1), expiresAt, revokedAt);
             }
         }
 

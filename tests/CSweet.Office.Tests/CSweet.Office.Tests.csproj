@@ -4,6 +4,7 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\CSweet.Office.WindowsSmokeTest\CSweet.Office.WindowsSmokeTest.csproj" />
     <ProjectReference Include="..\..\src\CSweet.Office.ToolchainGuest\CSweet.Office.ToolchainGuest.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />

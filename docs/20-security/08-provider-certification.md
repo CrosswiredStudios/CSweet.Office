@@ -105,6 +105,12 @@ A certification with no expiry is valid indefinitely; `RevokedAt` overrides ever
 consequence: **certification expiry is a hard stop, not a warning.** An Office whose certification lapses
 stops accepting work until a new payload is installed.
 
+`CSweet.Office.WindowsSmokeTest/Program.cs` generates non-expiring host certification evidence starting
+with Office 0.6.3, including its Firecracker path. Existing evidence with a timestamp is still subject to
+that timestamp. This changes evidence issuance, not `SEC-INV-10` or `IsActiveAt`: live probes and exact
+provider/image/evidence matching remain required. Identity and image-signing certificates have separate
+lifetimes and are not changed by this policy.
+
 ## Evidence verification
 
 `ProviderCertificationEvidence` mirrors the identity fields plus `CertifiedAt` and `CertificationExpiresAt`.
@@ -186,6 +192,7 @@ limitation — see
 `src/CSweet.Office.Runtime.Abstractions/{IsolationProviderCatalog.cs,IsolationModels.cs,IsolationPorts.cs}`,
 `src/CSweet.Office.Runtime.Core/{FailClosedIsolationProviderSelector.cs,CertifiedGuestImageRegistry.cs,PlatformRuntimePayloadManifest.cs,ExternalPlatformIsolationBackend.cs}`,
 `src/CSweet.Office.RuntimeHost/{RuntimeHostWorkloadReaper.cs,appsettings.json}`,
+`src/CSweet.Office.WindowsSmokeTest/Program.cs`,
 `tests/CSweet.Office.Tests/{IsolationProviderSelectorTests.cs,CertifiedGuestImageRegistryTests.cs,PlatformRuntimePayloadManifestTests.cs}`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-28 (source; non-expiring host evidence issuance and existing enforcement).

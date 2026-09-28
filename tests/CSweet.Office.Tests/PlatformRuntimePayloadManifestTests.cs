@@ -28,6 +28,26 @@ public sealed class PlatformRuntimePayloadManifestTests : IDisposable
     }
 
     [Fact]
+    public void NonExpiringManifestReplacesPreviousCertificationExpiry()
+    {
+        var manifestPath = CreateManifest();
+        var manifest = JsonNode.Parse(File.ReadAllText(manifestPath))!.AsObject();
+        manifest["certificationExpiresAt"] = null;
+        File.WriteAllText(manifestPath, manifest.ToJsonString());
+        var options = new PlatformIsolationBackendOptions
+        {
+            PayloadManifestPath = manifestPath,
+            CertificationExpiresAt = DateTimeOffset.Parse("2026-08-18T00:00:00Z")
+        };
+
+        PlatformRuntimePayloadManifest.ApplyIfConfigured(options, IsolationProviderCatalog.Firecracker("test-arch"));
+
+        Assert.Null(options.CertificationExpiresAt);
+        Assert.Equal(DateTimeOffset.Parse("2026-08-11T00:00:00Z"), options.CertifiedAt);
+        Assert.StartsWith("sha256:", options.CertificationEvidenceDigest, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ManifestRejectsAFileChangedAfterPackaging()
     {
         var manifestPath = CreateManifest();

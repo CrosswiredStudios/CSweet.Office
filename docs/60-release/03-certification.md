@@ -47,8 +47,9 @@ its own floor of `1.14.0` or later to the same pair.
 
 ## The evidence file
 
-`CSweet.Office.WindowsSmokeTest` writes a single JSON document. Every field below is present in
-`artifacts/windows-test/certification-20260915-134026/windows-hyperv.json`, the run of 2026-09-15:
+`CSweet.Office.WindowsSmokeTest/Program.cs` writes a single JSON document. Starting with Office 0.6.3,
+new evidence has no automatic expiry. Older evidence, including the archived run of 2026-09-15,
+retains its original explicit expiry and must be regenerated through real host certification:
 
 | Field | Meaning |
 |---|---|
@@ -57,7 +58,7 @@ its own floor of `1.14.0` or later to the same pair.
 | `brokerProtocolVersion` | `1.0`. |
 | `certificationSuiteVersion` | The suite identifier reported by the guest probe; the probe currently reports `csweet-hardware-vm-smoke-v14`. |
 | `certifiedAt` | The moment the run started. |
-| `certificationExpiresAt` | `certifiedAt` plus seven days. Development evidence is deliberately short-lived. |
+| `certificationExpiresAt` | `null` for newly generated host evidence. The tested provider/image remains certified without a weekly cutoff; identity matching, live probes, and explicit expiry/revocation checks still apply. |
 | `checks` | A flat object of `name → boolean`. Every value must be `true`. |
 | `guestOperatingSystem` | The guest kernel string the probe reported (for example `Unix 6.8.0.139`). |
 | `completedAt` | When the guest finished its checks. |
@@ -137,9 +138,10 @@ A certification is active when `RevokedAt` is null and `ExpiresAt` is null or in
 No certified hardware-backed agent isolation provider is available. <provider>: no active matching certification
 ```
 
-Because the smoke evidence expires after seven days and the release pipeline pins
-`CSWEET_CERTIFICATION_VALID_UNTIL`, an expired or unrenewed certification stops placement. Work does not
-continue on an unverified image; it fails closed, per `SEC-INV-10`. The same applies to a suite mismatch: the
+The smoke runner no longer assigns a time limit. Explicitly expiring evidence from older installs or the
+hardened release pipeline (`CSWEET_CERTIFICATION_VALID_UNTIL`) still stops placement when it expires.
+Install a freshly certified payload to replace old evidence; do not edit its timestamps or digests in place.
+Work does not continue on an unverified image; it fails closed, per `SEC-INV-10`. The same applies to a suite mismatch: the
 guest image registry refuses a certification whose suite does not match the required one and reports the
 user-facing *"installed secure agent runtime is out of date"* message.
 
@@ -154,4 +156,4 @@ user-facing *"installed secure agent runtime is out of date"* message.
 `src/CSweet.Office.Runtime.Abstractions/IsolationModels.cs`, `docs/20-security/{08-provider-certification.md,11-security-invariants.md}`,
 `docs/30-workloads/06-guest-images.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-28 (source; new target-host certification not executed during this change).

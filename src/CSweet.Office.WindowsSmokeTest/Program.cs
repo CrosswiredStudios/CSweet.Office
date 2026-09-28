@@ -203,14 +203,16 @@ var evidence = new
     brokerProtocolVersion = "1.0",
     certificationSuiteVersion = validatedReport.Suite,
     certifiedAt = now,
-    certificationExpiresAt = now.AddDays(7),
+    // Certification binds the tested provider and image; elapsed time alone must not
+    // disable an installed Office. Explicitly expiring evidence is still enforced.
+    certificationExpiresAt = (DateTimeOffset?)null,
     checks = combinedChecks,
     guestOperatingSystem = validatedReport.GuestOperatingSystem,
     completedAt = validatedReport.CompletedAt
 };
 var evidencePath = Path.GetFullPath(arguments.EvidenceOutputPath);
 Directory.CreateDirectory(Path.GetDirectoryName(evidencePath)!);
-await File.WriteAllTextAsync(evidencePath, JsonSerializer.Serialize(evidence, SmokeJson.Options));
+await File.WriteAllTextAsync(evidencePath, SmokeJson.SerializeCertificationEvidence(evidence));
 Console.WriteLine(JsonSerializer.Serialize(new
 {
     passed = true,
@@ -631,6 +633,14 @@ internal sealed record SmokeGuestReport(
 
 internal static class SmokeJson
 {
+    // Windows setup reads this field under PowerShell StrictMode, so no expiry
+    // must be an explicit JSON null rather than an omitted property.
+    public static string SerializeCertificationEvidence<T>(T evidence) =>
+        JsonSerializer.Serialize(evidence, new JsonSerializerOptions(Options)
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.Never
+        });
+
     public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,

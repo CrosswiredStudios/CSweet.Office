@@ -38,6 +38,59 @@ local log entry naming the underlying cause.
 | A development build fails with missing projects | The sibling repositories are absent. | The primary solution loads `../CSweet.Office.Contracts`; `scripts/windows/New-CSweetHyperVTestGuest.ps1` needs `../CSweet.Isolation` unless `-IsolationRoot` is supplied. Note that `UseLocalOfficeContracts` silently prefers a sibling checkout, so local test results can differ from CI. |
 | Work succeeds but you need proof the whole path works | — | Run `scripts/office-e2e.ps1` (below). |
 
+## Replacing an expired development certification
+
+`CSweet.Office.WindowsSmokeTest/Program.cs` in Office 0.6.3 emits `certificationExpiresAt: null` after
+the real runtime and builder checks pass. Earlier bundles generate seven-day evidence. A service restart
+cannot renew it, and rebuilding source alone does not replace the installed payload.
+
+For the guided Windows flow:
+
+1. Make the Office 0.6.3 (or later) hosted bundle available first. The version-bump push to `main` runs
+   `hosted-release.yml`; wait for its release assets to finish publishing.
+2. In Headquarters, open **Offices**, select the existing Office, drain it, and wait for **Active work: 0**.
+3. Open **Office care → Update Office**, install the update, and accept the Windows administrator prompt.
+   Use the existing Office upgrade flow so its identity and settings are preserved.
+4. Confirm the reported Office version is at least 0.6.3, its isolation provider is available, and both
+   build and runtime readiness pass. Resume assignments if the Office remains drained.
+
+For an immediate local-source upgrade before the bundle is published, first drain the existing Office
+and wait for zero active assignments. Then open **PowerShell as Administrator** under the same Windows
+account that runs Headquarters and execute the following from the updated Office checkout:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$officeRoot = (Get-Location).Path
+$payloadResult = Join-Path $officeRoot "artifacts\payload-$([guid]::NewGuid().ToString('N')).txt"
+& "$officeRoot\scripts\windows\Initialize-CSweetWindowsIsolationTest.ps1" `
+    -SkipInstall -NoElevation -PayloadResultPath $payloadResult
+if (-not (Test-Path -LiteralPath $payloadResult -PathType Leaf)) {
+    throw 'Certification did not produce a payload. Resolve its error before installing.'
+}
+$payload = [IO.File]::ReadAllText($payloadResult).Trim()
+$manifest = Get-Content (Join-Path $payload 'runtime-manifest.json') -Raw | ConvertFrom-Json
+if ($null -ne $manifest.certificationExpiresAt) {
+    throw 'This payload still has an expiry. Use the updated source checkout.'
+}
+& "$officeRoot\scripts\windows\Install-CSweetOfficeRuntimeHost.ps1" `
+    -PayloadRoot $payload -ExistingInstallationAction upgrade `
+    -ControlPlaneUserSid ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value)
+```
+
+`Initialize-CSweetWindowsIsolationTest.ps1` builds from this checkout, prepares or reuses its guest image,
+and runs real certification; image preparation can take time. `-SkipInstall` separates preparation from
+the identity-preserving upgrade. `Install-CSweetOfficeRuntimeHost.ps1` reuses existing Node configuration
+and enrollment, requires the local drained/idle state, and starts the upgraded services. No enrollment
+token is supplied. Afterwards, resume the Office in Headquarters and verify version and readiness as above.
+
+Do not modify the installed evidence or manifest in place: `ExternalPlatformIsolationBackend` binds
+the evidence digest and timestamps to the installed payload. Certification must be rerun and packaged.
+
+> **Out of repo:** Headquarters owns the Office care UI and prefers the latest verified hosted bundle
+> (`src/CSweet.Api/Setup/Start-CSweetDevelopmentOfficeSetup.ps1` in C-Sweet). Until the updated bundle is
+> published, **Update Office** can select 0.6.2 and reintroduce the seven-day limit. Hosted bundles are
+> certified and development-signed on the destination host; they are not production-signed releases.
+
 ## Failure codes
 
 These are the stable codes Headquarters renders for a failed assignment. The Node produces them in
@@ -108,8 +161,9 @@ the build or the run does not succeed, and prints the build log or the runtime r
 
 `src/CSweet.Office.Node/{OfficeWorker.cs,ProviderInventory.cs}`, `src/CSweet.Office.Runtime.Core/{FailClosedIsolationProviderSelector.cs,ExternalPlatformIsolationBackend.cs,PlatformRuntimePayloadManifest.cs}`,
 `src/CSweet.Office.Runtime.HyperV.Helper/HyperVHelperController.cs`, `src/CSweet.Office.Runtime.HyperV/WindowsHyperVHostProbe.cs`,
-`scripts/windows/{Diagnose-CSweetOfficeRuntimeHostStart.ps1,Get-CSweetOfficeRecoveryState.ps1,Repair-CSweetOfficeRuntimeHostAccess.ps1,Install-CSweetOfficeRuntimeHost.ps1}`,
+`scripts/windows/{Diagnose-CSweetOfficeRuntimeHostStart.ps1,Get-CSweetOfficeRecoveryState.ps1,Repair-CSweetOfficeRuntimeHostAccess.ps1,Install-CSweetOfficeRuntimeHost.ps1,Initialize-CSweetWindowsIsolationTest.ps1}`,
+`src/CSweet.Office.WindowsSmokeTest/Program.cs`, `.github/workflows/hosted-release.yml`,
 `scripts/tests/Test-OfficeUpgradeProbe.ps1`, `scripts/office-e2e.ps1`, `README.md`,
 `docs/20-security/12-known-limits-and-tradeoffs.md`, `docs/30-workloads/02-runtime-workload-lifecycle.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-09-28 (source; the upgrade procedure has not been executed against an installed Office in this change).
