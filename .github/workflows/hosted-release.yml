@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - Directory.Build.props
+      - releases/**
       - .github/workflows/hosted-release.yml
       - scripts/release/**
       - scripts/linux/new-firecracker-guest.sh
