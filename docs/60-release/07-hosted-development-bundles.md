@@ -3,7 +3,7 @@
 **Audience:** developers preparing a release or installing without a source checkout.
 
 `hosted-release.yml` runs when a push to `main` changes `Directory.Build.props`, the workflow,
-`scripts/release/**`, or `scripts/linux/new-firecracker-guest.sh`. Fixes to these build scripts
+`releases/**`, or `scripts/release/**`. Fixes to these build scripts
 therefore retry an unpublished version automatically. Bump `VersionPrefix` and add
 `releases/<version>.md` in the same push. The workflow reads
 the version through `Get-OfficeReleaseMetadata.ps1`, skips already-published versions before
@@ -15,10 +15,18 @@ must match `VersionPrefix`. An unpublished tag pointing at another commit is rej
 against that tag to release its original source, or bump the version for the new source. Missing
 release notes and release-discovery errors fail before expensive builds. Release runs share one
 concurrency group so branch and tag runs cannot publish simultaneously. Builds explicitly use the
-published Office.Contracts pin. Windows x64 binaries build on `windows-2022`; Linux x64 binaries
-and guest images build on `ubuntu-24.04`. No repository secrets or signing identity are required.
+published Office.Contracts pin. The current hosted release targets **Windows x64 only**:
+the `binaries` job builds on `windows-2022`, and the independent `windows-image` job builds its
+Hyper-V VHDX on `ubuntu-24.04`. Publishing waits for both. Hyper-V still uses a Linux guest OS;
+the Ubuntu image-builder runner is required for the Windows bundle. Firecracker and Linux binary
+builds are deferred and cannot consume the Windows image job's 90-minute timeout. No repository
+secrets or signing identity are required.
 
-`Publish-HostedOfficeAssets.ps1` restores execute permission for the explicitly named Linux
+`Publish-HostedOfficeAssets.ps1 -WindowsOnly` packages the downloaded `binaries-win-x64` and
+`windows-guest` artifacts. Its manifest contains exactly the Windows support and full bundle;
+the schema requires one of each, with the existing size/hash/development-certification fields.
+The combined packaging path remains available without that switch for future Linux releases.
+In that path, `Publish-HostedOfficeAssets.ps1` restores execute permission for the explicitly named Linux
 Office apphosts, certification runner, probes, Firecracker tools, and shell scripts after artifact
 download. `Test-HostedManifest.ps1` checks those modes after extracting the final tarball and
 keeps configuration files non-executable. This corrects the Linux 0.6.0 archive, whose dotted
@@ -31,9 +39,11 @@ The release contains:
 - `csweet-office-<version>-windows-support.zip`: small preflight and installation scripts.
 - `csweet-office-<version>-windows-x64.zip`: scripts, self-contained components, guest probe,
   certification runner, and a Hyper-V VHDX.
-- `csweet-office-<version>-linux-x64.tar.gz`: scripts, components, Firecracker/jailer tools,
-  probe, kernel, initrd, and guest filesystem.
 - `SHA256SUMS`: checksums for every published file above.
+
+Linux tarballs are absent from current hosted releases. A future Linux image job should have its
+own timeout, artifact upload and retry boundary before being added back to publication; merely
+raising the combined job timeout does not isolate Firecracker failures.
 
 The image job installs `linux-image-generic`, copies its kernel to a runner-readable temporary
 file, and sets `SUPERMIN_KERNEL`, `SUPERMIN_KERNEL_VERSION`, and `SUPERMIN_MODULES` to that kernel
@@ -55,8 +65,8 @@ The Ubuntu job customizes a checksum-verified Canonical cloud image with the exi
 provisioner and converts it to VHDX. `build-hosted-hyperv-image.sh` uploads the provisioner,
 runs it explicitly with `/bin/bash` through `--run-command`, and removes the temporary script.
 This preserves Bash features such as `pipefail`; `virt-customize --run` passes script contents
-through the guest's `/bin/sh`. It does not execute Hyper-V certification. The Firecracker
-guest uses `new-firecracker-guest.sh`, which explicitly installs `initramfs-tools` and generates
+through the guest's `/bin/sh`. It does not execute Hyper-V certification. The deferred Firecracker
+guest builder is `new-firecracker-guest.sh`, which explicitly installs `initramfs-tools` and generates
 an initrd matching the selected kernel. Its temporary `/proc` and `/sys` mounts are removed
 before ext4 assembly. `Publish-HostedOfficeAssets.ps1` rejects assets at or above
 GitHub's 2 GiB per-file limit. The workflow uploads a draft first and publishes only after upload
@@ -83,7 +93,7 @@ serialized with other source builds. Existing upgrade and identity rules still a
 > when discovery is unavailable; integrity failures never trigger fallback. Its enrollment-ready
 > endpoint refreshes the short claim window after preparation using the machine-bound receipt.
 
-For an Ubuntu 24.04 x64 Office, download the tarball and `SHA256SUMS` from the same tag, verify the
+For a previously published Ubuntu 24.04 x64 Office bundle, download the tarball and `SHA256SUMS` from the same tag, verify the
 selected tarball with `sha256sum`, and extract into a new directory. Run as root on a cgroup v2 host
 with working KVM. `jq`, `openssl`, `tar`, and normal system installation tools remain prerequisites;
 .NET, a compiler, and an Office source checkout are not required.
@@ -116,5 +126,6 @@ the development workflow does not label its archives as signed MSI/DEB installer
 `scripts/windows/{Initialize-CSweetWindowsIsolationTest,New-CSweetWindowsRuntimePayload}.ps1`,
 `scripts/linux/{new-firecracker-guest,initialize-firecracker-test,new-runtime-payload}.sh`.
 
-Verified: 2026-09-20. `Test-DevelopmentBuildCoordination.ps1` covers prebuilt bypass and source-build exclusion;
-target-host certification remains mandatory.
+Verified: 2026-10-07. `Test-HostedManifest.ps1` exercises Windows-only and combined packaging,
+required Windows assets, hashes and archive image placement. `Test-DevelopmentBuildCoordination.ps1`
+covers prebuilt bypass and source-build exclusion; target-host certification remains mandatory.

@@ -7,7 +7,6 @@ on:
       - releases/**
       - .github/workflows/hosted-release.yml
       - scripts/release/**
-      - scripts/linux/new-firecracker-guest.sh
     tags: ['v*.*.*']
   workflow_dispatch:
 permissions:
@@ -90,8 +89,6 @@ jobs:
         include:
           - runner: windows-2022
             rid: win-x64
-          - runner: ubuntu-24.04
-            rid: linux-x64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -109,7 +106,7 @@ jobs:
           name: binaries-${{ matrix.rid }}
           path: artifacts/bundle
           if-no-files-found: error
-  images:
+  windows-image:
     needs: metadata
     if: needs.metadata.outputs.should-publish == 'true'
     runs-on: ubuntu-24.04
@@ -168,28 +165,10 @@ jobs:
       - name: Build Hyper-V image without nested virtualization
         shell: bash
         run: bash scripts/release/build-hosted-hyperv-image.sh artifacts/windows-guest 2>&1 | tee artifacts/image-diagnostics/hyperv-build.log
-      - name: Build Firecracker image
-        shell: bash
-        run: sudo env "PATH=$PATH" bash scripts/linux/new-firecracker-guest.sh artifacts/linux-guest linux-x64 2>&1 | tee artifacts/image-diagnostics/firecracker-build.log
-      - name: Include verified Firecracker tools for offline installation
-        run: |
-          mkdir -p artifacts/linux-tools
-          cd artifacts/linux-tools
-          base=https://github.com/firecracker-microvm/firecracker/releases/download/v1.16.1
-          curl --fail --location --proto '=https' "$base/firecracker-v1.16.1-x86_64.tgz" -o firecracker-v1.16.1-x86_64.tgz
-          curl --fail --location --proto '=https' "$base/firecracker-v1.16.1-x86_64.tgz.sha256.txt" -o checksums
-          sha256sum -c checksums
-          tar -xzf firecracker-v1.16.1-x86_64.tgz
-          cp release-v1.16.1-x86_64/firecracker-v1.16.1-x86_64 firecracker
-          cp release-v1.16.1-x86_64/jailer-v1.16.1-x86_64 jailer
       - uses: actions/upload-artifact@v4
         with:
-          name: guest-images
-          path: |
-            artifacts/windows-guest/*
-            artifacts/linux-guest/*
-            artifacts/linux-tools/firecracker
-            artifacts/linux-tools/jailer
+          name: windows-guest
+          path: artifacts/windows-guest/*
           compression-level: 0
           if-no-files-found: error
       - name: Upload image diagnostics on failure
@@ -201,7 +180,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
   publish:
-    needs: [metadata, binaries, images]
+    needs: [metadata, binaries, windows-image]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -214,7 +193,7 @@ jobs:
         run: ./scripts/tests/Test-HostedManifest.ps1
       - name: Package immutable development bundles and checksums
         shell: pwsh
-        run: ./scripts/release/Publish-HostedOfficeAssets.ps1 -Version '${{ needs.metadata.outputs.version }}' -InputRoot artifacts/download -OutputRoot artifacts/release
+        run: ./scripts/release/Publish-HostedOfficeAssets.ps1 -Version '${{ needs.metadata.outputs.version }}' -InputRoot artifacts/download -OutputRoot artifacts/release -WindowsOnly
       - name: Publish tagged release atomically
         env:
           GH_TOKEN: ${{ github.token }}

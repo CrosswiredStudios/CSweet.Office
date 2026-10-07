@@ -31,6 +31,10 @@ try {
             $global:LASTEXITCODE = 0
         }
     }
+    $windowsInput = "$root/windows-only-input"
+    New-Item -ItemType Directory $windowsInput | Out-Null
+    Copy-Item "$root/input/binaries-win-x64" "$windowsInput/binaries-win-x64" -Recurse
+    Copy-Item "$root/input/guest-images/windows-guest" "$windowsInput/windows-guest" -Recurse
     & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot "$root/input" -OutputRoot "$root/output"
     $manifest = Get-Content "$root/output/office-bootstrap.json" -Raw | ConvertFrom-Json
     if ($manifest.officeVersion -cne $version -or $manifest.assets.Count -ne 3) { throw 'Release identity or assets are wrong.' }
@@ -62,7 +66,27 @@ try {
         if (($dataMode -band $executeBits) -ne 0) { throw 'Linux data files must not be marked executable.' }
         Write-Host 'Extracted Linux executable and data file modes passed.'
     }
-    Write-Host 'Hosted archive layout, manifest schema, sizes, hashes, and immutable URLs passed.'
+    & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot $windowsInput -OutputRoot "$root/windows-only-output" -WindowsOnly
+    $windowsManifest = Get-Content "$root/windows-only-output/office-bootstrap.json" -Raw | ConvertFrom-Json
+    if ($windowsManifest.assets.Count -ne 2 -or $windowsManifest.requiresHostCertification -ne $true -or $windowsManifest.signing -cne 'development') {
+        throw 'Windows-only assets or certification requirements are wrong.'
+    }
+    foreach ($asset in $windowsManifest.assets) {
+        $file = Get-Item "$root/windows-only-output/$($asset.name)"
+        if ($asset.name -match 'linux' -or $file.Length -ne $asset.size -or (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $asset.sha256) {
+            throw 'Windows-only asset metadata is wrong.'
+        }
+    }
+    $windowsZip = [IO.Compression.ZipFile]::OpenRead("$root/windows-only-output/csweet-office-$version-windows-x64.zip")
+    try {
+        if ($null -eq $windowsZip.GetEntry('guest/csweet-agent-guest.vhdx')) { throw 'Windows-only image is missing.' }
+    } finally { $windowsZip.Dispose() }
+    $schema = "$repository/release/office-bootstrap.schema.json"
+    $windowsManifest.assets = @($windowsManifest.assets[0], $windowsManifest.assets[0])
+    if ($windowsManifest | ConvertTo-Json -Depth 6 | Test-Json -SchemaFile $schema -ErrorAction SilentlyContinue) {
+        throw 'Duplicate support assets cannot replace the required Windows bundle.'
+    }
+    Write-Host 'Combined and Windows-only archive layouts, manifest schema, sizes, hashes, and immutable URLs passed.'
 } finally {
     if ([IO.Path]::GetFullPath($root).StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()), [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $root)) {
         Remove-Item -LiteralPath $root -Recurse -Force

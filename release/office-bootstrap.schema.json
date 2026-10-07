@@ -12,7 +12,11 @@
     "signing": { "const": "development" },
     "requiresHostCertification": { "const": true },
     "assets": {
-      "type": "array", "minItems": 3, "maxItems": 3,
+      "type": "array", "minItems": 2, "maxItems": 3,
+      "allOf": [
+        { "contains": { "properties": { "name": { "pattern": "-windows-support\\.zip$" } }, "required": ["name"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "name": { "pattern": "-windows-x64\\.zip$" } }, "required": ["name"] }, "minContains": 1, "maxContains": 1 }
+      ],
       "items": {
         "type": "object", "additionalProperties": false,
         "required": ["name", "size", "sha256", "url"],
