@@ -158,6 +158,7 @@ public sealed class RuntimeHostAuthorizationGate
     {
         lock (_sync)
         {
+            if (IsHandleDestroyed(handle)) return false;
             var handles = ReadHandles();
             if (!handles.TryGetValue(handle.WorkloadId, out var accepted) ||
                 !string.Equals(accepted.ProviderId, handle.ProviderId, StringComparison.Ordinal) ||
@@ -182,6 +183,32 @@ public sealed class RuntimeHostAuthorizationGate
             WriteAtomic(HandlesPath, JsonSerializer.SerializeToUtf8Bytes(handles));
         }
     }
+
+    internal bool IsHandleDestroyed(A.IsolationWorkloadHandle handle)
+    {
+        lock (_sync)
+        {
+            var path = DestroyedPath(handle);
+            return File.Exists(path) && JsonSerializer.Deserialize<A.IsolationWorkloadHandle>(File.ReadAllBytes(path)) == handle;
+        }
+    }
+
+    internal void RecordDestroyed(A.IsolationWorkloadHandle handle)
+    {
+        lock (_sync)
+        {
+            var path = DestroyedPath(handle);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            WriteAtomic(path, JsonSerializer.SerializeToUtf8Bytes(handle));
+            // A persisted destruction receipt denies all future execution operations, even
+            // if deleting the authorization fails or the process stops at this point.
+            RemoveHandle(handle);
+        }
+    }
+
+    private string DestroyedPath(A.IsolationWorkloadHandle handle) => Path.Combine(
+        _options.ResolveStateDirectory(), "destroyed-workload-handles",
+        Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(handle))) + ".json");
 
     private A.PinnedHeadquartersTrust? ReadTrust()
     {

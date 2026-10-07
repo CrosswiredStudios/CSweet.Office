@@ -12,7 +12,7 @@ using Grpc.Net.Client;
 
 namespace CSweet.Office.Node;
 
-public sealed class OfficeWorker(
+public sealed partial class OfficeWorker(
     OfficeOptions options,
     OfficeStateStore stateStore,
     RuntimeHostInventory inventory,
@@ -26,6 +26,7 @@ public sealed class OfficeWorker(
         .ToDictionary(x => x.Descriptor.ProviderId, StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _activeAssignments = [];
     private readonly SemaphoreSlim _workloadSlots = new(Math.Max(1, options.MaximumConcurrentWorkloads));
+    private readonly AssignmentStopJournal _stopJournal = new(options);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -42,6 +43,7 @@ public sealed class OfficeWorker(
                         await EnrollAsync(certificate, stoppingToken);
                     if (processSession is null)
                     {
+                        _stopJournal.RestoreMaintenance(state.OfficeId, stateStore);
                         if (state.SessionEpoch == long.MaxValue)
                             throw new InvalidDataException("The office session epoch is exhausted.");
                         var nowEpoch = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -322,6 +324,7 @@ public sealed class OfficeWorker(
                     SessionEpoch = state.SessionEpoch,
                     Heartbeat = heartbeat
                 }, cancellationToken);
+                await ReplayStopsAsync(call.RequestStream, writerLock, state, cancellationToken);
                 await Task.WhenAny(readTask, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
                 if (readTask.IsCompleted) await readTask;
             }
@@ -423,7 +426,23 @@ public sealed class OfficeWorker(
                 var assignmentCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 if (_activeAssignments.TryAdd(assignmentId, assignmentCancellation))
                 {
-                    stateStore.MarkAssignmentActive(assignmentId);
+                    try
+                    {
+                        if (!_stopJournal.TryBegin(state.OfficeId, assignmentId,
+                                message.Assignment.FencingEpoch, message.Assignment.ProviderId))
+                        {
+                            _activeAssignments.TryRemove(assignmentId, out _);
+                            assignmentCancellation.Dispose();
+                            continue;
+                        }
+                        stateStore.MarkAssignmentActive(assignmentId);
+                    }
+                    catch
+                    {
+                        _activeAssignments.TryRemove(assignmentId, out _);
+                        assignmentCancellation.Dispose();
+                        throw;
+                    }
                     _ = ExecuteAssignmentAsync(message.Assignment, writer, writerLock, gatewayClient, state,
                         assignmentCancellation).ContinueWith(task =>
                         {
@@ -433,6 +452,12 @@ public sealed class OfficeWorker(
                 }
                 else
                     assignmentCancellation.Dispose();
+            }
+            else if (message.BodyCase == HeadquartersControlMessage.BodyOneofCase.AssignmentStopReceipt)
+            {
+                var receipt = message.AssignmentStopReceipt;
+                if (receipt.Accepted && Guid.TryParse(receipt.AssignmentId, out var stoppedId))
+                    _stopJournal.Acknowledge(state.OfficeId, stoppedId, receipt.FencingEpoch);
             }
             else if (message.BodyCase == HeadquartersControlMessage.BodyOneofCase.Fence)
             {
@@ -490,8 +515,10 @@ public sealed class OfficeWorker(
                 "Starting", null, null, null, null, assignmentCancellation.Token);
             if (provider is not IRuntimeHostClient runtimeHost)
                 throw new IsolationUnavailableException("The assigned provider does not enforce signed workload authorization.");
+            _stopJournal.BeginCreate(_stopJournal.Read(state.OfficeId, assignmentId, assignment.FencingEpoch));
             handle = await runtimeHost.CreateAuthorizedAsync(specification,
                 ToAuthorization(state, assignment), assignmentCancellation.Token);
+            _stopJournal.Created(_stopJournal.Read(state.OfficeId, assignmentId, assignment.FencingEpoch), handle);
             await provider.StartAsync(handle, assignmentCancellation.Token);
             if (provider is not IAgentGuestChannelProvider guestChannels)
                 throw new IsolationUnavailableException("The RuntimeHost provider does not expose a guest broker channel.");
@@ -576,17 +603,26 @@ public sealed class OfficeWorker(
                     catch (OperationCanceledException) when (tunnelLifetime.IsCancellationRequested) { }
                     catch (IOException) when (tunnelLifetime.IsCancellationRequested) { }
                     catch (RpcException) when (tunnelLifetime.IsCancellationRequested) { }
+                    catch (Exception exception) { logger.LogWarning(exception, "Guest tunnel ended during cleanup."); }
                 }
                 tunnelLifetime.Dispose();
             }
-            if (handle is not null && provider is not null)
+            try
             {
-                try { await provider.DestroyAsync(handle, CancellationToken.None); }
-                catch (Exception exception) { logger.LogWarning(exception, "Could not destroy workload {AssignmentId}.", assignmentId); }
+                using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var entry = _stopJournal.Read(state.OfficeId, assignmentId, assignment.FencingEpoch);
+                if (entry.Phase == "creating" && handle is not null)
+                {
+                    _stopJournal.Created(entry, handle);
+                    entry = _stopJournal.Read(state.OfficeId, assignmentId, assignment.FencingEpoch);
+                }
+                if (await _stopJournal.CleanupAsync(entry, provider, cleanupTimeout.Token) &&
+                    !_stopJournal.HasUnconfirmed(state.OfficeId, assignmentId))
+                    stateStore.MarkAssignmentInactive(assignmentId);
             }
+            catch (Exception exception) { logger.LogWarning(exception, "Cleanup remains pending for assignment {AssignmentId}.", assignmentId); }
             if (enteredSlot) _workloadSlots.Release();
             _activeAssignments.TryRemove(assignmentId, out _);
-            stateStore.MarkAssignmentInactive(assignmentId);
             assignmentCancellation.Dispose();
         }
     }

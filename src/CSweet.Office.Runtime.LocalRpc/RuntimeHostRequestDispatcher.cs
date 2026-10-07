@@ -17,6 +17,8 @@ public sealed class RuntimeHostRequestDispatcher(
         .ToDictionary(item => item.Descriptor.ProviderId, StringComparer.Ordinal);
     private readonly IReadOnlySet<string> _guestChannelProviders = guestChannelConnectors
         .Select(item => item.ProviderId).ToHashSet(StringComparer.Ordinal);
+    private readonly SemaphoreSlim[] _operationLocks = Enumerable.Range(0, 64)
+        .Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
     public async IAsyncEnumerable<P.RuntimeHostEnvelope> DispatchAsync(
         P.RuntimeHostEnvelope request,
@@ -264,12 +266,49 @@ public sealed class RuntimeHostRequestDispatcher(
         bool allowTermination = false,
         bool removeAuthorization = false)
     {
+        if (!Guid.TryParse(protocolHandle.WorkloadId, out var workloadId)) return Error(request, "invalid-workload-handle");
+        // Bound the lock table, and serialize Start/Stop/Destroy through confirmation and
+        // revocation so a concurrent Start cannot revive a VM after its final inspection.
+        var operationLock = _operationLocks[workloadId.GetHashCode() & 63];
+        await operationLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await OperationCoreAsync(request, protocolHandle, operation, cancellationToken,
+                allowTermination, removeAuthorization);
+        }
+        finally { operationLock.Release(); }
+    }
+
+    private async Task<P.RuntimeHostEnvelope> OperationCoreAsync(
+        P.RuntimeHostEnvelope request,
+        P.WorkloadOperationRequest protocolHandle,
+        Func<A.IPlatformIsolationBackend, A.IsolationWorkloadHandle, CancellationToken, Task> operation,
+        CancellationToken cancellationToken,
+        bool allowTermination = false,
+        bool removeAuthorization = false)
+    {
+        if (removeAuthorization)
+        {
+            try
+            {
+                if (authorizationGate.IsHandleDestroyed(RuntimeHostProtocolMapper.FromProtocol(protocolHandle)))
+                    return Response(request, new P.OperationResponse { Success = true });
+            }
+            catch (InvalidDataException) { return Error(request, "invalid-workload-handle"); }
+        }
         var (backend, handle) = Resolve(protocolHandle, allowTermination);
         if (backend is null || handle is null) return Error(request, "provider-not-registered");
         try
         {
-            await operation(backend, handle, cancellationToken);
-            if (removeAuthorization) authorizationGate.RemoveHandle(handle);
+            if (!removeAuthorization || await backend.InspectAsync(handle, cancellationToken) is not null)
+                await operation(backend, handle, cancellationToken);
+            if (removeAuthorization)
+            {
+                var status = await backend.InspectAsync(handle, cancellationToken);
+                if (status is not null && (status.Handle != handle || status.State != A.IsolationWorkloadState.Destroyed))
+                    return Error(request, "workload-destruction-unconfirmed");
+                authorizationGate.RecordDestroyed(handle);
+            }
             return Response(request, new P.OperationResponse { Success = true });
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }

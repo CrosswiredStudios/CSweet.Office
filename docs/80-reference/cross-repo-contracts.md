@@ -49,7 +49,7 @@ global using CSweet.Office.Contracts.Workloads;
 
 | Truth | Location | Current value |
 |---|---|---|
-| Contracts package version | `Directory.Packages.props` → `<PackageVersion Include="CSweet.Office.Contracts" Version="…" />` | `0.7.1` |
+| Contracts package version | `Directory.Packages.props` → `<PackageVersion Include="CSweet.Office.Contracts" Version="…" />` | `0.8.0` |
 | Office runtime version | `Directory.Build.props` → `<VersionPrefix>` | `0.6.0` |
 | Release tag | Git tag `vX.Y.Z` | must equal `VersionPrefix` |
 
@@ -70,6 +70,7 @@ Defined in `ControlPlane/office_control.proto` (`Option csharp_namespace = "CSwe
 | `HeadquartersControlMessage` | message | `OfficeWorker.ReadControlMessagesAsync` |
 | `WorkloadAssignment`, `FenceAssignment`, `DrainOffice`, `GatewayHello` | messages | `OfficeWorker.cs` |
 | `AssignmentLeaseRenewal`, `AssignmentStatusUpdate` | messages | `OfficeWorker.cs` |
+| `AssignmentStopped`, `AssignmentStopReceipt` | messages (0.8.0) | `OfficeWorker.Stops.cs`, `OfficeWorker.ReadControlMessagesAsync`, `AssignmentStopJournal.cs` |
 | `WorkloadTunnelFrame` | message | `OfficeWorker.RelayGuestChannelAsync` |
 | `ArtifactDownloadRequest`, `ArtifactChunk` | messages | `OfficeArtifactCache.cs` |
 | `ClaimOfficeRequest`, `ClaimOfficeResponse` | record | `OfficeWorker.EnrollAsync` |
@@ -218,4 +219,4 @@ the sequence is always: change in `CSweet.Office.Contracts` → bump, pack, publ
 and the sibling checkouts `..\CSweet.Office.Contracts\src\CSweet.Office.Contracts\{CSweet.Office.Contracts.csproj,ProtocolVersions.cs,ControlPlane\*.cs,Guest\*.cs,Security\AssignmentEnvelope.cs,Workloads\WorkloadModels.cs}`
 and `..\CSweet.Isolation\` (directory layout).
 
-Verified: 2026-09-19.
+Verified: 2026-10-07.

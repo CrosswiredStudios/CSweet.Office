@@ -103,6 +103,8 @@ public sealed class RuntimeHostRpcIntegrationTests
         await client.StopAsync(handle, TimeSpan.Zero);
         await client.DestroyAsync(handle);
         Assert.Null(await client.InspectAsync(handle));
+        await client.DestroyAsync(handle); // Lost response/reconnect replay remains idempotent.
+        await Assert.ThrowsAsync<IsolationUnavailableException>(() => client.StartAsync(handle));
 
         stop.Cancel();
         try { await serverTask; }
@@ -384,15 +386,85 @@ public sealed class RuntimeHostRpcIntegrationTests
         ExpiresAtUnixSeconds = authorization.ExpiresAt.ToUnixTimeSeconds()
     };
 
+    [Fact]
+    public async Task DestroyCannotDiscardAuthorizationUntilBackendConfirmsRemoval()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"office-destroy-test-{Guid.NewGuid():N}");
+        try
+        {
+            using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var options = new RuntimeHostAuthorizationOptions { StateDirectory = root };
+            var gate = new RuntimeHostAuthorizationGate(options, TimeProvider.System);
+            var trust = Trust(key, Guid.NewGuid());
+            gate.Pin(trust);
+            var descriptor = Descriptor();
+            var backend = new BackendAdapter(new InMemoryAgentIsolationProvider(descriptor)) { PreserveOnDestroy = true };
+            var workload = Runtime();
+            var request = RuntimeHostProtocolMapper.ToProtocol(descriptor.ProviderId, workload);
+            request.Authorization = ToProtocol(Authorization(key, trust, descriptor.ProviderId, workload));
+            gate.ValidateAndCommit(request);
+            var handle = await backend.CreateAsync(workload);
+            gate.RegisterHandle(request, handle);
+            await backend.StartAsync(handle);
+            var dispatcher = new RuntimeHostRequestDispatcher([backend], [], gate);
+            var destroy = new RuntimeHostEnvelope
+            {
+                ProtocolVersion = "1.0", RequestId = Guid.NewGuid().ToString("D"),
+                DestroyRequest = RuntimeHostProtocolMapper.ToProtocol(handle)
+            };
+            await foreach (var response in dispatcher.DispatchAsync(destroy))
+            {
+                Assert.False(response.OperationResponse.Success);
+                Assert.Equal("workload-destruction-unconfirmed", response.OperationResponse.ErrorCode);
+            }
+            Assert.True(gate.IsHandleAuthorized(handle));
+            backend.PreserveOnDestroy = false;
+            backend.DestroyEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            backend.ReleaseDestroy = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            static async Task<RuntimeHostEnvelope> Run(RuntimeHostRequestDispatcher target, RuntimeHostEnvelope envelope)
+            {
+                await foreach (var response in target.DispatchAsync(envelope)) return response;
+                throw new InvalidOperationException("Missing operation response.");
+            }
+            var destroying = Run(dispatcher, destroy);
+            await backend.DestroyEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var starting = Run(dispatcher, new RuntimeHostEnvelope
+            {
+                ProtocolVersion = "1.0", RequestId = Guid.NewGuid().ToString("D"),
+                StartRequest = RuntimeHostProtocolMapper.ToProtocol(handle)
+            });
+            Assert.False(starting.IsCompleted);
+            backend.ReleaseDestroy.SetResult();
+            Assert.True((await destroying.WaitAsync(TimeSpan.FromSeconds(5))).OperationResponse.Success);
+            Assert.False((await starting.WaitAsync(TimeSpan.FromSeconds(5))).OperationResponse.Success);
+            Assert.False(gate.IsHandleAuthorized(handle, allowTermination: true));
+            // Reopen the persisted privileged state; replay succeeds even without a backend.
+            var reopened = new RuntimeHostAuthorizationGate(options, TimeProvider.System);
+            dispatcher = new RuntimeHostRequestDispatcher([], [], reopened);
+            await foreach (var response in dispatcher.DispatchAsync(destroy)) Assert.True(response.OperationResponse.Success);
+            destroy.DestroyRequest = RuntimeHostProtocolMapper.ToProtocol(handle with { ProviderInstanceId = "forged" });
+            await foreach (var response in dispatcher.DispatchAsync(destroy)) Assert.False(response.OperationResponse.Success);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     private sealed class BackendAdapter(InMemoryAgentIsolationProvider inner) : IPlatformIsolationBackend
     {
+        public bool PreserveOnDestroy { get; set; }
+        public TaskCompletionSource? DestroyEntered { get; set; }
+        public TaskCompletionSource? ReleaseDestroy { get; set; }
         public IsolationProviderDescriptor Descriptor => inner.Descriptor;
         public Task<IsolationProviderProbeResult> ProbeAsync(CancellationToken cancellationToken = default) => inner.ProbeAsync(cancellationToken);
         public Task<IsolationWorkloadHandle> CreateAsync(WorkloadSpecification workload, CancellationToken cancellationToken = default) => inner.CreateAsync(workload, cancellationToken);
         public Task StartAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) => inner.StartAsync(handle, cancellationToken);
         public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) => inner.InspectAsync(handle, cancellationToken);
         public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) => inner.StopAsync(handle, gracePeriod, cancellationToken);
-        public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) => inner.DestroyAsync(handle, cancellationToken);
+        public async Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default)
+        {
+            DestroyEntered?.TrySetResult();
+            if (ReleaseDestroy is not null) await ReleaseDestroy.Task.WaitAsync(cancellationToken);
+            if (!PreserveOnDestroy) await inner.DestroyAsync(handle, cancellationToken);
+        }
         public IAsyncEnumerable<IsolationLogChunk> StreamLogsAsync(IsolationWorkloadHandle handle, int maximumBytes, CancellationToken cancellationToken = default) => inner.StreamLogsAsync(handle, maximumBytes, cancellationToken);
     }
 

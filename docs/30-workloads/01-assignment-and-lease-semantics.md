@@ -90,25 +90,25 @@ operationally beyond recording it — draining is a *reporting* state that gates
 probe, and the uninstallers. An Office continues to run its existing assignments and will still accept new
 ones; Headquarters is expected to stop dispatching (see [40-operations/04-upgrade-and-drain.md](../40-operations/04-upgrade-and-drain.md)).
 
-## Teardown is unconditional
+## Durable teardown
 
 Regardless of how the assignment ended, the `finally` block:
 
 1. cancels and awaits the tunnel task,
-2. calls `provider.DestroyAsync(handle, CancellationToken.None)` **unconditionally** — a failure only logs a
-   warning,
+2. attempts journaled cleanup with a ten-second cancellation budget; failure preserves the pending handle,
 3. releases the workload slot,
-4. removes the assignment from the active set and deletes its local activity marker,
+4. removes the assignment from the in-process active set, retaining its maintenance marker while any epoch remains unconfirmed,
 5. disposes the cancellation token source.
 
-Destroy is also the only operation that removes the handle from the RuntimeHost authorization ledger.
+`OfficeWorker.ReplayStopsAsync` retries cleanup and stop reports during existing heartbeat/reconnect discovery. `AssignmentStopJournal` preserves exact attempt identities and acknowledged tombstones. RuntimeHost verifies backend removal and durably records destruction before revoking a handle. See [runtime workload lifecycle](02-runtime-workload-lifecycle.md#12-teardown) for the recovery boundary, including unknown creation outcomes.
 
 ## Sources
 
-`src/CSweet.Office.Node/OfficeWorker.cs`,
+`src/CSweet.Office.Node/{OfficeWorker.cs,OfficeWorker.Stops.cs,AssignmentStopJournal.cs}`,
+`src/CSweet.Office.Runtime.LocalRpc/RuntimeHostRequestDispatcher.cs`,
 `src/CSweet.Office.Runtime.LocalRpc/RuntimeHostAuthorizationGate.cs`,
 `src/CSweet.Office.RuntimeGuest/GuestBrokerSession.cs`,
 `src/CSweet.Office.Runtime.Core/ExternalPlatformIsolationBackend.cs`,
 `scripts/windows/Install-CSweetOfficeRuntimeHost.ps1`.
 
-Verified: 2026-09-15.
+Verified: 2026-10-07.

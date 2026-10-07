@@ -45,8 +45,13 @@ sequenceDiagram
     Note over G,HQ: agent requests proxied over the tunnel
     HQ->>G: ShutdownCommand
     G->>G: stop process, Exit(0), power off
-    Node->>RH: destroy
     Node->>HQ: AssignmentStatusUpdate
+    Node->>RH: destroy and confirm removal
+    RH->>RH: persist destruction confirmation
+    Node->>Node: persist pending stop report
+    Node->>HQ: AssignmentStopped
+    HQ-->>Node: AssignmentStopReceipt
+    Node->>Node: retain replay tombstone
 ```
 
 ## Step detail
@@ -139,8 +144,13 @@ Logs are read on both paths: `ReadLogsAsync` with a 64 KiB cap, decoded as UTF-8
 
 ### 12. Teardown
 
-Always `DestroyAsync(handle, CancellationToken.None)`, then release the slot, remove the local activity
-marker, and dispose the cancellation source.
+`AssignmentStopJournal` persists an exact Office/assignment/epoch record before execution and marks creation intent before `CreateAuthorizedAsync`. The returned handle is persisted before `StartAsync`. Teardown attempts use a ten-second cancellation budget. Failure retains the record and activity marker for recovery; the execution slot/cancellation source are released. A prepared attempt that never entered creation can become a `never_created` report. A crash during creation before the returned handle is saved remains unconfirmed and requires operator recovery; the Node has no provider enumeration API.
+
+`RuntimeHostRequestDispatcher.OperationAsync` inspects the privileged backend before removing handle authorization. A returned destroy request alone is insufficient: inspection must return no workload or `Destroyed`. `RuntimeHostAuthorizationGate.RecordDestroyed` persists an exact-handle confirmation before removing authorization. Duplicate destroy requests can return that confirmation after a lost response or process restart; it cannot authorize starting the workload. These changes preserve SEC-INV-07, SEC-INV-08 and SEC-INV-15.
+
+`OfficeWorker.ReplayStopsAsync` uses existing heartbeat/reconnect discovery, up to eight records with a two-second cancellation budget per pass. Confirmed cleanup produces `AssignmentStopped`; unacknowledged reports are retried. An accepted session-bound `AssignmentStopReceipt` retires delivery while preserving a durable tombstone against assignment replay. Other unresolved epochs keep the activity marker. Startup restores unresolved cleanup markers after normal maintenance-session initialization. Journal and privileged confirmation files are retained; no pruning policy is implemented.
+
+> **Out of repo:** Headquarters owns acceptance and storage of stop evidence. `OfficeWorker.Stops.cs` sends the report and `OfficeWorker.ReadControlMessagesAsync` consumes its receipt through Office.Contracts 0.8.0. Legacy assignments without local cleanup records cannot be reconstructed by this mechanism.
 
 ## Failure classification
 
@@ -157,9 +167,9 @@ marker, and dispose the cancellation source.
 
 ## Sources
 
-`src/CSweet.Office.Node/{OfficeWorker.cs,OfficeArtifactCache.cs}`,
-`src/CSweet.Office.Runtime.LocalRpc/{RuntimeHostProviderClient.cs,RuntimeHostRequestDispatcher.cs}`,
+`src/CSweet.Office.Node/{OfficeWorker.cs,OfficeWorker.Stops.cs,AssignmentStopJournal.cs,OfficeArtifactCache.cs}`,
+`src/CSweet.Office.Runtime.LocalRpc/{RuntimeHostProviderClient.cs,RuntimeHostRequestDispatcher.cs,RuntimeHostAuthorizationGate.cs}`,
 `src/CSweet.Office.RuntimeGuest/{Program.cs,GuestBrokerSession.cs,GuestWorkloadSupervisor.cs,GuestArtifactMaterializer.cs}`,
-`tests/CSweet.Office.Tests/{OfficeWorkerFailureTests.cs,RuntimeHostRpcIntegrationTests.cs}`.
+`tests/CSweet.Office.Tests/{OfficeWorkerFailureTests.cs,RuntimeHostRpcIntegrationTests.cs,AssignmentStopJournalTests.cs}`.
 
-Verified: 2026-09-15.
+Verified: 2026-10-07.

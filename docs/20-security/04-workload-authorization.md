@@ -143,6 +143,7 @@ A second ledger, `authorized-workload-handles.json`, maps
   the workload it just created** before rethrowing. A VM must never exist without an authorizing handle.
 - `IsHandleAuthorized(handle, allowTermination)` matches provider id, provider instance id, and workload kind,
   and enforces expiry **unless** `allowTermination` is set.
+- A persisted exact-handle destruction confirmation also rejects authorization, including termination authorization. `OperationCoreAsync` can replay that confirmation only for a duplicate destroy; it cannot grant execution. `RecordDestroyed` persists the confirmation before removing the old handle record. The dispatcher verifies backend removal first and serializes start/stop/destroy for a workload through confirmation and revocation.
 - Termination operations deliberately bypass expiry so a failed or expired workload can always be torn down.
   `Destroy` is also the only operation that removes the handle authorization.
 
@@ -190,4 +191,4 @@ Related invariant: `SEC-INV-07` (no bypass) and the epoch rules above.
 `tests/CSweet.Office.Tests/{RuntimeHostProtocolMapperTests.cs,RuntimeHostRpcIntegrationTests.cs,OfficeWorkerFailureTests.cs}`,
 `scripts/windows/Install-CSweetOfficeRuntimeHost.ps1` (authorization options).
 
-Verified: 2026-09-15.
+Verified: 2026-10-07.
