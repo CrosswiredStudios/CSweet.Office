@@ -7,7 +7,7 @@ using P = CSweet.Office.Runtime.Protocol;
 
 namespace CSweet.Office.Runtime.LocalRpc;
 
-public sealed class RuntimeHostRequestDispatcher(
+public sealed partial class RuntimeHostRequestDispatcher(
     IEnumerable<A.IPlatformIsolationBackend> backends,
     IEnumerable<A.IPlatformGuestChannelConnector> guestChannelConnectors,
     RuntimeHostAuthorizationGate authorizationGate,
@@ -33,7 +33,10 @@ public sealed class RuntimeHostRequestDispatcher(
                 yield return await ProbeAsync(request, cancellationToken);
                 break;
             case P.RuntimeHostEnvelope.BodyOneofCase.CreateRequest:
-                yield return await CreateAsync(request, cancellationToken);
+                yield return await CreateSerializedAsync(request, cancellationToken);
+                break;
+            case P.RuntimeHostEnvelope.BodyOneofCase.ReconcileAttemptRequest:
+                yield return await ReconcileAttemptAsync(request, cancellationToken);
                 break;
             case P.RuntimeHostEnvelope.BodyOneofCase.StartRequest:
                 yield return await OperationAsync(request, request.StartRequest, static (backend, handle, token) => backend.StartAsync(handle, token), cancellationToken);
@@ -157,7 +160,12 @@ public sealed class RuntimeHostRequestDispatcher(
         }
         try
         {
-            var handle = await backend.CreateAsync(workload, cancellationToken);
+            var auth = request.CreateRequest.Authorization;
+            var attempt = authorizationGate.GetShutdownAttempt(Guid.Parse(auth.OfficeId),
+                Guid.Parse(auth.AssignmentId), auth.FencingEpoch, auth.ProviderId)!;
+            var handle = backend is A.IPlatformAttemptRecovery recovery
+                ? await recovery.CreateAttemptAsync(workload, attempt.Key, cancellationToken)
+                : await backend.CreateAsync(workload, cancellationToken);
             EnsureProvider(handle, backend);
             try { authorizationGate.RegisterHandle(request.CreateRequest, handle); }
             catch

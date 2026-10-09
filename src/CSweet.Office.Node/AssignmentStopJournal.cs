@@ -31,6 +31,23 @@ internal sealed class AssignmentStopJournal(OfficeOptions options)
 
     public void BeginCreate(AssignmentStopEntry entry) => Transition(entry, "prepared", "creating");
 
+    public void RequestStop(Guid officeId, Guid assignmentId, long epoch, string providerId)
+    {
+        if (officeId == Guid.Empty || assignmentId == Guid.Empty || epoch <= 0 ||
+            string.IsNullOrWhiteSpace(providerId) || providerId.Length > 100)
+            throw new InvalidDataException("Invalid teardown attempt identity.");
+        lock (_gate)
+        {
+            var entry = new AssignmentStopEntry(officeId, assignmentId, epoch, providerId, "stopped");
+            var path = PathFor(entry);
+            // Every create is preceded by TryBegin; absence proves this Office never
+            // entered creation. Persist a tombstone before acknowledging or accepting replay.
+            if (!File.Exists(path) && !File.Exists(path + ".ack")) Save(entry);
+            else if (File.Exists(path) && ReadFile(path).ProviderId != providerId)
+                throw new InvalidDataException("Teardown provider differs from the recorded attempt.");
+        }
+    }
+
     public void Created(AssignmentStopEntry entry, IsolationWorkloadHandle handle)
     {
         if (handle.ProviderId != entry.ProviderId || string.IsNullOrWhiteSpace(handle.ProviderInstanceId) ||
@@ -53,10 +70,37 @@ internal sealed class AssignmentStopJournal(OfficeOptions options)
         CancellationToken cancellationToken)
     {
         if (entry.Phase == "stopped") return true;
-        if (entry.Phase == "creating") return false; // Creation outcome is unknown; never manufacture proof.
+        if (entry.Phase == "creating")
+        {
+            if (provider is not IAttemptShutdownRecovery recovery) return false;
+            var result = await recovery.ReconcileAttemptShutdownAsync(entry.OfficeId, entry.AssignmentId,
+                entry.FencingEpoch, cancellationToken);
+            if (!result.Confirmed || result.Handle is { } recovered && recovered.ProviderId != entry.ProviderId)
+                return false;
+            lock (_gate)
+            {
+                var current = ReadFile(PathFor(entry));
+                if (current.Phase != "creating") return current.Phase == "stopped";
+                Save(current with { Phase = "stopped", Handle = result.Handle });
+            }
+            return true;
+        }
         if (entry.Phase == "created")
         {
             if (entry.Handle is null || provider is null || provider.Descriptor.ProviderId != entry.ProviderId) return false;
+            // A newer epoch may replace the current handle map. The privileged
+            // exact-attempt journal still retains the older handle for teardown.
+            if (provider is IAttemptShutdownRecovery recovery)
+            {
+                var result = await recovery.ReconcileAttemptShutdownAsync(entry.OfficeId, entry.AssignmentId,
+                    entry.FencingEpoch, cancellationToken);
+                if (result.Confirmed)
+                {
+                    if (result.Handle != entry.Handle) return false;
+                    Transition(entry, "created", "stopped");
+                    return true;
+                }
+            }
             await provider.DestroyAsync(entry.Handle, cancellationToken);
             var status = await provider.InspectAsync(entry.Handle, cancellationToken);
             if (status is not null && (status.Handle != entry.Handle || status.State != IsolationWorkloadState.Destroyed)) return false;

@@ -12,6 +12,9 @@ public sealed class PlatformHelperRequest
     public string? ArtifactImagePath { get; set; }
     public int? GracePeriodSeconds { get; set; }
     public int? MaximumBytes { get; set; }
+    public Guid? AttemptKey { get; set; }
+    public Guid? RecoveryWorkloadId { get; set; }
+    public WorkloadKind? RecoveryWorkloadKind { get; set; }
 }
 
 public sealed class PlatformHelperResponse

@@ -5,7 +5,7 @@ using CSweet.Office.Runtime.HyperV;
 
 namespace CSweet.Office.Runtime.HyperV.Helper;
 
-internal sealed class HyperVHelperController(HyperVHelperPaths paths)
+internal sealed partial class HyperVHelperController(HyperVHelperPaths paths, IHyperVAttemptOperations? attemptOperations = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan CreationGracePeriod = TimeSpan.FromMinutes(5);
@@ -83,7 +83,12 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
             return Failure("invalid-artifact-media", "Builder workloads cannot attach runtime artifact media.");
         }
 
-        var creationId = Guid.NewGuid();
+        using var attemptJournal = request.AttemptKey is { } attemptKey ? new HyperVAttemptJournal(paths, attemptKey) : null;
+        if (attemptJournal?.Read() is not null)
+            return Failure("attempt-already-recorded", "The exact creation attempt was already accepted or retired.");
+        var creationId = request.AttemptKey ?? Guid.NewGuid();
+        var attempt = new HyperVAttempt(creationId, workload.WorkloadId, workload.Kind);
+        attemptJournal?.Save(attempt);
         var vmName = $"CSweet-{workload.Kind}-{creationId:N}";
         Guid instanceId = Guid.Empty;
         string? instanceDirectory = null;
@@ -97,6 +102,7 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
                 workload.ResourceLimits.MemoryMegabytes);
             if (!Guid.TryParse(hyperVId, out instanceId) || instanceId == Guid.Empty)
                 throw new HyperVCommandException("invalid-vm-id", "Hyper-V returned an invalid VM identifier.");
+            attemptJournal?.Save(attempt with { InstanceId = instanceId });
             instanceDirectory = paths.InstanceDirectory(instanceId);
             Directory.CreateDirectory(instanceDirectory);
             var osDisk = Path.Combine(instanceDirectory, "os-diff.vhdx");
@@ -189,6 +195,7 @@ internal sealed class HyperVHelperController(HyperVHelperPaths paths)
 
     private async Task<PlatformHelperResponse> DestroyAsync(PlatformHelperRequest request)
     {
+        if (request.AttemptKey is not null) return await DestroyAttemptAsync(request);
         var loaded = await LoadAsync(request.Handle);
         if (loaded.Error is not null)
             return loaded.Error.ErrorCode == "not-found" ? Success() : loaded.Error;

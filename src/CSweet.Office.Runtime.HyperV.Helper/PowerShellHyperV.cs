@@ -121,6 +121,10 @@ internal static class PowerShellHyperV
         "Import-Module Hyper-V -ErrorAction Stop; $vm = Get-VM -Name $env:CSWEET_VM_NAME -ErrorAction SilentlyContinue; if ($null -eq $vm) { exit 44 }; $vm.State.ToString()",
         vmName, TimeSpan.FromSeconds(30));
 
+    public static Task<string> GetIdAsync(string vmName) => ExecuteVmCommandAsync(
+        "Import-Module Hyper-V -ErrorAction Stop; $vms = @(Get-VM -ErrorAction Stop | Where-Object { $_.Name -eq $env:CSWEET_VM_NAME }); if ($vms.Count -gt 1) { throw 'Ambiguous VM identity.' }; if ($vms.Count -eq 1) { $vms[0].Id.ToString() }",
+        vmName, TimeSpan.FromSeconds(30));
+
     private static Task<string> ExecuteVmCommandAsync(string script, string vmName, TimeSpan timeout) =>
         ExecuteAsync(script, new Dictionary<string, string> { ["CSWEET_VM_NAME"] = vmName }, timeout);
 

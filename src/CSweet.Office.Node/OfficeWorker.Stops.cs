@@ -19,6 +19,7 @@ public sealed partial class OfficeWorker
                 _providers.TryGetValue(entry.ProviderId, out var provider);
                 stateStore.MarkAssignmentActive(entry.AssignmentId);
                 if (!await _stopJournal.CleanupAsync(entry, provider, budget.Token)) continue;
+                var stopped = _stopJournal.Read(entry.OfficeId, entry.AssignmentId, entry.FencingEpoch);
                 if (!_stopJournal.HasUnconfirmed(state.OfficeId, entry.AssignmentId))
                     stateStore.MarkAssignmentInactive(entry.AssignmentId);
                 await SendAsync(writer, writerLock, new OfficeControlMessage
@@ -27,8 +28,8 @@ public sealed partial class OfficeWorker
                     AssignmentStopped = new AssignmentStopped
                     {
                         AssignmentId = entry.AssignmentId.ToString("D"), FencingEpoch = entry.FencingEpoch,
-                        ProviderId = entry.ProviderId, ProviderInstanceId = entry.Handle?.ProviderInstanceId ?? "",
-                        NeverCreated = entry.Handle is null
+                        ProviderId = stopped.ProviderId, ProviderInstanceId = stopped.Handle?.ProviderInstanceId ?? "",
+                        NeverCreated = stopped.Handle is null
                     }
                 }, budget.Token);
             }

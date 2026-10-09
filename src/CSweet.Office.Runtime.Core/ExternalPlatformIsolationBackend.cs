@@ -118,6 +118,10 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
     }
 
     public async Task<IsolationWorkloadHandle> CreateAsync(WorkloadSpecification workload, CancellationToken cancellationToken = default)
+        => await CreateWithAttemptAsync(workload, null, cancellationToken);
+
+    protected async Task<IsolationWorkloadHandle> CreateWithAttemptAsync(WorkloadSpecification workload,
+        Guid? attemptKey, CancellationToken cancellationToken)
     {
         ValidateWorkload(workload);
         if (!TryResolveFile(_options.GuestImagePath, out var guestImage) ||
@@ -151,7 +155,8 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
             RuntimeWorkload = workload as RuntimeWorkloadSpecification,
             ToolchainBuildWorkload = workload as ToolchainBuildWorkloadSpecification,
             GuestImagePath = Path.GetFullPath(_options.GuestImagePath),
-            ArtifactImagePath = artifactImage
+            ArtifactImagePath = artifactImage,
+            AttemptKey = attemptKey
         }, cancellationToken);
         EnsureSuccess(response);
         if (string.IsNullOrWhiteSpace(response.ProviderInstanceId) || response.ProviderInstanceId.Length > 256)
@@ -161,6 +166,16 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
 
     public Task StartAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) =>
         InvokeHandleAsync("start", handle, null, cancellationToken);
+
+    protected async Task<AttemptShutdownResult> DestroyWithAttemptAsync(Guid attemptKey, Guid workloadId,
+        WorkloadKind kind, CancellationToken cancellationToken)
+    {
+        var result = await InvokeAsync("destroy", new PlatformHelperRequest
+        { AttemptKey = attemptKey, RecoveryWorkloadId = workloadId, RecoveryWorkloadKind = kind }, cancellationToken);
+        EnsureSuccess(result);
+        return new(true, string.IsNullOrEmpty(result.ProviderInstanceId) ? null :
+            new IsolationWorkloadHandle(Descriptor.ProviderId, workloadId, result.ProviderInstanceId, kind));
+    }
 
     public async Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default)
     {

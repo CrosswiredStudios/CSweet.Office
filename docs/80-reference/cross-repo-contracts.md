@@ -49,7 +49,7 @@ global using CSweet.Office.Contracts.Workloads;
 
 | Truth | Location | Current value |
 |---|---|---|
-| Contracts package version | `Directory.Packages.props` → `<PackageVersion Include="CSweet.Office.Contracts" Version="…" />` | `0.8.0` |
+| Contracts package version | `Directory.Packages.props` → `<PackageVersion Include="CSweet.Office.Contracts" Version="…" />` | `0.9.0` |
 | Office runtime version | `Directory.Build.props` → `<VersionPrefix>` | `0.6.0` |
 | Release tag | Git tag `vX.Y.Z` | must equal `VersionPrefix` |
 
@@ -209,6 +209,9 @@ A contract change that is not yet released cannot be validated by CI, because CI
 the sequence is always: change in `CSweet.Office.Contracts` → bump, pack, publish → update
 `Directory.Packages.props` here and in C-Sweet → run the three commands above.
 
+
+`ReconcileAssignmentStop` (0.9.0) is consumed by `src/CSweet.Office.Node/OfficeWorker.cs` and binds only exact-attempt teardown.
+
 ## Sources
 
 `Directory.Build.props`, `Directory.Build.targets`, `Directory.Packages.props`, `Office.GlobalUsings.cs`,
@@ -219,4 +222,4 @@ the sequence is always: change in `CSweet.Office.Contracts` → bump, pack, publ
 and the sibling checkouts `..\CSweet.Office.Contracts\src\CSweet.Office.Contracts\{CSweet.Office.Contracts.csproj,ProtocolVersions.cs,ControlPlane\*.cs,Guest\*.cs,Security\AssignmentEnvelope.cs,Workloads\WorkloadModels.cs}`
 and `..\CSweet.Isolation\` (directory layout).
 
-Verified: 2026-10-07.
+Verified: 2026-10-08.

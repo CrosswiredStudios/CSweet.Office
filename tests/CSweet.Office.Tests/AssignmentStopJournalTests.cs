@@ -11,6 +11,39 @@ public sealed class AssignmentStopJournalTests : IDisposable
     private AssignmentStopJournal Open() => new(new OfficeOptions { StateDirectory = _root });
 
     [Fact]
+    public async Task UndeliveredEpochIsDurablyRetiredAndCannotExecuteAfterReconnect()
+    {
+        var journal = Open();
+        journal.RequestStop(_office, _assignment, 4, "test");
+        journal.RequestStop(_office, _assignment, 4, "test");
+        var entry = Assert.Single(Open().Discover(_office));
+        Assert.True(await journal.CleanupAsync(entry, null, default));
+        Assert.Null(entry.Handle);
+        Assert.False(Open().TryBegin(_office, _assignment, 4, "test"));
+        journal.Acknowledge(_office, _assignment, 4);
+        Assert.False(Open().TryBegin(_office, _assignment, 4, "test"));
+        Assert.True(Open().TryBegin(_office, _assignment, 6, "test"));
+    }
+
+    [Fact]
+    public async Task InterruptedCreationUsesExactPrivilegedRecoveryAndPersistsRecoveredHandle()
+    {
+        var journal = Open();
+        journal.TryBegin(_office, _assignment, 4, "test");
+        journal.BeginCreate(journal.Read(_office, _assignment, 4));
+        var provider = new Provider();
+        Assert.False(await Open().CleanupAsync(Open().Read(_office, _assignment, 4), provider, default));
+        var handle = new IsolationWorkloadHandle("test", Guid.NewGuid(), "recovered-vm", WorkloadKind.Runtime);
+        provider.Recovered = new(true, handle);
+        Assert.True(await Open().CleanupAsync(Open().Read(_office, _assignment, 4), provider, default));
+        Assert.Equal((_office, _assignment, 4L), provider.RecoveryScope);
+        var stopped = Open().Read(_office, _assignment, 4);
+        Assert.Equal("stopped", stopped.Phase);
+        Assert.Equal(handle, stopped.Handle);
+        Assert.False(Open().TryBegin(_office, _assignment, 4, "test"));
+    }
+
+    [Fact]
     public async Task PreparedAttemptCanBeRetiredButCannotExecuteAfterReceiptOrRestart()
     {
         var journal = Open();
@@ -112,8 +145,13 @@ public sealed class AssignmentStopJournalTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private sealed class Provider : IAgentIsolationProvider
+    private sealed class Provider : IAgentIsolationProvider, IAttemptShutdownRecovery
     {
+        public AttemptShutdownResult Recovered { get; set; } = new(false);
+        public (Guid, Guid, long) RecoveryScope { get; private set; }
+        public Task<AttemptShutdownResult> ReconcileAttemptShutdownAsync(Guid officeId, Guid assignmentId,
+            long fencingEpoch, CancellationToken cancellationToken = default)
+        { RecoveryScope = (officeId, assignmentId, fencingEpoch); return Task.FromResult(Recovered); }
         public IsolationWorkloadState State { get; set; }
         public bool FailDestroy { get; set; }
         public bool FailInspect { get; set; }

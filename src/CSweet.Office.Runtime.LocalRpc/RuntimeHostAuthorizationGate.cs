@@ -27,7 +27,7 @@ public sealed class RuntimeHostAuthorizationOptions
 /// The privileged authorization boundary. The network-facing node cannot alter pinned
 /// Headquarters trust or turn a signed assignment into a different platform operation.
 /// </summary>
-public sealed class RuntimeHostAuthorizationGate
+public sealed partial class RuntimeHostAuthorizationGate
 {
     private readonly RuntimeHostAuthorizationOptions _options;
     private readonly TimeProvider _timeProvider;
@@ -121,6 +121,12 @@ public sealed class RuntimeHostAuthorizationGate
             var accepted = ReadReplayState();
             if (accepted.TryGetValue(assignmentId, out var previousEpoch) && previousEpoch >= authorization.FencingEpoch)
                 throw new InvalidDataException("The workload authorization was already accepted or fenced by a newer epoch.");
+            var attemptPath = AttemptPath(officeId, assignmentId, authorization.FencingEpoch);
+            if (File.Exists(attemptPath))
+                throw new InvalidDataException("The exact workload attempt was already accepted or retired.");
+            Directory.CreateDirectory(Path.GetDirectoryName(attemptPath)!);
+            WriteAtomic(attemptPath, JsonSerializer.SerializeToUtf8Bytes(new ShutdownAttempt(
+                Guid.NewGuid(), workloadId, workload.Kind, authorization.ProviderId, null, false)));
             accepted[assignmentId] = authorization.FencingEpoch;
             Directory.CreateDirectory(_options.ResolveStateDirectory());
             WriteAtomic(ReplayPath, JsonSerializer.SerializeToUtf8Bytes(accepted));
@@ -140,11 +146,12 @@ public sealed class RuntimeHostAuthorizationGate
             throw new InvalidDataException("The provider returned a handle outside the authorized workload scope.");
         var workload = RuntimeHostProtocolMapper.DeserializeSpecification(authorization.SpecificationJson);
         var expiresAt = workload.BrokerLease.ExpiresAt;
-        if (expiresAt <= _timeProvider.GetUtcNow())
-            throw new InvalidDataException("The provider returned a handle for an expired workload authorization.");
-
         lock (_sync)
         {
+            var officeId = Guid.Parse(authorization.OfficeId);
+            var path = AttemptPath(officeId, assignmentId, authorization.FencingEpoch);
+            var attempt = ReadAttempt(path) ?? throw new InvalidDataException("Missing creation intent.");
+            WriteAtomic(path, JsonSerializer.SerializeToUtf8Bytes(attempt with { Handle = handle }));
             var handles = ReadHandles();
             handles[workloadId] = new AuthorizedHandle(
                 assignmentId, authorization.FencingEpoch, handle.ProviderId, workloadId,

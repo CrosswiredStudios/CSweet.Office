@@ -88,6 +88,23 @@ public interface IRuntimeHostClient : IAgentIsolationProvider, IAgentGuestChanne
 
 public interface IPlatformIsolationBackend : IAgentIsolationProvider;
 
+public sealed record AttemptShutdownResult(bool Confirmed, IsolationWorkloadHandle? Handle = null);
+
+// Teardown-only recovery. This interface never grants workload creation authority.
+public interface IAttemptShutdownRecovery
+{
+    Task<AttemptShutdownResult> ReconcileAttemptShutdownAsync(Guid officeId, Guid assignmentId,
+        long fencingEpoch, CancellationToken cancellationToken = default);
+}
+
+public interface IPlatformAttemptRecovery
+{
+    Task<IsolationWorkloadHandle> CreateAttemptAsync(WorkloadSpecification workload, Guid attemptKey,
+        CancellationToken cancellationToken = default);
+    Task<AttemptShutdownResult> DestroyAttemptAsync(Guid attemptKey, Guid workloadId, WorkloadKind kind,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// Provider-owned fail-safe cleanup. This deliberately does not depend on the
 /// control-plane database, which may be unavailable or have been recreated.

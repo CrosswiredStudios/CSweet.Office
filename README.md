@@ -2,7 +2,7 @@
 
 C-Sweet Office is the independently installed execution plane for C-Sweet agents. It runs the unprivileged control client (`CSweet.Office.Node`) and privileged virtualization service (`CSweet.Office.RuntimeHost`) on Windows, Linux, and macOS.
 
-The unpublished 0.7.0 implementation adds durable workload cleanup and confirmed stop reports using Office.Contracts 0.8.0. It requires coordinated Headquarters changes. See [teardown and recovery](docs/30-workloads/02-runtime-workload-lifecycle.md#12-teardown) for the known recovery limits; live VM acceptance and release publication remain pending.
+The unpublished 0.8.0 implementation adds exact-attempt shutdown reconciliation using Office.Contracts 0.9.0 and privileged Hyper-V creation recovery. Deploy Node, RuntimeHost, the digest-pinned helper and Headquarters together. See [teardown and recovery](docs/30-workloads/02-runtime-workload-lifecycle.md#12-teardown); live VM acceptance and release publication remain pending.
 
 On Windows, both services run under separate Windows-managed virtual accounts (`NT SERVICE\CSweet.Office.RuntimeHost` and `NT SERVICE\CSweet.Office.Node`) with protected state directories. Only the RuntimeHost virtual account is added to `Hyper-V Administrators`; the Node cannot manage Hyper-V or modify RuntimeHost state. Neither account has write access to the immutable application package. Uninstall removes the RuntimeHost membership. Because Windows grants Hyper-V administrators control over every VM on a host, use a dedicated Office machine when unrelated or higher-trust Hyper-V workloads are present. Installation is refused on domain controllers.
 

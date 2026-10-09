@@ -24,7 +24,7 @@ public sealed partial class OfficeWorker(
 {
     private readonly IReadOnlyDictionary<string, IAgentIsolationProvider> _providers = isolationProviders
         .ToDictionary(x => x.Descriptor.ProviderId, StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _activeAssignments = [];
+    private readonly ConcurrentDictionary<Guid, (long Epoch, CancellationTokenSource Cancellation)> _activeAssignments = [];
     private readonly SemaphoreSlim _workloadSlots = new(Math.Max(1, options.MaximumConcurrentWorkloads));
     private readonly AssignmentStopJournal _stopJournal = new(options);
 
@@ -334,7 +334,7 @@ public sealed partial class OfficeWorker(
             renewalLifetime.Cancel();
             try { await renewalTask; }
             catch (OperationCanceledException) when (renewalLifetime.IsCancellationRequested) { }
-            foreach (var active in _activeAssignments.Values) active.Cancel();
+            foreach (var active in _activeAssignments.Values) active.Cancellation.Cancel();
             await call.RequestStream.CompleteAsync();
         }
     }
@@ -424,25 +424,17 @@ public sealed partial class OfficeWorker(
                     message.Assignment.AssignmentId, message.Assignment.FencingEpoch);
                 var assignmentId = Guid.Parse(message.Assignment.AssignmentId);
                 var assignmentCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                if (_activeAssignments.TryAdd(assignmentId, assignmentCancellation))
+                // Journal every received epoch even when the previous one still owns the slot.
+                // A later recovery hint can then durably retire the skipped attempt.
+                if (!_stopJournal.TryBegin(state.OfficeId, assignmentId,
+                        message.Assignment.FencingEpoch, message.Assignment.ProviderId))
                 {
-                    try
-                    {
-                        if (!_stopJournal.TryBegin(state.OfficeId, assignmentId,
-                                message.Assignment.FencingEpoch, message.Assignment.ProviderId))
-                        {
-                            _activeAssignments.TryRemove(assignmentId, out _);
-                            assignmentCancellation.Dispose();
-                            continue;
-                        }
-                        stateStore.MarkAssignmentActive(assignmentId);
-                    }
-                    catch
-                    {
-                        _activeAssignments.TryRemove(assignmentId, out _);
-                        assignmentCancellation.Dispose();
-                        throw;
-                    }
+                    assignmentCancellation.Dispose();
+                    continue;
+                }
+                if (_activeAssignments.TryAdd(assignmentId, (message.Assignment.FencingEpoch, assignmentCancellation)))
+                {
+                    stateStore.MarkAssignmentActive(assignmentId);
                     _ = ExecuteAssignmentAsync(message.Assignment, writer, writerLock, gatewayClient, state,
                         assignmentCancellation).ContinueWith(task =>
                         {
@@ -453,6 +445,15 @@ public sealed partial class OfficeWorker(
                 else
                     assignmentCancellation.Dispose();
             }
+            else if (message.BodyCase == HeadquartersControlMessage.BodyOneofCase.ReconcileAssignmentStop)
+            {
+                var stop = message.ReconcileAssignmentStop;
+                if (!Guid.TryParse(stop.AssignmentId, out var stopId))
+                    throw new InvalidDataException("Invalid teardown assignment identity.");
+                _stopJournal.RequestStop(state.OfficeId, stopId, stop.FencingEpoch, stop.ProviderId);
+                if (_activeAssignments.TryGetValue(stopId, out var active) && active.Epoch == stop.FencingEpoch)
+                    active.Cancellation.Cancel();
+            }
             else if (message.BodyCase == HeadquartersControlMessage.BodyOneofCase.AssignmentStopReceipt)
             {
                 var receipt = message.AssignmentStopReceipt;
@@ -462,7 +463,7 @@ public sealed partial class OfficeWorker(
             else if (message.BodyCase == HeadquartersControlMessage.BodyOneofCase.Fence)
             {
                 if (Guid.TryParse(message.Fence.AssignmentId, out var fencedId) &&
-                    _activeAssignments.TryGetValue(fencedId, out var active)) active.Cancel();
+                    _activeAssignments.TryGetValue(fencedId, out var active) && active.Epoch == message.Fence.FencingEpoch) active.Cancellation.Cancel();
                 logger.LogWarning("Assignment {AssignmentId} was fenced at epoch {Epoch}: {Reason}",
                     message.Fence.AssignmentId, message.Fence.FencingEpoch, message.Fence.Reason);
             }

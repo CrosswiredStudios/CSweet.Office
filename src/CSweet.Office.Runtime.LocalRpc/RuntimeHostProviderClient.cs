@@ -11,7 +11,7 @@ public sealed class RuntimeHostProviderClient(
     A.IsolationProviderDescriptor descriptor,
     RuntimeHostEndpointOptions endpointOptions,
     P.RuntimeHostRequestAuthenticator authenticator,
-    ILogger<RuntimeHostProviderClient>? logger = null) : A.IRuntimeHostClient
+    ILogger<RuntimeHostProviderClient>? logger = null) : A.IRuntimeHostClient, A.IAttemptShutdownRecovery
 {
     private const int ProbeAttempts = 4;
 
@@ -98,6 +98,21 @@ public sealed class RuntimeHostProviderClient(
             cancellationToken);
         EnsureSuccess(response.CreateResponse.Success, response.CreateResponse.ErrorCode, response.CreateResponse.SanitizedError);
         return RuntimeHostProtocolMapper.FromProtocol(response.CreateResponse.Workload);
+    }
+
+    public async Task<A.AttemptShutdownResult> ReconcileAttemptShutdownAsync(Guid officeId, Guid assignmentId,
+        long fencingEpoch, CancellationToken cancellationToken = default)
+    {
+        var response = await CallAsync(new P.RuntimeHostEnvelope
+        {
+            ReconcileAttemptRequest = new P.ReconcileAttemptRequest
+            {
+                OfficeId = officeId.ToString("D"), AssignmentId = assignmentId.ToString("D"),
+                FencingEpoch = fencingEpoch, ProviderId = Descriptor.ProviderId
+            }
+        }, P.RuntimeHostEnvelope.BodyOneofCase.ReconcileAttemptResponse, cancellationToken);
+        var result = response.ReconcileAttemptResponse;
+        return new(result.Confirmed, result.Workload is null ? null : RuntimeHostProtocolMapper.FromProtocol(result.Workload));
     }
 
     public Task StartAsync(A.IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) =>

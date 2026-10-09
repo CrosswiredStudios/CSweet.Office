@@ -13,7 +13,7 @@ using CSweet.Office.Contracts.Security;
 
 namespace CSweet.Office.Tests;
 
-public sealed class RuntimeHostRpcIntegrationTests
+public sealed partial class RuntimeHostRpcIntegrationTests
 {
     [Fact]
     public async Task ProbeFailsClosedWhenProviderHasNoGuestChannelConnector()
