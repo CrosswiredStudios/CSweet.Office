@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CSweet.Office.Runtime.Abstractions;
 using CSweet.Office.Runtime.Core;
+using CSweet.Office.Runtime.AppleVirtualization;
 using CSweet.Office.Runtime.Firecracker;
 using CSweet.Office.Runtime.HyperV;
 using CSweet.Office.Runtime.Protocol;
@@ -19,6 +20,8 @@ if (arguments.Provider == "hyperv" && !OperatingSystem.IsWindows())
     throw new PlatformNotSupportedException("The Hyper-V smoke test requires Windows.");
 if (arguments.Provider == "firecracker" && !OperatingSystem.IsLinux())
     throw new PlatformNotSupportedException("The Firecracker smoke test requires Linux.");
+if (arguments.Provider == "apple" && !OperatingSystem.IsMacOS())
+    throw new PlatformNotSupportedException("Apple Virtualization requires macOS.");
 if (arguments.Provider == "hyperv" &&
     !new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
     throw new InvalidOperationException("Run the Hyper-V isolation smoke test from an administrator prompt.");
@@ -31,7 +34,9 @@ var helperRoot = Path.Combine(root, "hyperv-helper-data");
 Directory.CreateDirectory(mediaRoot);
 Directory.CreateDirectory(helperRoot);
 Environment.SetEnvironmentVariable("CSWEET_ARTIFACT_MEDIA_ROOT", mediaRoot);
-if (arguments.Provider == "hyperv")
+if (arguments.Provider == "apple")
+    Environment.SetEnvironmentVariable("CSWEET_APPLE_VIRTUALIZATION_DATA_ROOT", helperRoot);
+else if (arguments.Provider == "hyperv")
     Environment.SetEnvironmentVariable("CSWEET_HYPERV_DATA_ROOT", helperRoot);
 else
     Environment.SetEnvironmentVariable("CSWEET_FIRECRACKER_DATA_ROOT", helperRoot);
@@ -45,9 +50,10 @@ if (arguments.Provider == "hyperv")
 
 var descriptor = arguments.Provider == "hyperv"
     ? IsolationProviderCatalog.HyperV(RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant())
+    : arguments.Provider == "apple" ? IsolationProviderCatalog.AppleVirtualization(RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant())
     : IsolationProviderCatalog.Firecracker(RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant());
 var guestImage = arguments.RequireFile(arguments.GuestImagePath,
-    arguments.Provider == "hyperv" ? ".vhdx" : ".ext4");
+    arguments.Provider == "hyperv" ? ".vhdx" : arguments.Provider == "apple" ? ".img" : ".ext4");
 var helper = arguments.RequireFile(arguments.HelperExecutablePath,
     arguments.Provider == "hyperv" ? ".exe" : string.Empty);
 var probe = arguments.RequireFile(arguments.ProbeExecutablePath, string.Empty);
@@ -190,9 +196,11 @@ var builderChecks = await RunBuilderSmokeAsync(
 if (builderChecks.Any(check => !check.Value))
     throw new InvalidOperationException("The builder certification probe failed: " +
         string.Join(", ", builderChecks.Where(check => !check.Value).Select(check => check.Key)));
+var internetChecks = arguments.PublicInternet ? await RunInternetSmokeAsync(
+    helper, guestImage, guestDigest, artifactDigest, artifactIso, arguments.Provider, descriptor, guestArchitecture, socketOptions, arguments.PublicInternetIpv4Only) : new Dictionary<string, bool>();
 var combinedChecks = validatedReport.Checks
-    .Concat(builderChecks)
-    .ToDictionary(check => check.Key, check => check.Value, StringComparer.Ordinal);
+    .Concat(builderChecks).Concat(internetChecks)
+    .GroupBy(check => check.Key, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.All(check => check.Value), StringComparer.Ordinal);
 var evidence = new
 {
     providerId = descriptor.ProviderId,
@@ -200,8 +208,8 @@ var evidence = new
     hostOperatingSystem = descriptor.HostOperatingSystem,
     hostArchitecture = descriptor.HostArchitecture,
     guestImageDigest = guestDigest,
-    brokerProtocolVersion = "1.0",
-    certificationSuiteVersion = validatedReport.Suite,
+    brokerProtocolVersion = arguments.PublicInternet ? "1.1" : "1.0",
+    certificationSuiteVersion = arguments.PublicInternet ? (arguments.PublicInternetIpv4Only ? ProviderCertificationEvidence.Ipv4InternetSuite : ProviderCertificationEvidence.FullInternetSuite) : validatedReport.Suite,
     certifiedAt = now,
     // Certification binds the tested provider and image; elapsed time alone must not
     // disable an installed Office. Explicitly expiring evidence is still enforced.
@@ -218,8 +226,62 @@ Console.WriteLine(JsonSerializer.Serialize(new
     passed = true,
     guestImageDigest = guestDigest,
     evidencePath,
-    certificationSuiteVersion = validatedReport.Suite
+    certificationSuiteVersion = evidence.certificationSuiteVersion
 }, SmokeJson.Options));
+
+static async Task<Dictionary<string, bool>> RunInternetSmokeAsync(
+    string helper, string guestImage, string guestDigest, string artifactDigest, string artifactIso,
+    string provider, IsolationProviderDescriptor descriptor, string architecture, HyperVSocketTransportOptions socketOptions, bool ipv4Only)
+{
+    var id = Guid.NewGuid(); var installation = Guid.NewGuid(); var channel = Guid.NewGuid();
+    var expires = DateTimeOffset.UtcNow.AddMinutes(5);
+    var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    var image = new GuestImageReference("csweet-development-polyglot-v1", "1.0", guestDigest, "linux", architecture);
+    var workload = new RuntimeWorkloadSpecification(id, image,
+        new WorkloadResourceLimits(1, 100, 1536, 2048, 128, 1024 * 1024, TimeSpan.FromMinutes(4)),
+        new BrokerChannelLease(channel, "1.1", secret, guestDigest, artifactDigest, expires),
+        new AgentArtifactReference(artifactDigest, "smoke-test", "1.0", "linux", architecture),
+        new RuntimeAgentIdentity(installation, Guid.NewGuid().ToString("D"), Guid.NewGuid()), ["probe"])
+    { NetworkPolicy = new RuntimeNetworkPolicy(ipv4Only ? RuntimeNetworkPolicy.PublicInternetIpv4 : RuntimeNetworkPolicy.PublicInternet, 1), EnvironmentProfile = "software-development-polyglot-v1" };
+    var created = await InvokeHelperAsync(helper, "create", new PlatformHelperRequest
+    { RuntimeWorkload = workload, GuestImagePath = guestImage, ArtifactImagePath = artifactIso });
+    EnsureSuccess(created);
+    var handle = new IsolationWorkloadHandle(descriptor.ProviderId, id, created.ProviderInstanceId ?? throw new InvalidDataException("The helper returned no VM identifier."), WorkloadKind.Runtime);
+    try
+    {
+        EnsureSuccess(await InvokeHelperAsync(helper, "start", new PlatformHelperRequest { Handle = handle }));
+        var collector = new CertificationReportHandler();
+        var grant = new AgentBrokerGrant(id, channel, installation, guestDigest, artifactDigest, "1.1", secret, expires,
+            new HashSet<string>(StringComparer.Ordinal) { "mcp.runtime" }, 16, 1024 * 1024, 1024 * 1024, 16 * 1024 * 1024);
+        var boot = new GuestBootConfiguration { WorkloadId = id.ToString("D"), ChannelId = channel.ToString("D"),
+            ProtocolVersion = "1.1", GuestImageDigest = guestDigest, ArtifactDigest = artifactDigest, BootToken = secret,
+            LeaseExpiresAtUnixSeconds = expires.ToUnixTimeSeconds(), ArtifactRoot = "/run/csweet/artifact/payload",
+            WorkloadKind = 1, InstallationId = installation.ToString("D"), BusinessId = workload.Identity.BusinessId,
+            TickId = workload.Identity.TickId.ToString("D"), LocalBrokerSocketPath = "/run/csweet/broker.sock",
+            WorkloadTokenPath = "/run/csweet/workload-token", MaximumFrameBytes = 16 * 1024 * 1024, PublicInternet = true };
+        var start = new StartCommand { WorkloadKind = 1, MaximumLogBytes = 1024 * 1024 };
+        start.Entrypoint.Add("probe");
+        start.Environment.Add("CSWEET_CERTIFICATION_HOST_ADDRESSES", string.Join(",", System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces().SelectMany(x => x.GetIPProperties().UnicastAddresses).Select(x => x.Address.ToString())));
+        if (ipv4Only) start.Entrypoint.Add("--public-internet-ipv4-only");
+        var session = new GuestBrokerHostSession(grant, collector, TimeProvider.System, boot, start, publicInternetIpv6: !ipv4Only);
+        await using var transport = await ConnectGuestAsync(provider, helper, handle, socketOptions);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(4));
+        var task = session.RunAsync(transport, transport, timeout.Token);
+        var first = await Task.WhenAny(task, collector.Report).WaitAsync(timeout.Token);
+        if (first == task && !collector.Report.IsCompleted) await task;
+        var report = await collector.Report.WaitAsync(timeout.Token);
+        Console.WriteLine("Public internet probe: " + JsonSerializer.Serialize(report.Checks));
+        await task.WaitAsync(timeout.Token);
+        var checks = report.Checks.ToDictionary(x => x.Key, x => x.Value);
+        checks["publicInternetLeaseCleanup"] = session.InternetCleanupVerified;
+        if (!report.Passed || ProviderCertificationEvidence.RequiredInternetChecks.Where(key => !ipv4Only || key != "publicInternetIpv6")
+            .Any(key => !checks.GetValueOrDefault(key)))
+            throw new InvalidOperationException("The public internet/development certification failed: " +
+                string.Join(", ", checks.Where(x => !x.Value).Select(x => x.Key)));
+        return checks;
+    }
+    finally { EnsureSuccess(await InvokeHelperAsync(helper, "destroy", new PlatformHelperRequest { Handle = handle })); }
+}
 
 static async Task<IReadOnlyDictionary<string, bool>> RunBuilderSmokeAsync(
     string helper,
@@ -391,6 +453,9 @@ static async Task<Stream> ConnectGuestAsync(
         return await new WindowsHyperVSocketTransport(socketOptions).ConnectAsync(virtualMachineId);
     }
 
+    if (provider == "apple")
+        return await new AppleVirtualizationGuestChannelConnector(new AppleVirtualizationIsolationBackendOptions
+        { HelperExecutablePath = helper, HelperExecutableDigest = await DigestAsync(helper), GuestChannelConnectTimeoutSeconds = 120 }).OpenGuestChannelAsync(handle);
     var options = new FirecrackerIsolationBackendOptions
     {
         HelperExecutablePath = helper,
@@ -657,6 +722,8 @@ internal sealed record SmokeArguments(
     string EvidenceOutputPath,
     bool PreserveFailedVirtualMachine)
 {
+    public bool PublicInternet { get; init; }
+    public bool PublicInternetIpv4Only { get; init; }
     public static SmokeArguments Parse(string[] args)
     {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -673,12 +740,14 @@ internal sealed record SmokeArguments(
         var provider = values.TryGetValue("provider", out var providerValue)
             ? providerValue.Trim().ToLowerInvariant()
             : "hyperv";
-        if (provider is not ("hyperv" or "firecracker"))
-            throw new ArgumentException("--provider must be hyperv or firecracker.");
+        if (provider is not ("hyperv" or "firecracker" or "apple"))
+            throw new ArgumentException("--provider must be hyperv, firecracker, or apple.");
         return new SmokeArguments(
             provider,
             Required("helper"), Required("guest-image"), Required("probe"),
-            Required("output-root"), Required("evidence"), preserve);
+            Required("output-root"), Required("evidence"), preserve)
+        { PublicInternet = values.TryGetValue("public-internet", out var enabled) && bool.Parse(enabled),
+          PublicInternetIpv4Only = values.TryGetValue("public-internet-ipv4-only", out var ipv4) && bool.Parse(ipv4) };
     }
 
     public string ValidatedOutputRoot()

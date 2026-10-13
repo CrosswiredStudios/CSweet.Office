@@ -17,7 +17,8 @@ public sealed record GuestServiceOptions(
     Guid? TickId,
     string LocalBrokerSocketPath = "/run/csweet/broker.sock",
     string WorkloadTokenPath = "/run/csweet/workload-token",
-    int MaximumFrameBytes = 1_048_576)
+    int MaximumFrameBytes = 1_048_576,
+    bool PublicInternet = false)
 {
     public static GuestServiceOptions FromEnvironment()
     {
@@ -64,14 +65,14 @@ public sealed record GuestServiceOptions(
             Guid.TryParse(boot.TickId, out var tickId) ? tickId : null,
             boot.LocalBrokerSocketPath,
             boot.WorkloadTokenPath,
-            boot.MaximumFrameBytes);
+            boot.MaximumFrameBytes, boot.PublicInternet);
     }
 
     public void Validate(TimeProvider timeProvider)
     {
         if (WorkloadId == Guid.Empty || ChannelId == Guid.Empty)
             throw new InvalidOperationException("Guest workload and channel identifiers are required.");
-        if (!string.Equals(ProtocolVersion, "1.0", StringComparison.Ordinal))
+        if (ProtocolVersion is not ("1.0" or "1.1") || PublicInternet && (ProtocolVersion != "1.1" || WorkloadKind != 1))
             throw new InvalidOperationException("The guest broker protocol version is unsupported.");
         if (!IsSha256(GuestImageDigest) || (ArtifactDigest is not null && !IsSha256(ArtifactDigest)))
             throw new InvalidOperationException("Guest image and artifact references must be immutable SHA-256 digests.");

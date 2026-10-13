@@ -70,7 +70,10 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
         }
         start.Environment.Clear();
         start.Environment["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-        start.Environment["HOME"] = "/tmp/csweet-agent";
+        start.Environment["HOME"] = "/run/csweet/workload/home";
+        start.Environment["CSWEET_RUNTIME_NETWORK_MODE"] = options.PublicInternet ? "public-internet" : "restricted";
+        start.Environment["CSWEET_WORKLOAD_TOOLS"] = "/run/csweet/workload/tools";
+        start.Environment["PATH"] = "/run/csweet/workload/tools/bin:" + start.Environment["PATH"];
         start.Environment["CSWEET_BROKER_ONLY"] = "1";
         start.Environment["CSweet__Agent__McpEndpoint"] = "http://localhost/mcp";
         start.Environment["CSweet__Agent__McpUnixSocketPath"] = options.LocalBrokerSocketPath;
@@ -208,5 +211,5 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
         "CSWEET_BUILD_MAXIMUM_SOURCE_BYTES" or "CSWEET_BUILD_MAXIMUM_OUTPUT_BYTES" or "CSWEET_CERTIFIED_IMAGE_DIGEST" or
         "CSWEET_ALLOWED_DEPENDENCY_REGISTRIES" or "CSWEET_CERTIFICATION_FIXTURE_RESOURCE" or
         "CSWEET_WORKSPACE_MAXIMUM_ARCHIVE_BYTES" or "CSWEET_WORKSPACE_MAXIMUM_EXPANDED_BYTES" or
-        "CSWEET_WORKSPACE_MAXIMUM_FILE_COUNT";
+        "CSWEET_WORKSPACE_MAXIMUM_FILE_COUNT" or "CSWEET_CERTIFICATION_HOST_ADDRESSES";
 }

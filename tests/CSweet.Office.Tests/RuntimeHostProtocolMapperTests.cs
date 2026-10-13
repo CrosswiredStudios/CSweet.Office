@@ -30,6 +30,24 @@ public sealed class RuntimeHostProtocolMapperTests
     }
 
     [Fact]
+    public void RuntimeInternetRoundTripPreservesPolicyRevisionAndProfile()
+    {
+        var expected = RuntimeSpec() with
+        {
+            NetworkPolicy = new(RuntimeNetworkPolicy.PublicInternet, 7, ["8.8.8.0/24"]),
+            EnvironmentProfile = "software-development-polyglot-v1"
+        };
+        var protocol = RuntimeHostProtocolMapper.ToProtocol("hyperv", expected);
+        var actual = Assert.IsType<RuntimeWorkloadSpecification>(RuntimeHostProtocolMapper.FromProtocol(protocol));
+        Assert.Equal(expected.NetworkPolicy.Mode, actual.NetworkPolicy!.Mode);
+        Assert.Equal(7, actual.NetworkPolicy.GrantRevision);
+        Assert.Equal(expected.NetworkPolicy.BlockedCidrs, actual.NetworkPolicy.BlockedCidrs);
+        Assert.Equal(expected.EnvironmentProfile, actual.EnvironmentProfile);
+        protocol.Runtime.NetworkPolicy.Mode = "private";
+        Assert.Throws<InvalidDataException>(() => RuntimeHostProtocolMapper.FromProtocol(protocol));
+    }
+
+    [Fact]
     public void ToProtocol_RejectsMismatchedArtifactBinding()
     {
         var workload = RuntimeSpec() with

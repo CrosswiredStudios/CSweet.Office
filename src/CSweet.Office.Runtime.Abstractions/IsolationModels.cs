@@ -106,6 +106,8 @@ public sealed record IsolationProviderCertification(
     DateTimeOffset? ExpiresAt = null,
     DateTimeOffset? RevokedAt = null)
 {
+    public bool SupportsPublicInternet { get; init; }
+    public bool SupportsPublicInternetIpv6 => SupportsPublicInternet && CertificationSuiteVersion == "csweet-hardware-vm-smoke-v15";
     public bool IsActiveAt(DateTimeOffset instant) =>
         RevokedAt is null && (ExpiresAt is null || ExpiresAt > instant);
 }

@@ -140,7 +140,10 @@ message RuntimeSpec {
   string installation_id = 7;
   string business_id = 8;
   string tick_id = 9;
+  RuntimeEgressPolicy network_policy = 10;
+  string environment_profile = 11;
 }
+message RuntimeEgressPolicy { string mode = 1; int64 grant_revision = 2; repeated string blocked_cidrs = 3; }
 
 message ToolchainBuildSpec {
   string artifact_digest = 1;

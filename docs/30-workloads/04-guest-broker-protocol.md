@@ -5,9 +5,8 @@
 The guest broker is `CSweet.Office.RuntimeGuest`. It validates boot configuration, materializes artifacts,
 performs an authenticated handshake, proxies agent SDK requests, and supervises the workload process.
 
-**The Office never interprets this protocol.** Bytes travel from the guest, through the RuntimeHost guest
-channel, through the Node's tunnel, to Headquarters — and back. The Office's only role is framing and
-sequencing.
+**Office relays broker protocol messages; approved protocol 1.1 egress frames terminate locally in Office Node.** Bytes travel from the guest, through the RuntimeHost guest
+channel, through the Node's tunnel, to Headquarters — and back. For restricted workloads the Office's role is framing and sequencing. `OfficeInternetTunnel` additionally validates and handles explicitly authorized egress frames; see [runtime public internet](08-runtime-public-internet.md).
 
 > **Out of repo:** the host half of this protocol — issuing the boot configuration, answering the handshake,
 > authorizing purposes, and responding to proxy requests — is implemented in Headquarters. The in-repo
@@ -102,6 +101,18 @@ After the lease, the guest starts the local broker proxy and enters the command 
 | `Exit` | On termination: exit code, reason code, and a detail tail of at most 8 KiB. |
 | `StreamChunk` | Every ~500 ms while `DiagnosticDetail` changes, on `stream_id = "runtime.logs"`. |
 
+## Public egress flow control (1.1)
+
+`EgressFrame` is accepted only after the authorized handshake. `Open` names one TCP or UDP destination;
+Office validates and connects its actual address before sending `Opened`. Each direction starts with two
+data-frame credits. A sender waits for credit before `Data`; the receiver sends `Credit` only after writing
+that frame to its connected socket. This keeps each receive queue at two frames without dropping sustained
+downloads or blocking the broker command reader. Data frames are bounded to 65,507 bytes.
+
+`HalfClose` ends TCP uploads while allowing replies to drain. `Close` and `Error` terminate a flow;
+assignment fencing, lease expiry and tunnel loss close all flows. Flow identifiers cannot be reused during
+the assignment. Duplicate credits and malformed frames fail closed. Egress does not grant proxy purposes.
+
 ## Proxy purposes
 
 The guest maps each local HTTP request to a purpose. Anything not listed raises
@@ -153,4 +164,4 @@ guest cannot do so.
 `src/CSweet.Office.WindowsSmokeTest/CertificationBrokerHost.cs`,
 `tests/CSweet.Office.Tests/GuestLocalBrokerProxyTests.cs`.
 
-Verified: 2026-09-16.
+Verified: 2026-10-13.

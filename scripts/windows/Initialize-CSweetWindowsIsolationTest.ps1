@@ -2,6 +2,8 @@
 param(
     [string] $SwitchName = 'Default Switch',
     [switch] $RebuildGuest,
+    [switch] $DevelopmentTools,
+    [switch] $PublicInternetIpv4Only,
     [string] $PrebuiltRoot,
     [switch] $SkipInstall,
     [string] $PayloadResultPath,
@@ -35,7 +37,11 @@ function Get-GuestBuildFingerprint([string] $RepositoryRoot) {
         (Join-Path $RepositoryRoot '..\CSweet.Isolation\tools\LinuxImage'),
         (Join-Path $RepositoryRoot 'scripts\windows\New-CSweetHyperVTestGuest.ps1'),
         (Join-Path $RepositoryRoot 'src\CSweet.Office.Runtime.Protocol'),
-        (Join-Path $RepositoryRoot 'build\windows-hyperv')
+        (Join-Path $RepositoryRoot 'build\windows-hyperv'),
+        (Join-Path $RepositoryRoot 'build\development-tools.lock.json'),
+        (Join-Path $RepositoryRoot 'build\provision-development.sh'),
+        (Join-Path $RepositoryRoot 'scripts\Prepare-CSweetDevelopmentPayload.ps1'),
+        (Join-Path $RepositoryRoot '..\CSweet.Office.Contracts\src\CSweet.Office.Contracts')
     )
     $files = @($roots | ForEach-Object {
         Get-ChildItem -LiteralPath $_ -File -Recurse | Where-Object {
@@ -73,10 +79,12 @@ if (-not (Test-Administrator)) {
         (Quote-ProcessArgument $ControlPlaneUserSid), '-ProgressPath', (Quote-ProcessArgument $ProgressPath),
         '-ProgressJobId', (Quote-ProcessArgument $ProgressJobId.ToString('D')), '-NoElevation')
     if ($PrebuiltRoot) { $arguments += @('-PrebuiltRoot', (Quote-ProcessArgument $PrebuiltRoot)) }
+    if ($DevelopmentTools) { $arguments += "-DevelopmentTools" }
+    if ($PublicInternetIpv4Only) { $arguments += "-PublicInternetIpv4Only" }
     if ($RebuildGuest) { $arguments += '-RebuildGuest' }
     if ($SkipInstall) { $arguments += '-SkipInstall' }
     if ($PayloadResultPath) { $arguments += @('-PayloadResultPath', (Quote-ProcessArgument $PayloadResultPath)) }
-    $process = Start-Process -FilePath $hostExecutable -Verb RunAs -Wait -PassThru -ArgumentList ($arguments -join ' ')
+    $process = Start-Process -FilePath $hostExecutable -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList ($arguments -join ' ')
     if ($process.ExitCode -ne 0) { throw "The elevated Windows isolation test exited with code $($process.ExitCode)." }
     return
 }
@@ -176,7 +184,7 @@ if ($PrebuiltRoot) {
     $guestImage = Join-Path $PrebuiltRoot 'guest\csweet-agent-guest.vhdx'
     if (-not (Test-Path -LiteralPath $guestImage -PathType Leaf)) { throw 'The prebuilt guest image is missing.' }
 } else {
-    $guestFingerprint = Get-GuestBuildFingerprint $repositoryRoot
+    $guestFingerprint = (Get-GuestBuildFingerprint $repositoryRoot) + $(if ($DevelopmentTools) { "-development" } else { "-restricted" })
     $guestImageRoot = Join-Path $repositoryRoot 'artifacts\windows-runtime\source'
     $guestImage = Join-Path $guestImageRoot "csweet-agent-guest-$guestFingerprint.vhdx"
     # Prefer the latest complete build of this fingerprint, including a forced rebuild.
@@ -201,7 +209,7 @@ if ($PrebuiltRoot) {
             $guestReadyMarker = "$guestImage.ready"
         }
         & (Join-Path $PSScriptRoot 'New-CSweetHyperVTestGuest.ps1') -SwitchName $SwitchName -OutputPath $guestImage `
-            -ProgressPath $ProgressPath -ProgressJobId $ProgressJobId
+            -DevelopmentTools:$DevelopmentTools -ProgressPath $ProgressPath -ProgressJobId $ProgressJobId
         if ($LASTEXITCODE -ne 0) { throw 'The C-Sweet test guest image build failed.' }
         [IO.File]::WriteAllText($guestReadyMarker, $guestFingerprint, [Text.UTF8Encoding]::new($false))
     } else {
@@ -266,7 +274,8 @@ try {
     # Do not let the script-wide Stop preference abort before we can persist it.
     $ErrorActionPreference = 'Continue'
     $certificationOutput = @(& $smoke --helper $helper --guest-image $guestImage --probe $probe `
-        --output-root $smokeOutput --evidence $evidencePath 2>&1)
+        --output-root $smokeOutput --evidence $evidencePath --public-internet ($DevelopmentTools.IsPresent.ToString().ToLowerInvariant()) `
+        --public-internet-ipv4-only ($PublicInternetIpv4Only.IsPresent.ToString().ToLowerInvariant()) 2>&1)
     $certificationExitCode = $LASTEXITCODE
 } finally {
     $ErrorActionPreference = $previousErrorActionPreference
@@ -284,7 +293,10 @@ if ($certificationExitCode -ne 0 -or -not (Test-Path -LiteralPath $evidencePath 
 }
 $certificationLines | ForEach-Object { Write-Host $_ }
 $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
-if (-not $evidence.checks -or @($evidence.checks.PSObject.Properties | Where-Object { $_.Value -ne $true }).Count -ne 0) {
+if (-not $evidence.checks -or @($evidence.checks.PSObject.Properties | Where-Object {
+    $_.Value -ne $true -and -not ($PublicInternetIpv4Only -and
+        $evidence.certificationSuiteVersion -ceq 'csweet-hardware-vm-smoke-v15-ipv4' -and $_.Name -ceq 'publicInternetIpv6')
+}).Count -ne 0) {
     throw 'Certification evidence contains a failed isolation check.'
 }
 

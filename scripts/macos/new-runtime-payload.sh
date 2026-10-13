@@ -82,7 +82,7 @@ evidence_digest="sha256:$(shasum -a 256 "$output_root/certification/macos-apple-
 if [ -n "$expires_at" ]; then expiration=$(jq -cn --arg value "$expires_at" '$value'); else expiration=null; fi
 jq -s \
   --arg architecture "$architecture" --arg guestDigest "$guest_digest" \
-  --arg thumbprint "$certificate_thumbprint" --arg suite "$suite_version" \
+  --arg thumbprint "$certificate_thumbprint" --arg brokerProtocol "$(jq -r .brokerProtocolVersion "$evidence")" --arg suite "$suite_version" \
   --arg evidenceDigest "$evidence_digest" --arg certifiedAt "$certified_at" \
   --argjson expiration "$expiration" \
   '{schemaVersion:1,providerId:"apple-virtualization",providerVersion:"1.0.0",
@@ -91,7 +91,7 @@ jq -s \
     guestImage:"images/csweet-agent-guest.img",guestImageDigest:$guestDigest,
     guestImageSignature:"images/csweet-agent-guest.img.sig",
     guestImageSigningCertificate:"certificates/guest-image-signing.cer",
-    guestImageSigningCertificateThumbprint:$thumbprint,brokerProtocolVersion:"1.0",
+    guestImageSigningCertificateThumbprint:$thumbprint,brokerProtocolVersion:$brokerProtocol,
     certificationSuiteVersion:$suite,certificationEvidence:"certification/macos-apple-virtualization.json",
     certificationEvidenceDigest:$evidenceDigest,certifiedAt:$certifiedAt,
     certificationExpiresAt:$expiration,files:.}' \

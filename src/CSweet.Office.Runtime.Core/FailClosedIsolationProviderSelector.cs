@@ -103,5 +103,6 @@ public sealed class FailClosedIsolationProviderSelector(
         string.Equals(certification.HostArchitecture, descriptor.HostArchitecture, StringComparison.OrdinalIgnoreCase) &&
         (request.GuestImageDigest is null ||
          string.Equals(certification.GuestImageDigest, request.GuestImageDigest, StringComparison.Ordinal)) &&
-        string.Equals(certification.BrokerProtocolVersion, request.BrokerProtocolVersion, StringComparison.Ordinal);
+        (certification.BrokerProtocolVersion == request.BrokerProtocolVersion ||
+         certification.BrokerProtocolVersion == "1.1" && request.BrokerProtocolVersion == "1.0");
 }

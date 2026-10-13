@@ -13,5 +13,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="CSweet.Office.Tests" />
+    <InternalsVisibleTo Include="CSweet.Office.WindowsSmokeTest" />
   </ItemGroup>
 </Project>

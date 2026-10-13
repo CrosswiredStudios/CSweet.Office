@@ -29,7 +29,11 @@ public sealed class RuntimeHostInventory(IEnumerable<IAgentIsolationProvider> pr
                     SupportsToolchainBuildWorkloads: true,
                     probe.IsAvailable && certification?.IsActiveAt(DateTimeOffset.UtcNow) == true,
                     Diagnostic(probe.UnavailableReason ??
-                        (certification is null ? "Provider certification is unavailable." : null))));
+                        (certification is null ? "Provider certification is unavailable." : null)))
+                {
+                    SupportsPublicInternet = probe.IsAvailable && certification?.SupportsPublicInternet == true &&
+                        certification.BrokerProtocolVersion == "1.1" && certification.IsActiveAt(DateTimeOffset.UtcNow)
+                });
             }
             catch (Exception exception) when (exception is IOException or TimeoutException or InvalidDataException or IsolationUnavailableException)
             {

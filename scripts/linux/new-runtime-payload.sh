@@ -92,7 +92,7 @@ if [ -n "$expires_at" ]; then expiration=$(jq -cn --arg value "$expires_at" '$va
 jq -s \
   --arg providerVersion "1.0.0" --arg architecture "$architecture" \
   --arg guestDigest "$guest_digest" --arg thumbprint "$certificate_thumbprint" \
-  --arg suite "$suite_version" --arg evidenceDigest "$evidence_digest" \
+  --arg brokerProtocol "$(jq -r .brokerProtocolVersion "$evidence")" --arg suite "$suite_version" --arg evidenceDigest "$evidence_digest" \
   --arg certifiedAt "$certified_at" --argjson expiration "$expiration" \
   '{schemaVersion:1,providerId:"firecracker-kvm",providerVersion:$providerVersion,
     hostOperatingSystem:"linux",hostArchitecture:$architecture,
@@ -100,7 +100,7 @@ jq -s \
     guestImage:"images/csweet-agent-guest.ext4",guestImageDigest:$guestDigest,
     guestImageSignature:"images/csweet-agent-guest.ext4.sig",
     guestImageSigningCertificate:"certificates/guest-image-signing.cer",
-    guestImageSigningCertificateThumbprint:$thumbprint,brokerProtocolVersion:"1.0",
+    guestImageSigningCertificateThumbprint:$thumbprint,brokerProtocolVersion:$brokerProtocol,
     certificationSuiteVersion:$suite,certificationEvidence:"certification/linux-firecracker.json",
     certificationEvidenceDigest:$evidenceDigest,certifiedAt:$certifiedAt,
     certificationExpiresAt:$expiration,files:.}' \

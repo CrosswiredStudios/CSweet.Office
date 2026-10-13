@@ -11,6 +11,9 @@ if [[ -d /tmp/csweet-image-payload ]]; then
   builder_source=/tmp/csweet-image-payload/CSweet.Office.BuilderGuest.bin
   toolchain_source=/tmp/csweet-image-payload/CSweet.Office.ToolchainGuest.bin
 fi
+if [[ -f /tmp/csweet-image-payload/development-tools.lock.json ]]; then
+  bash /tmp/csweet-image-payload/provision-development.sh /tmp/csweet-image-payload
+fi
 guest_root=/usr/lib/csweet/guest
 builder_root=/usr/lib/csweet/builder
 toolchain_root=/usr/lib/csweet/toolchain

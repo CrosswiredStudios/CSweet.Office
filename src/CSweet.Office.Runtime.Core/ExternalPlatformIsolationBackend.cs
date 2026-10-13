@@ -44,6 +44,7 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
     };
     private readonly PlatformIsolationBackendOptions _options;
     private readonly TimeProvider _timeProvider;
+    private bool _internetCertified;
 
     protected ExternalPlatformIsolationBackend(
         IsolationProviderDescriptor descriptor,
@@ -111,7 +112,7 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
             _options.CertificationSuiteVersion,
             _options.CertificationEvidenceDigest,
             _options.CertifiedAt.Value,
-            _options.CertificationExpiresAt);
+            _options.CertificationExpiresAt) { SupportsPublicInternet = _internetCertified };
         if (!certification.IsActiveAt(_timeProvider.GetUtcNow()))
             return Unavailable("The configured provider certification is expired.");
         return new IsolationProviderProbeResult(Descriptor, true, null, certification);
@@ -280,10 +281,18 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
     {
         ArgumentNullException.ThrowIfNull(workload);
         workload.ResourceLimits.Validate();
+        if (workload is RuntimeWorkloadSpecification { NetworkPolicy: not null } runtime)
+        {
+            runtime.NetworkPolicy.Validate();
+            if (_options.BrokerProtocolVersion != "1.1" || !_internetCertified ||
+                runtime.NetworkPolicy.Mode == RuntimeNetworkPolicy.PublicInternet && _options.CertificationSuiteVersion != ProviderCertificationEvidence.FullInternetSuite)
+                throw new InvalidDataException("The provider does not support certified runtime internet access.");
+        }
         if (!string.Equals(workload.GuestImage.Digest, _options.GuestImageDigest, StringComparison.Ordinal) ||
             !string.Equals(workload.BrokerLease.ExpectedGuestImageDigest, _options.GuestImageDigest, StringComparison.Ordinal))
             throw new InvalidDataException("The workload is not bound to this provider's certified guest image.");
-        if (!string.Equals(workload.BrokerLease.ProtocolVersion, _options.BrokerProtocolVersion, StringComparison.Ordinal) ||
+        if (!(workload.BrokerLease.ProtocolVersion == _options.BrokerProtocolVersion ||
+              workload.BrokerLease.ProtocolVersion == "1.0" && _options.BrokerProtocolVersion == "1.1" && workload is not RuntimeWorkloadSpecification { NetworkPolicy: not null }) ||
             workload.BrokerLease.ExpiresAt <= _timeProvider.GetUtcNow())
             throw new InvalidDataException("The workload broker lease is invalid.");
     }
@@ -372,6 +381,7 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
                 16 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
             var evidence = await JsonSerializer.DeserializeAsync<ProviderCertificationEvidence>(
                 stream, JsonOptions, cancellationToken);
+            _internetCertified = evidence?.SupportsPublicInternet == true;
             return evidence is not null &&
                 string.Equals(evidence.ProviderId, Descriptor.ProviderId, StringComparison.Ordinal) &&
                 string.Equals(evidence.ProviderVersion, Descriptor.ProviderVersion, StringComparison.Ordinal) &&
@@ -423,4 +433,17 @@ public sealed record ProviderCertificationEvidence(
     string BrokerProtocolVersion,
     string CertificationSuiteVersion,
     DateTimeOffset CertifiedAt,
-    DateTimeOffset? CertificationExpiresAt);
+    DateTimeOffset? CertificationExpiresAt)
+{
+    public IReadOnlyDictionary<string, bool>? Checks { get; init; }
+    public const string FullInternetSuite = "csweet-hardware-vm-smoke-v15";
+    public const string Ipv4InternetSuite = "csweet-hardware-vm-smoke-v15-ipv4";
+    public bool SupportsPublicInternet => BrokerProtocolVersion == "1.1" &&
+        (CertificationSuiteVersion == FullInternetSuite && RequiredInternetChecks.All(Passed) ||
+         CertificationSuiteVersion == Ipv4InternetSuite && RequiredInternetChecks.Where(x => x != "publicInternetIpv6").All(Passed));
+    public bool SupportsPublicInternetIpv6 => SupportsPublicInternet && CertificationSuiteVersion == FullInternetSuite;
+    private bool Passed(string key) => Checks?.TryGetValue(key, out var passed) == true && passed;
+    public static readonly IReadOnlyList<string> RequiredInternetChecks =
+        ["publicInternetTcp", "publicInternetUdp", "publicInternetIpv6", "publicInternetPrivateDenied",
+         "publicInternetHostDenied", "publicInternetLeaseCleanup", "developmentToolchain"];
+}

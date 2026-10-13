@@ -53,8 +53,23 @@ public sealed class GuestBrokerSession(
             throw new InvalidDataException("The host lease does not match the boot-bound guest lease.");
 
         _hostOutput = output;
+        if (OperatingSystem.IsLinux() && options.WorkloadKind == 1)
+        {
+            foreach (var path in new[] { "/run/csweet/workload/home", "/run/csweet/workload/tools",
+                "/run/csweet/workload/tools/bin", "/run/csweet/workload/cache" })
+            {
+                Directory.CreateDirectory(path);
+                await GuestUnixFilePermissions.GrantWorkloadGroupAsync(path,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute, token);
+            }
+        }
         await using var localProxy = new GuestLocalBrokerProxy(options.LocalBrokerSocketPath, ForwardLocalRequestAsync);
         await localProxy.StartAsync(token);
+        await using var internet = options.PublicInternet ? new GuestInternetProxy(
+            (frame, cancellation) => WriteAsync(output, new GuestEnvelope { ProtocolVersion = options.ProtocolVersion,
+                MessageId = Guid.NewGuid().ToString("N"), Egress = frame }, cancellation), token) : null;
+        if (internet is not null) await internet.StartAsync();
         try
         {
             while (!token.IsCancellationRequested)
@@ -101,6 +116,10 @@ public sealed class GuestBrokerSession(
                         _ = ObserveExitAsync(output, token);
                         if (options.WorkloadKind is 1 or 2)
                             _ = ObserveDiagnosticsAsync(output, token);
+                        break;
+                    case GuestEnvelope.BodyOneofCase.Egress:
+                        if (internet is null) throw new UnauthorizedAccessException("Internet permission is absent.");
+                        internet.Handle(command.Egress);
                         break;
                     case GuestEnvelope.BodyOneofCase.ProxyResponse:
                         if (!_pending.TryRemove(command.ProxyResponse.RequestId, out var completion))

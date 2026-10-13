@@ -23,3 +23,5 @@ are in [20-security](../20-security/README.md).
 
 If a page here says "Headquarters does X", it means the behavior is real, observable from this repository's
 code, and implemented in another repository.
+
+- [Reviewed runtime public internet](08-runtime-public-internet.md) — guest-local networking, Office destination policy, dependency setup and certification gates.

@@ -97,6 +97,13 @@ install -m 0755 "$guest_publish/CSweet.Office.RuntimeGuest" "$rootfs/tmp/CSweet.
 install -m 0755 "$builder_publish/CSweet.Office.BuilderGuest" "$rootfs/tmp/CSweet.Office.BuilderGuest"
 install -m 0755 "$toolchain_publish/CSweet.Office.ToolchainGuest" "$rootfs/tmp/CSweet.Office.ToolchainGuest"
 install -m 0755 "$repository_root/build/linux-firecracker/provision-guest.sh" "$rootfs/tmp/provision-csweet-guest.sh"
+if [[ -n "${CSWEET_DEVELOPMENT_PAYLOAD:-}" ]]; then
+  test -d "$CSWEET_DEVELOPMENT_PAYLOAD"
+  install -d -m 0755 "$rootfs/tmp/csweet-development-payload"
+  cp -a "$CSWEET_DEVELOPMENT_PAYLOAD/." "$rootfs/tmp/csweet-development-payload/"
+  chroot "$rootfs" /bin/bash /tmp/csweet-development-payload/provision-development.sh /tmp/csweet-development-payload
+  rm -rf -- "$rootfs/tmp/csweet-development-payload"
+fi
 chroot "$rootfs" /bin/bash /tmp/provision-csweet-guest.sh
 chroot "$rootfs" /usr/bin/dotnet --list-sdks | grep -Eq '^10\.' || {
   echo "The copied development SDK does not contain .NET 10." >&2; exit 2;

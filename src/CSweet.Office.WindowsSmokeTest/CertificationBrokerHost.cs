@@ -1,4 +1,5 @@
 using Google.Protobuf;
+using CSweet.Office.Node;
 
 // This is a deliberately test-only host for the shared guest-broker protocol. Production
 // broker authorization and streaming remain in the C-Sweet headquarters repository.
@@ -44,7 +45,7 @@ internal sealed record AgentBrokerGrant(
     {
         if (WorkloadId == Guid.Empty || ChannelId == Guid.Empty || InstallationId == Guid.Empty)
             throw new InvalidOperationException("Broker grant identity is incomplete.");
-        if (ProtocolVersion != "1.0" || BootToken.Length < 16 || ExpiresAt <= timeProvider.GetUtcNow())
+        if (ProtocolVersion is not ("1.0" or "1.1") || BootToken.Length < 16 || ExpiresAt <= timeProvider.GetUtcNow())
             throw new InvalidOperationException("Broker grant authentication is invalid or expired.");
         if (!IsDigest(GuestImageDigest) || (ArtifactDigest is not null && !IsDigest(ArtifactDigest)))
             throw new InvalidOperationException("Broker grant digests are invalid.");
@@ -70,13 +71,15 @@ internal sealed class GuestBrokerHostSession(
     IAgentBrokerOperationHandler handler,
     TimeProvider timeProvider,
     GuestBootConfiguration bootConfiguration,
-    StartCommand startCommand)
+    StartCommand startCommand,
+    bool publicInternetIpv6 = true)
 {
     private const int MaximumConcurrentProxyRequests = 32;
     private readonly TaskCompletionSource _started =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly SemaphoreSlim _outputLock = new(1, 1);
     private int _requestCount;
+    public bool InternetCleanupVerified { get; private set; }
 
     public Task Started => _started.Task;
 
@@ -86,6 +89,7 @@ internal sealed class GuestBrokerHostSession(
         CancellationToken cancellationToken = default)
     {
         var proxyOperations = new List<Task>();
+        RuntimeInternetEgress? egress = null;
         try
         {
             grant.Validate(timeProvider);
@@ -122,6 +126,13 @@ internal sealed class GuestBrokerHostSession(
             var lease = verifier.VerifyProof(proof.Proof, grant.MaximumFrameBytes);
             await WriteAsync(output, Envelope(lease), token);
             if (!lease.Accepted) return;
+            if (bootConfiguration.PublicInternet)
+            {
+                if (grant.ProtocolVersion != "1.1") throw new InvalidDataException("Internet requires protocol 1.1.");
+                egress = new RuntimeInternetEgress(new PublicInternetPolicy(allowIpv6: publicInternetIpv6), (frame, cancellation) =>
+                    WriteAsync(output, new GuestEnvelope { ProtocolVersion = "1.1", MessageId = Guid.NewGuid().ToString("N"), Egress = frame }, cancellation), token);
+                egress.Authenticate();
+            }
 
             await WriteAsync(output, new GuestEnvelope
             {
@@ -141,6 +152,11 @@ internal sealed class GuestBrokerHostSession(
                     throw new EndOfStreamException(
                         "The guest closed the authenticated broker channel without reporting workload completion.");
                 ValidateEnvelope(envelope);
+                if (envelope.BodyCase == GuestEnvelope.BodyOneofCase.Egress)
+                {
+                    if (egress is null) throw new UnauthorizedAccessException("Egress is not authorized.");
+                    egress.Handle(envelope.Egress); continue;
+                }
                 if (envelope.BodyCase == GuestEnvelope.BodyOneofCase.Exit)
                 {
                     if (envelope.Exit.ExitCode != 0)
@@ -168,6 +184,11 @@ internal sealed class GuestBrokerHostSession(
         }
         finally
         {
+            if (egress is not null)
+            {
+                await egress.DisposeAsync();
+                InternetCleanupVerified = egress.ActiveFlowCount == 0;
+            }
             if (proxyOperations.Count > 0)
             {
                 try

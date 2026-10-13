@@ -5,6 +5,7 @@ param(
     [string] $PackerVersion = '1.15.4',
     [string] $OutputPath = "$PSScriptRoot\..\..\artifacts\windows-runtime\source\csweet-agent-guest.vhdx",
     [string] $IsolationRoot = "$PSScriptRoot\..\..\..\CSweet.Isolation",
+    [switch] $DevelopmentTools,
     [string] $ProgressPath,
     [guid] $ProgressJobId = [guid]::Empty
 )
@@ -52,6 +53,9 @@ $report = {
 }.GetNewClosure()
 $prepare = {
     param($payload)
+    if ($DevelopmentTools) {
+        & (Join-Path $repositoryRoot "scripts/Prepare-CSweetDevelopmentPayload.ps1") -PayloadDirectory $payload -Architecture x64
+    }
     foreach ($project in @('CSweet.Office.RuntimeGuest', 'CSweet.Office.BuilderGuest', 'CSweet.Office.ToolchainGuest')) {
         $published = Join-Path (Split-Path -Parent $payload) $project
         dotnet publish (Join-Path $repositoryRoot "src\$project\$project.csproj") `

@@ -1,10 +1,13 @@
 using System.Diagnostics;
 using System.Net.Sockets;
+using System.Net.Security;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
-var checks = new Dictionary<string, bool>(StringComparer.Ordinal)
+var internet = Environment.GetEnvironmentVariable("CSWEET_RUNTIME_NETWORK_MODE") == "public-internet";
+var ipv4Only = args.Contains("--public-internet-ipv4-only", StringComparer.Ordinal);
+var checks = internet ? await InternetChecksAsync() : new Dictionary<string, bool>(StringComparer.Ordinal)
 {
     ["linux-guest"] = OperatingSystem.IsLinux(),
     ["artifact-root"] = Path.GetFullPath(Environment.CurrentDirectory)
@@ -22,14 +25,140 @@ var checks = new Dictionary<string, bool>(StringComparer.Ordinal)
     ["dotnet-sdk-present"] = await DotNetSdkPresentAsync()
 };
 var report = new GuestProbeReport(
-    "csweet-hardware-vm-smoke-v14",
-    checks.All(check => check.Value),
+    internet ? (ipv4Only ? "csweet-hardware-vm-smoke-v15-ipv4" : "csweet-hardware-vm-smoke-v15") : "csweet-hardware-vm-smoke-v14",
+    checks.Where(check => !internet || !ipv4Only || check.Key != "publicInternetIpv6").All(check => check.Value),
     checks,
     Environment.OSVersion.VersionString,
     DateTimeOffset.UtcNow);
 var body = JsonSerializer.SerializeToUtf8Bytes(report);
 await PostReportAsync(body);
 return report.Passed ? 0 : 2;
+
+static async Task<Dictionary<string, bool>> InternetChecksAsync()
+{
+    var checks = new Dictionary<string, bool>
+    {
+        ["publicInternetTcp"] = await CanConnectAsync("1.1.1.1", 443),
+        ["publicInternetIpv6"] = await CanConnectAsync("2606:4700:4700::1111", 443),
+        ["publicInternetPrivateDenied"] = !await CanOpenSocksDestinationAsync("10.0.0.1", 443) && !await CanOpenSocksDestinationAsync("169.254.169.254", 80),
+        ["publicInternetHostDenied"] = true,
+        ["publicInternetUdp"] = await PublicDnsAsync(),
+        ["developmentToolchain"] = await DependencyFixtureAsync()
+    };
+    foreach (var host in (Environment.GetEnvironmentVariable("CSWEET_CERTIFICATION_HOST_ADDRESSES") ?? "127.0.0.1")
+        .Split(',', StringSplitOptions.RemoveEmptyEntries))
+        checks["publicInternetHostDenied"] &= !await CanOpenSocksDestinationAsync(host, 443);
+    return checks;
+}
+
+static async Task<bool> CanOpenSocksDestinationAsync(string address, int port)
+{
+    // Check the Office socket decision, not the TUN stack's local TCP acknowledgement.
+    // This is trusted certification code inside the guest; workloads receive no host access.
+    var endpoint = System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties()
+        .GetActiveTcpListeners().Single(x => x.Address.Equals(System.Net.IPAddress.Loopback));
+    using var client = new TcpClient();
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+    try
+    {
+        await client.ConnectAsync(endpoint.Address, endpoint.Port, timeout.Token);
+        using var stream = client.GetStream();
+        await stream.WriteAsync(new byte[] { 5, 1, 0 }, timeout.Token);
+        var reply = new byte[2];
+        await stream.ReadExactlyAsync(reply, timeout.Token);
+        if (reply[0] != 5 || reply[1] != 0) throw new InvalidDataException("Unexpected certified SOCKS handshake.");
+        var bytes = System.Net.IPAddress.Parse(address).GetAddressBytes();
+        var request = new byte[4 + bytes.Length + 2];
+        request[0] = 5; request[1] = 1; request[3] = bytes.Length == 4 ? (byte)1 : (byte)4;
+        bytes.CopyTo(request, 4);
+        request[^2] = (byte)(port >> 8); request[^1] = (byte)port;
+        await stream.WriteAsync(request, timeout.Token);
+        await stream.ReadExactlyAsync(reply, timeout.Token);
+        return reply[0] == 5 && reply[1] == 0;
+    }
+    catch (Exception e) when (e is SocketException or IOException or OperationCanceledException) { return false; }
+}
+
+static async Task<bool> CanConnectAsync(string address, int port)
+{
+    var ip = System.Net.IPAddress.Parse(address);
+    using var socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+    try
+    {
+        await socket.ConnectAsync(new System.Net.IPEndPoint(ip, port), timeout.Token);
+        // The guest TCP stack can accept locally before the SOCKS upstream opens.
+        // Verified TLS proves bytes actually reached the public endpoint.
+        using var stream = new NetworkStream(socket, ownsSocket: false);
+        using var tls = new SslStream(stream);
+        await tls.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "one.one.one.one" }, timeout.Token);
+        return true;
+    }
+    catch (Exception e) when (e is SocketException or IOException or System.Security.Authentication.AuthenticationException or OperationCanceledException) { return false; }
+}
+
+static async Task<bool> PublicDnsAsync()
+{
+    using var client = new UdpClient();
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+    client.Connect("1.1.1.1", 53);
+    byte[] query = [0xC5, 0xEE, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 10,
+        (byte)'c',(byte)'l',(byte)'o',(byte)'u',(byte)'d',(byte)'f',(byte)'l',(byte)'a',(byte)'r',(byte)'e',
+        3,(byte)'c',(byte)'o',(byte)'m',0,0,1,0,1];
+    try
+    {
+        await client.SendAsync(query, timeout.Token);
+        var result = await client.ReceiveAsync(timeout.Token);
+        return result.Buffer.Length > 12 && result.Buffer[0] == 0xC5 && result.Buffer[1] == 0xEE && (result.Buffer[3] & 15) == 0;
+    }
+    catch (Exception e) when (e is SocketException or OperationCanceledException) { return false; }
+}
+
+static async Task<bool> DependencyFixtureAsync()
+{
+    const string directory = "/run/csweet/workload/dependency-fixture";
+    Directory.CreateDirectory(directory);
+    await File.WriteAllTextAsync(Path.Combine(directory, "package.json"), """{"name":"csweet-runtime-check","version":"1.0.0","private":true,"dependencies":{"phaser":"4.0.0"},"scripts":{"test":"node test.js","build":"node --check test.js"}}""");
+    await File.WriteAllTextAsync(Path.Combine(directory, "test.js"), "const assert=require('node:assert/strict');const p=require('phaser/package.json');assert.equal(p.version,'4.0.0');assert.ok(require.resolve('phaser'));\n");
+    if (!await CommandAsync(directory, "node", "--version") || !await CommandAsync(directory, "npm", "--version") ||
+        !await CommandAsync(directory, "npx", "--version") || !await CommandAsync(directory, "python3.12", "--version") ||
+        !await CommandAsync(directory, "git", "--version") || !await CommandAsync(directory, "curl", "--version")) return false;
+    if (!await CommandAsync(directory, "npm", "install", "--no-audit", "--no-fund") ||
+        !File.Exists(Path.Combine(directory, "package-lock.json")) ||
+        !await CommandAsync(directory, "npm", "ci", "--no-audit", "--no-fund") ||
+        !await CommandAsync(directory, "npm", "test") || !await CommandAsync(directory, "npm", "run", "build")) return false;
+    // Portable npm tooling remains outside the source snapshot and needs no administrator rights.
+    return await CommandAsync(directory, "npm", "install", "--global", "--prefix", "/run/csweet/workload/tools", "--no-audit", "--no-fund", "esbuild@0.25.10") &&
+        await CommandAsync(directory, "esbuild", "--version");
+}
+
+static async Task<bool> CommandAsync(string directory, string executable, params string[] args)
+{
+    var start = new ProcessStartInfo(executable) { WorkingDirectory = directory, UseShellExecute = false,
+        RedirectStandardOutput = true, RedirectStandardError = true };
+    foreach (var arg in args) start.ArgumentList.Add(arg);
+    start.Environment["npm_config_cache"] = "/run/csweet/workload/cache/npm";
+    try
+    {
+        using var process = Process.Start(start);
+        if (process is null) return false;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
+        var error = process.StandardError.ReadToEndAsync(timeout.Token);
+        try { await process.WaitForExitAsync(timeout.Token); }
+        catch { process.Kill(true); throw; }
+        await output;
+        var diagnostic = await error;
+        if (process.ExitCode != 0)
+            Console.Error.WriteLine($"Dependency fixture: {executable} {string.Join(' ', args)} exited {process.ExitCode}: {diagnostic[Math.Max(0, diagnostic.Length - 1000)..]}");
+        return process.ExitCode == 0;
+    }
+    catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception or OperationCanceledException)
+    {
+        Console.Error.WriteLine($"Dependency fixture: {executable} failed ({e.GetType().Name}).");
+        return false;
+    }
+}
 
 static IReadOnlyList<string> NetworkInterfaces()
 {

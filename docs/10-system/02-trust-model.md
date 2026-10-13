@@ -32,10 +32,10 @@ untrusted code inside a hardware boundary.
 |---|---|---|
 | **Headquarters** | Issue assignments, issue and revoke Office certificates, authorize and store artifacts, run the host side of the guest broker, decide placement. | Reach into a host directly: Office opens no inbound management port. Recovery and repair are administrator-initiated from C-Sweet over outbound connections. |
 | **Office installer** (administrator) | Pre-pin Headquarters assignment trust, create service accounts, set ACLs, enroll, choose the security posture. | Choose a posture that contradicts the signed request: development placement needs both opt-ins. |
-| **`CSweet.Office.Node`** | Hold the Office identity, enroll, renew or recover its certificate, receive assignments, relay guest bytes, download artifacts within an assignment-scoped grant, write its own state. | Manage Hyper-V, modify RuntimeHost state, write to the immutable package, create a workload without a signed authorization. |
+| **`CSweet.Office.Node`** | Hold the Office identity, enroll, renew or recover its certificate, receive assignments, relay guest bytes, download artifacts within an assignment-scoped grant, write its own state, relay signed and authenticated runtime public egress through bounded sockets. | Manage Hyper-V, modify RuntimeHost state, write to the immutable package, create a workload without a signed authorization, relay private or host destinations. |
 | **`CSweet.Office.RuntimeHost`** | Verify authorizations, commit epochs, drive helpers, create and destroy VMs, own the guest channel on Windows, read provider logs. | Accept unsigned or replayed work, accept a different assignment signing key, reach the network. |
 | **Platform helper** | Probe the host, and create/start/inspect/stop/destroy/reap/read-logs for three typed workload kinds within its own roots. | Accept arbitrary operations or arguments, choose host paths, run arbitrary PowerShell, act on handles it never created, attach artifact media to builder workloads. |
-| **Guest workloads** | Execute inside the VM under `setpriv` with no new privileges, talk to the local broker proxy, read the materialized artifact. | See the host filesystem, reach the network directly, read the boot token unless it is in the workload group, receive loader-affecting environment variables. |
+| **Guest workloads** | Execute inside the VM under `setpriv` with no new privileges, talk to the local broker proxy, read the materialized artifact, use the guest-local TUN when the signed runtime policy permits public egress. | See the host filesystem, use a hypervisor network adapter, reach private or host destinations, read the boot token unless it is in the workload group, receive loader-affecting environment variables. |
 | **Local interactive user** (holder of `ControlPlaneUserSid`) | Authenticate to the RuntimeHost over the local RPC transport. | Create a workload — a Headquarters signature is still required. This is an intentional defence-in-depth property, not an oversight. |
 | **Host administrator** | Full control of the machine. | Is not defended against. A host administrator can read service state and tamper with the host. Dedicated, patched hosts are recommended for higher assurance. |
 
@@ -129,11 +129,13 @@ These are recorded in full, with rationale, in
 ## Sources
 
 `src/CSweet.Office.Node/{OfficeWorker,ControlPlaneServerCertificateValidator,ControlPlaneCertificateProbe,OfficeStateStore}.cs`,
+`src/CSweet.Office.Node/{OfficeInternetTunnel,RuntimeInternetEgress,PublicInternetPolicy}.cs`,
 `src/CSweet.Office.Runtime.Protocol/RuntimeHostAuthentication.cs`,
 `src/CSweet.Office.Runtime.LocalRpc/{RuntimeHostAuthorizationGate,RuntimeHostRpcServer,RuntimeHostRequestDispatcher}.cs`,
 `src/CSweet.Office.Runtime.Core/{FailClosedIsolationProviderSelector,ExternalPlatformIsolationBackend,PlatformHelperContracts}.cs`,
 `src/CSweet.Office.RuntimeGuest/{GuestWorkloadSupervisor,GuestArtifactMaterializer,GuestBrokerSession}.cs`,
+`src/CSweet.Office.RuntimeGuest/GuestInternetProxy.cs`,
 `src/CSweet.Office.Runtime.HyperV.Helper/{HelperArguments,PowerShellHyperV}.cs`,
 `scripts/windows/Install-CSweetOfficeRuntimeHost.ps1`, `README.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-10-13.

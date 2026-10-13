@@ -352,6 +352,7 @@ public sealed partial class OfficeWorker(
         SupportsBuilderWorkloads = provider.SupportsBuilderWorkloads,
         SupportsRuntimeWorkloads = provider.SupportsRuntimeWorkloads,
         SupportsToolchainBuildWorkloads = provider.SupportsToolchainBuildWorkloads,
+        SupportsPublicInternet = provider.SupportsPublicInternet,
         IsAvailable = provider.IsAvailable,
         UnavailableReason = provider.UnavailableReason ?? string.Empty
     };
@@ -635,6 +636,12 @@ public sealed partial class OfficeWorker(
         WorkloadAssignment assignment,
         CancellationToken cancellationToken)
     {
+        if (DeserializeSpecification(assignment.SpecificationJson) is RuntimeWorkloadSpecification { NetworkPolicy: not null } runtime)
+        {
+            await using (guest)
+                await OfficeInternetTunnel.RunAsync(client, guest, state, assignment, runtime, cancellationToken);
+            return;
+        }
         await using (guest)
         using (var call = client.OpenWorkloadTunnel(cancellationToken: cancellationToken))
         using (var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))

@@ -31,6 +31,7 @@ way that breaks one of these, you have introduced a vulnerability, not a refacto
 | [SEC-INV-21](#sec-inv-21) | The guest environment is cleared and rebuilt from the allow-list |
 | [SEC-INV-22](#sec-inv-22) | Artifact media mounting and extraction limits stay in place |
 | [SEC-INV-23](#sec-inv-23) | The guest handshake keeps its HMAC proof, one-shot challenge, and lease cancellation |
+| [SEC-INV-24](#sec-inv-24) | Runtime public egress requires signed policy, an authenticated guest lease and destination validation |
 
 ---
 
@@ -292,6 +293,20 @@ of the guest session at lease expiry.
 - When adding an invariant: append `SEC-INV-24` and later. **Never renumber** — the identifiers are cited from
   other files and from review comments.
 
+## SEC-INV-24
+
+**Runtime public egress requires signed policy, an authenticated guest lease and destination validation.**
+
+Absent network policy MUST retain restricted operation. Only a certified runtime with protocol 1.1 may
+open egress, after the authorized guest handshake. Actual socket addresses MUST pass the public-address,
+host-address and administrator CIDR checks; DNS answers cannot authorize private destinations. Builder,
+toolchain and separately requested compute workloads do not inherit this policy. Sockets MUST close on
+lease expiry, fencing, tunnel loss and teardown. No hypervisor network adapter or host listener is added.
+
+*Enforced in:* `OfficeInternetTunnel`, `RuntimeInternetEgress`, `PublicInternetPolicy`,
+`ExternalPlatformIsolationBackend`, `GuestInternetProxy`.
+*Detail:* [30-workloads/08-runtime-public-internet.md](../30-workloads/08-runtime-public-internet.md).
+
 ## Sources
 
 `src/CSweet.Office.Runtime.LocalRpc/{RuntimeHostAuthorizationGate.cs,RuntimeHostRpcServer.cs,RuntimeHostRequestDispatcher.cs,RuntimeHostProviderClient.cs,RuntimeHostEndpointOptions.cs}`,
@@ -302,4 +317,4 @@ of the guest session at lease expiry.
 `src/CSweet.Office.Runtime.HyperV.Helper/{HelperArguments.cs,PowerShellHyperV.cs}`,
 `scripts/windows/Install-CSweetOfficeRuntimeHost.ps1`, `tests/CSweet.Office.Tests/*`.
 
-Verified: 2026-09-15.
+Verified: 2026-10-13.

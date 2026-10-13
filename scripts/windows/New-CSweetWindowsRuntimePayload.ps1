@@ -90,6 +90,7 @@ $manifest = [ordered]@{
     guestImageSignature = "images/csweet-agent-guest.vhdx.sig"
     guestImageSigningCertificate = "certificates/guest-image-signing.cer"
     guestImageSigningCertificateThumbprint = $GuestImageSigningCertificateThumbprint
+    brokerProtocolVersion = [string](Get-Content -LiteralPath $CertificationEvidence -Raw | ConvertFrom-Json).brokerProtocolVersion
     certificationSuiteVersion = $CertificationSuiteVersion
     certificationEvidence = "certification/windows-hyperv.json"
     certificationEvidenceDigest = "sha256:$(Digest $installedEvidence)"

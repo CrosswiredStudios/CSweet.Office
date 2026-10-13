@@ -97,6 +97,14 @@ public static class RuntimeHostProtocolMapper
                     TickId = runtime.Identity.TickId.ToString("D")
                 };
                 request.Runtime.Entrypoint.Add(runtime.Entrypoint);
+                request.Runtime.EnvironmentProfile = runtime.EnvironmentProfile ?? string.Empty;
+                if (runtime.NetworkPolicy is not null)
+                {
+                    runtime.NetworkPolicy.Validate();
+                    request.Runtime.NetworkPolicy = new P.RuntimeEgressPolicy
+                    { Mode = runtime.NetworkPolicy.Mode, GrantRevision = runtime.NetworkPolicy.GrantRevision };
+                    request.Runtime.NetworkPolicy.BlockedCidrs.Add(runtime.NetworkPolicy.BlockedCidrs ?? []);
+                }
                 break;
             case W.ToolchainBuildWorkloadSpecification toolchain:
                 ValidateToolchain(toolchain);
@@ -218,7 +226,11 @@ public static class RuntimeHostProtocolMapper
             installationId,
             Required(runtime.BusinessId, nameof(runtime.BusinessId), 200),
             tickId);
-        return new W.RuntimeWorkloadSpecification(id, image, limits, lease, artifact, identity, entrypoint);
+        var network = runtime.NetworkPolicy is null ? null : new W.RuntimeNetworkPolicy(runtime.NetworkPolicy.Mode,
+            runtime.NetworkPolicy.GrantRevision, runtime.NetworkPolicy.BlockedCidrs.ToArray());
+        network?.Validate();
+        return new W.RuntimeWorkloadSpecification(id, image, limits, lease, artifact, identity, entrypoint)
+        { NetworkPolicy = network, EnvironmentProfile = string.IsNullOrEmpty(runtime.EnvironmentProfile) ? null : runtime.EnvironmentProfile };
     }
 
     private static W.ToolchainBuildWorkloadSpecification Toolchain(Guid id, W.GuestImageReference image,
