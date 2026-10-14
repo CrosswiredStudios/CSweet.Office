@@ -114,6 +114,11 @@ release consumer checks in C-Sweet (`tests/OfficeRelease.Tests.ps1`) and Office'
 checks (`scripts/tests/Test-PrebuiltPayload.ps1` and `scripts/tests/Test-HostedManifest.ps1`). After publishing, validate both image boot paths
 on actual target hosts. Hosted-image construction is not a substitute for those checks.
 
+`Test-PrebuiltPayload.ps1` supplies JSON certification fixtures for guest broker protocols 1.0 and 1.1.
+It checks protocol propagation into `runtime-manifest.json`, executable version, copied files and hashes,
+and throws if packaging invokes `dotnet`. The fixtures test packaging only; they are not hardware
+certification evidence. The hosted workflow runs this check with Windows PowerShell.
+
 The signed production workflow `release.yml` is manual-only and retains its hardened runner and
 signing requirements. `office-release.json` remains its separate production-installer manifest;
 the development workflow does not label its archives as signed MSI/DEB installers.
@@ -124,8 +129,10 @@ the development workflow does not label its archives as signed MSI/DEB installer
 `scripts/release/{Get-OfficeReleaseMetadata,Build-HostedOfficeBundle,Publish-HostedOfficeAssets}.ps1`,
 `scripts/release/build-hosted-hyperv-image.sh`, `release/office-bootstrap.schema.json`,
 `scripts/windows/{Initialize-CSweetWindowsIsolationTest,New-CSweetWindowsRuntimePayload}.ps1`,
+`scripts/tests/Test-PrebuiltPayload.ps1`,
 `scripts/linux/{new-firecracker-guest,initialize-firecracker-test,new-runtime-payload}.sh`.
 
-Verified: 2026-10-07. `Test-HostedManifest.ps1` exercises Windows-only and combined packaging,
+Verified: 2026-10-13. `Test-PrebuiltPayload.ps1` passed under Windows PowerShell and PowerShell 7
+for both broker protocol fixtures. `Test-HostedManifest.ps1` exercises Windows-only and combined packaging,
 required Windows assets, hashes and archive image placement. `Test-DevelopmentBuildCoordination.ps1`
 covers prebuilt bypass and source-build exclusion; target-host certification remains mandatory.
