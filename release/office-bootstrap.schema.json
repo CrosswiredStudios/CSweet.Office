@@ -11,6 +11,8 @@
     "protocolVersion": { "const": "1.0" },
     "signing": { "const": "development" },
     "requiresHostCertification": { "const": true },
+    "environmentProfiles": { "type": "array", "items": { "const": "software-development-polyglot-v1" }, "minItems": 1, "maxItems": 1 },
+    "guestBrokerProtocolVersion": { "const": "1.1" },
     "assets": {
       "type": "array", "minItems": 2, "maxItems": 3,
       "allOf": [

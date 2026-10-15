@@ -9,6 +9,17 @@ New-Item -ItemType Directory $OutputRoot -Force | Out-Null
 $windows = "$InputRoot/binaries-win-x64"
 $linux = "$InputRoot/binaries-linux-x64"
 $images = "$InputRoot/guest-images"
+$guestInput = if ($WindowsOnly) { "$InputRoot/windows-guest" } else { "$images/windows-guest" }
+$profilePath = Join-Path $guestInput 'guest-image-profile.json'
+if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf)) { throw 'The Windows guest image has no development-profile build evidence.' }
+$guestProfile = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json
+if ($guestProfile.environmentProfile -cne 'software-development-polyglot-v1' -or
+    $guestProfile.guestBrokerProtocolVersion -cne '1.1' -or
+    $guestProfile.guestImageSha256 -cnotmatch '^[0-9a-f]{64}$' -or
+    (Get-FileHash -LiteralPath (Join-Path $guestInput 'csweet-agent-guest.vhdx') -Algorithm SHA256).Hash.ToLowerInvariant() -cne $guestProfile.guestImageSha256) {
+    throw 'The Windows guest image does not match its development-profile build evidence.'
+}
+if (Test-Path -LiteralPath (Join-Path $windows 'guest')) { throw 'Guest assembly requires a fresh binary artifact directory.' }
 if ($WindowsOnly) {
     Copy-Item "$InputRoot/windows-guest" "$windows/guest" -Recurse
 } else {
@@ -35,6 +46,10 @@ if (-not $WindowsOnly) {
         if ($LASTEXITCODE -ne 0) { throw "Could not make the Linux bundle executable: $executable" }
     }
 }
+$bundleManifest = Get-Content -LiteralPath (Join-Path $windows 'office-bundle.json') -Raw | ConvertFrom-Json
+$bundleManifest | Add-Member -NotePropertyName environmentProfiles -NotePropertyValue @($guestProfile.environmentProfile) -Force
+$bundleManifest | Add-Member -NotePropertyName guestBrokerProtocolVersion -NotePropertyValue $guestProfile.guestBrokerProtocolVersion -Force
+$bundleManifest | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $windows 'office-bundle.json') -Encoding utf8
 $support = "csweet-office-$Version-windows-support.zip"
 $winAsset = "csweet-office-$Version-windows-x64.zip"
 $linuxAsset = "csweet-office-$Version-linux-x64.tar.gz"
@@ -58,6 +73,7 @@ $assets = foreach ($name in $assetNames) {
 }
 [ordered]@{ schemaVersion = 1; officeVersion = $Version; contractsVersion = $release.ContractsVersion
     protocolVersion = '1.0'; signing = 'development'; requiresHostCertification = $true; assets = @($assets)
+    environmentProfiles = @($guestProfile.environmentProfile); guestBrokerProtocolVersion = $guestProfile.guestBrokerProtocolVersion
 } | ConvertTo-Json -Depth 6 | Set-Content "$OutputRoot/office-bootstrap.json" -Encoding utf8
 if (-not (Get-Content "$OutputRoot/office-bootstrap.json" -Raw | Test-Json -SchemaFile "$PSScriptRoot/../../release/office-bootstrap.schema.json")) {
     throw 'The hosted bootstrap manifest failed schema validation.'

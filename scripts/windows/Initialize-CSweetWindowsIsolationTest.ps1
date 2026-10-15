@@ -181,6 +181,12 @@ if ($PrebuiltRoot) {
         $bundle.signing -cne 'development' -or $bundle.requiresHostCertification -ne $true) {
         throw 'The prebuilt Office bundle is incompatible.'
     }
+    if ($DevelopmentTools -and ($null -eq $bundle.PSObject.Properties['environmentProfiles'] -or
+        @($bundle.environmentProfiles) -cnotcontains 'software-development-polyglot-v1' -or
+        $null -eq $bundle.PSObject.Properties['guestBrokerProtocolVersion'] -or
+        $bundle.guestBrokerProtocolVersion -cne '1.1')) {
+        throw 'This prebuilt Office guest does not include the required development environment. Use a compatible release or configured source preparation; no services were changed.'
+    }
     $guestImage = Join-Path $PrebuiltRoot 'guest\csweet-agent-guest.vhdx'
     if (-not (Test-Path -LiteralPath $guestImage -PathType Leaf)) { throw 'The prebuilt guest image is missing.' }
 } else {

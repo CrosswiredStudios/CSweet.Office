@@ -23,6 +23,12 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'Could not initialize artifact fixture permissions.' }
         }
     }
+    [ordered]@{ schemaVersion = 1; officeVersion = $version; contractsVersion = '0.10.0'; runtimeIdentifier = 'win-x64';
+        signing = 'development'; requiresHostCertification = $true } | ConvertTo-Json |
+        Set-Content "$root/input/binaries-win-x64/office-bundle.json" -Encoding utf8
+    [ordered]@{ environmentProfile = 'software-development-polyglot-v1'; guestBrokerProtocolVersion = '1.1';
+        guestImageSha256 = (Get-FileHash "$root/input/guest-images/windows-guest/csweet-agent-guest.vhdx" -Algorithm SHA256).Hash.ToLowerInvariant() } |
+        ConvertTo-Json | Set-Content "$root/input/guest-images/windows-guest/guest-image-profile.json" -Encoding utf8
     if ($env:OS -eq 'Windows_NT') {
         # Exercise the same packaging script on Windows without installing Unix zip/chmod.
         function chmod { $global:LASTEXITCODE = 0 }
@@ -35,9 +41,28 @@ try {
     New-Item -ItemType Directory $windowsInput | Out-Null
     Copy-Item "$root/input/binaries-win-x64" "$windowsInput/binaries-win-x64" -Recurse
     Copy-Item "$root/input/guest-images/windows-guest" "$windowsInput/windows-guest" -Recurse
+    $profilePath = "$windowsInput/windows-guest/guest-image-profile.json"
+    $profile = Get-Content -LiteralPath $profilePath -Raw
+    $profileBackup = "$profilePath.saved"
+    Move-Item -LiteralPath $profilePath -Destination $profileBackup
+    $rejected = $false
+    try { & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot $windowsInput -OutputRoot "$root/reject-missing" -WindowsOnly }
+    catch { $rejected = $_.Exception.Message -like '*no development-profile build evidence*' }
+    if (-not $rejected) { throw 'Packaging admitted an image without development-profile evidence.' }
+    Move-Item -LiteralPath $profileBackup -Destination $profilePath
+    $tampered = $profile | ConvertFrom-Json
+    $tampered.guestImageSha256 = '0' * 64
+    $tampered | ConvertTo-Json | Set-Content -LiteralPath $profilePath -Encoding utf8
+    $rejected = $false
+    try { & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot $windowsInput -OutputRoot "$root/reject-hash" -WindowsOnly }
+    catch { $rejected = $_.Exception.Message -like '*does not match its development-profile build evidence*' }
+    if (-not $rejected) { throw 'Packaging admitted a substituted image under another profile declaration.' }
+    Set-Content -LiteralPath $profilePath -Value $profile -Encoding utf8
     & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot "$root/input" -OutputRoot "$root/output"
     $manifest = Get-Content "$root/output/office-bootstrap.json" -Raw | ConvertFrom-Json
     if ($manifest.officeVersion -cne $version -or $manifest.assets.Count -ne 3) { throw 'Release identity or assets are wrong.' }
+    if ($manifest.guestBrokerProtocolVersion -cne '1.1' -or
+        @($manifest.environmentProfiles) -cnotcontains 'software-development-polyglot-v1') { throw 'The published guest profile is missing.' }
     foreach ($asset in $manifest.assets) {
         $file = Get-Item "$root/output/$($asset.name)"
         if ($file.Length -ne $asset.size -or (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $asset.sha256) {
@@ -48,6 +73,10 @@ try {
     $zip = [IO.Compression.ZipFile]::OpenRead("$root/output/csweet-office-$version-windows-x64.zip")
     try {
         if ($null -eq $zip.GetEntry('guest/csweet-agent-guest.vhdx')) { throw 'Windows image is missing from the archive.' }
+        $reader = [IO.StreamReader]::new($zip.GetEntry('office-bundle.json').Open())
+        try { $bundle = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+        if ($bundle.guestBrokerProtocolVersion -cne '1.1' -or
+            @($bundle.environmentProfiles) -cnotcontains 'software-development-polyglot-v1') { throw 'The archive lost its guest profile.' }
     } finally { $zip.Dispose() }
     if ($env:OS -ne 'Windows_NT') {
         $extracted = Join-Path $root 'extracted-linux'

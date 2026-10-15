@@ -12,6 +12,8 @@ curl --fail --location --proto '=https' "$base/$image" -o "$work/$image"
 curl --fail --location --proto '=https' "$base/SHA256SUMS" -o "$work/SHA256SUMS"
 (cd "$work"; grep " $image$\| \*$image$" SHA256SUMS > image.sha256; test -s image.sha256; sha256sum -c image.sha256)
 mkdir "$work/csweet-image-payload"
+pwsh -NoProfile -File "$root/scripts/Prepare-CSweetDevelopmentPayload.ps1" \
+  -PayloadDirectory "$work/csweet-image-payload" -Architecture x64
 for project in CSweet.Office.RuntimeGuest CSweet.Office.BuilderGuest CSweet.Office.ToolchainGuest; do
   dotnet publish "$root/src/$project/$project.csproj" -c Release -r linux-x64 --self-contained true \
     -p:UseLocalOfficeContracts=false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o "$work/$project"
@@ -22,7 +24,7 @@ export LIBGUESTFS_BACKEND=direct
 qemu-img create -f qcow2 "$work/expanded.qcow2" 12G
 virt-resize --expand /dev/sda1 "$work/$image" "$work/expanded.qcow2"
 virt-customize -a "$work/expanded.qcow2" --memsize 4096 \
-  --install dotnet-sdk-10.0,linux-tools-virtual,linux-cloud-tools-virtual \
+  --install linux-tools-virtual,linux-cloud-tools-virtual \
   --copy-in "$work/csweet-image-payload:/tmp" \
   --upload "$root/build/windows-hyperv/provision-guest.sh:/tmp/csweet-provision-guest.sh" \
   --run-command '/bin/bash /tmp/csweet-provision-guest.sh' \
@@ -30,3 +32,8 @@ virt-customize -a "$work/expanded.qcow2" --memsize 4096 \
   --run-command 'systemctl mask ssh.service ssh.socket && passwd -l root && if getent passwd ubuntu >/dev/null; then passwd -l ubuntu; fi' \
   --run-command 'rm -f /etc/ssh/ssh_host_* /root/.ssh/authorized_keys /home/ubuntu/.ssh/authorized_keys; rm -rf /tmp/csweet-image-payload; apt-get clean; sync'
 qemu-img convert -O vhdx -o subformat=dynamic "$work/expanded.qcow2" "$output/csweet-agent-guest.vhdx"
+# Packaging binds this profile declaration to the completed image. Destination-host
+# certification still proves its runtime behavior before installation.
+image_hash=$(sha256sum "$output/csweet-agent-guest.vhdx" | cut -d ' ' -f 1)
+printf '{"environmentProfile":"software-development-polyglot-v1","guestBrokerProtocolVersion":"1.1","guestImageSha256":"%s"}\n' \
+  "$image_hash" > "$output/guest-image-profile.json"

@@ -77,6 +77,20 @@ commit, or a new version.
 
 ## Signing and installation
 
+Office 0.9.1 stages `Prepare-CSweetDevelopmentPayload.ps1` before publishing the hosted Windows
+guest. The existing `provision-guest.sh` runs `provision-development.sh` when that checksum-pinned
+payload is present, installing Node/npm, .NET, Python and the fixed TUN adapter. The completed
+VHDX is paired with `guest-image-profile.json`. `Publish-HostedOfficeAssets.ps1` checks the image
+hash before copying it into a fresh binary artifact directory, then carries `environmentProfiles`
+and `guestBrokerProtocolVersion` into the bootstrap manifest and support/full bundle metadata.
+Missing evidence or a substituted image prevents packaging. These declarations select an image;
+they do not supply certification authority (SEC-INV-10).
+
+The 0.9.0 hosted image omitted the development payload, despite Office binaries supporting
+protocol 1.1. A destination requesting internet certification could complete the restricted
+and builder checks, then lose the guest channel during internet startup. Updating only the
+binary version or certification switches cannot add missing guest tools.
+
 The archives carry release checksums, not an Authenticode production signature. Target-host
 certification is mandatory (`SEC-INV-10`). Windows runs `Initialize-CSweetWindowsIsolationTest.ps1
 -PrebuiltRoot <bundle>`; Linux runs `initialize-firecracker-test.sh --prebuilt-root <bundle>`.
@@ -92,6 +106,11 @@ serialized with other source builds. Existing upgrade and identity rules still a
 > preflight, redeems the one-use handoff, then downloads the large bundle. Source fallback applies
 > when discovery is unavailable; integrity failures never trigger fallback. Its enrollment-ready
 > endpoint refreshes the short claim window after preparation using the machine-bound receipt.
+
+> **Out of repo:** The development setup consumer skips ordinary-only manifests without the
+> required profile/protocol declaration before download. When none is compatible, it uses the
+> already configured local source preparation path. Integrity failures still prevent fallback.
+> The source path stages the pinned development payload and performs real destination certification.
 
 For a previously published Ubuntu 24.04 x64 Office bundle, download the tarball and `SHA256SUMS` from the same tag, verify the
 selected tarball with `sha256sum`, and extract into a new directory. Run as root on a cgroup v2 host
@@ -132,7 +151,8 @@ the development workflow does not label its archives as signed MSI/DEB installer
 `scripts/tests/Test-PrebuiltPayload.ps1`,
 `scripts/linux/{new-firecracker-guest,initialize-firecracker-test,new-runtime-payload}.sh`.
 
-Verified: 2026-10-13. `Test-PrebuiltPayload.ps1` passed under Windows PowerShell and PowerShell 7
+Verified: 2026-10-14. `Test-PrebuiltPayload.ps1` passed under Windows PowerShell and PowerShell 7
 for both broker protocol fixtures. `Test-HostedManifest.ps1` exercises Windows-only and combined packaging,
-required Windows assets, hashes and archive image placement. `Test-DevelopmentBuildCoordination.ps1`
+required Windows assets, profile propagation, image-bound evidence, rejected missing/substituted
+images, hashes and archive image placement. `Test-DevelopmentBuildCoordination.ps1`
 covers prebuilt bypass and source-build exclusion; target-host certification remains mandatory.
