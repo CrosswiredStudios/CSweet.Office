@@ -57,15 +57,20 @@ supermin package list includes; its default host DHCP dependency can otherwise l
 appliance without a DHCP executable. Both checks run before image download or guest compilation.
 The network check verifies DNS, while the later package installation verifies package-server access.
 This avoids relying on the runner's Azure kernel or root-only kernel file permissions.
-Debug/trace logging stays enabled; failed jobs upload `image-build-diagnostics` with
-the preflight and image build logs for seven days. These changes affect only the build runner;
+Debug/trace logging is enabled for appliance preflight and disabled for the image build to avoid
+logging every payload transfer chunk. Failed jobs upload `image-build-diagnostics` with
+the preflight and image build logs for seven days. These logging settings affect only the build runner;
 the shipped guest continues to use its own Ubuntu kernel and target-host certification.
 
 The Ubuntu job customizes a checksum-verified Canonical cloud image with the existing Hyper-V
 provisioner and converts it to VHDX. `build-hosted-hyperv-image.sh` uploads the provisioner,
 runs it explicitly with `/bin/bash` through `--run-command`, and removes the temporary script.
 This preserves Bash features such as `pipefail`; `virt-customize --run` passes script contents
-through the guest's `/bin/sh`. It does not execute Hyper-V certification. The deferred Firecracker
+through the guest's `/bin/sh`. `build/provision-development.sh` sets a fixed provisioning `PATH`
+including `/usr/local/bin`, where it installs Node/npm and the .NET launcher. The non-login
+customization shell can otherwise report `node: command not found` during version verification
+after successful extraction. This provisioning environment is separate from the workload
+environment allow-list (SEC-INV-21). It does not execute Hyper-V certification. The deferred Firecracker
 guest builder is `new-firecracker-guest.sh`, which explicitly installs `initramfs-tools` and generates
 an initrd matching the selected kernel. Its temporary `/proc` and `/sys` mounts are removed
 before ext4 assembly. `Publish-HostedOfficeAssets.ps1` rejects assets at or above
@@ -147,11 +152,12 @@ the development workflow does not label its archives as signed MSI/DEB installer
 `.github/workflows/{hosted-release,release}.yml`,
 `scripts/release/{Get-OfficeReleaseMetadata,Build-HostedOfficeBundle,Publish-HostedOfficeAssets}.ps1`,
 `scripts/release/build-hosted-hyperv-image.sh`, `release/office-bootstrap.schema.json`,
+`build/provision-development.sh`,
 `scripts/windows/{Initialize-CSweetWindowsIsolationTest,New-CSweetWindowsRuntimePayload}.ps1`,
 `scripts/tests/Test-PrebuiltPayload.ps1`,
 `scripts/linux/{new-firecracker-guest,initialize-firecracker-test,new-runtime-payload}.sh`.
 
-Verified: 2026-10-14. `Test-PrebuiltPayload.ps1` passed under Windows PowerShell and PowerShell 7
+Verified: 2026-10-15. `Test-PrebuiltPayload.ps1` passed under Windows PowerShell and PowerShell 7
 for both broker protocol fixtures. `Test-HostedManifest.ps1` exercises Windows-only and combined packaging,
 required Windows assets, profile propagation, image-bound evidence, rejected missing/substituted
 images, hashes and archive image placement. `Test-DevelopmentBuildCoordination.ps1`

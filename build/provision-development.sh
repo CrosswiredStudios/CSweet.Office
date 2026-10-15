@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# virt-customize's non-login shell can omit the directory where Node/npm and
+# the dotnet launcher are installed. This PATH is only for image provisioning.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 payload=${1:-/tmp/csweet-image-payload}
 arch=$(tr -d '\r\n' < "$payload/development-architecture")
 case "$arch" in

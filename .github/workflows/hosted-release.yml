@@ -164,6 +164,10 @@ jobs:
           GUESTFISH
       - name: Build Hyper-V image without nested virtualization
         shell: bash
+        env:
+          # Keep appliance preflight diagnostics, but avoid logging every payload chunk.
+          LIBGUESTFS_DEBUG: '0'
+          LIBGUESTFS_TRACE: '0'
         run: bash scripts/release/build-hosted-hyperv-image.sh artifacts/windows-guest 2>&1 | tee artifacts/image-diagnostics/hyperv-build.log
       - uses: actions/upload-artifact@v4
         with:
