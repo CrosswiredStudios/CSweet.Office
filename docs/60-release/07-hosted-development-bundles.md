@@ -82,6 +82,14 @@ commit, or a new version.
 
 ## Signing and installation
 
+Office 0.9.2 corrects the SDK launcher path in `build/provision-development.sh`.
+The hosted cloud image has no distro SDK at `/usr/bin/dotnet`; 0.9.1 only created
+`/usr/local/bin/dotnet`, while `GuestProbe.DotNetSdkPresentAsync` checks the former.
+Both launchers now resolve to the pinned SDK, and provisioning verifies `/usr/bin/dotnet`
+directly. `scripts/tests/test-development-dotnet-path.sh` executes this provisioning block
+inside a disposable SDK container and checks both launchers as an unprivileged user.
+This regression is not destination-host certification; a rebuilt image still requires it.
+
 Office 0.9.1 stages `Prepare-CSweetDevelopmentPayload.ps1` before publishing the hosted Windows
 guest. The existing `provision-guest.sh` runs `provision-development.sh` when that checksum-pinned
 payload is present, installing Node/npm, .NET, Python and the fixed TUN adapter. The completed
@@ -153,6 +161,7 @@ the development workflow does not label its archives as signed MSI/DEB installer
 `scripts/release/{Get-OfficeReleaseMetadata,Build-HostedOfficeBundle,Publish-HostedOfficeAssets}.ps1`,
 `scripts/release/build-hosted-hyperv-image.sh`, `release/office-bootstrap.schema.json`,
 `build/provision-development.sh`,
+`src/CSweet.Office.GuestProbe/Program.cs`, `scripts/tests/test-development-dotnet-path.sh`,
 `scripts/windows/{Initialize-CSweetWindowsIsolationTest,New-CSweetWindowsRuntimePayload}.ps1`,
 `scripts/tests/Test-PrebuiltPayload.ps1`,
 `scripts/linux/{new-firecracker-guest,initialize-firecracker-test,new-runtime-payload}.sh`.

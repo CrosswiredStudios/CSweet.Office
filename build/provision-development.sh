@@ -36,12 +36,15 @@ PYTHON
 tar -xJf "$payload/node.tar.xz" --strip-components=1 -C /usr/local
 install -d -m 0755 /usr/share/dotnet /usr/lib/csweet
 tar -xzf "$payload/dotnet.tar.gz" -C /usr/share/dotnet
-ln -sfn /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+# Certification invokes this absolute path, including on cloud images without
+# a distro-installed SDK. Keep PATH-based tools on the same pinned SDK.
+ln -sfn /usr/share/dotnet/dotnet /usr/bin/dotnet
+ln -sfn /usr/bin/dotnet /usr/local/bin/dotnet
 unzip -p "$payload/tun2socks.zip" "$tun_entry" >/usr/lib/csweet/tun2socks
 chmod 0755 /usr/lib/csweet/tun2socks
 test "$(node --version)" = 'v22.23.3'
 test "$(npm --version)" = '10.9.9'
-dotnet --list-sdks | grep -q '^10.0.401 '
+/usr/bin/dotnet --list-sdks | grep -q '^10.0.401 '
 python3.12 --version
 git --version
 curl --version >/dev/null
