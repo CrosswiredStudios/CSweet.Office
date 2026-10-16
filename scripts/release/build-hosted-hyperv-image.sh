@@ -31,6 +31,16 @@ virt-customize -a "$work/expanded.qcow2" --memsize 4096 \
   --delete /tmp/csweet-provision-guest.sh \
   --run-command 'systemctl mask ssh.service ssh.socket && passwd -l root && if getent passwd ubuntu >/dev/null; then passwd -l ubuntu; fi' \
   --run-command 'rm -f /etc/ssh/ssh_host_* /root/.ssh/authorized_keys /home/ubuntu/.ssh/authorized_keys; rm -rf /tmp/csweet-image-payload; apt-get clean; sync'
+# chroot commands temporarily replace/restore resolv.conf for appliance DNS.
+# Set the runtime link after customization, using filesystem operations outside
+# that chroot lifecycle, then assert what will actually be shipped.
+resolver=$(guestfish --rw -a "$work/expanded.qcow2" -i <<'GUESTFISH'
+rm-f /etc/resolv.conf
+ln-s /run/csweet/resolv.conf /etc/resolv.conf
+readlink /etc/resolv.conf
+GUESTFISH
+)
+[[ "$resolver" == /run/csweet/resolv.conf ]] || { echo 'Hosted guest DNS resolver link is invalid.' >&2; exit 2; }
 qemu-img convert -O vhdx -o subformat=dynamic "$work/expanded.qcow2" "$output/csweet-agent-guest.vhdx"
 # Packaging binds this profile declaration to the completed image. Destination-host
 # certification still proves its runtime behavior before installation.

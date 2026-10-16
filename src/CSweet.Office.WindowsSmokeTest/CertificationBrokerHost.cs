@@ -1,5 +1,6 @@
 using Google.Protobuf;
 using CSweet.Office.Node;
+using System.Text;
 
 // This is a deliberately test-only host for the shared guest-broker protocol. Production
 // broker authorization and streaming remain in the C-Sweet headquarters repository.
@@ -79,6 +80,8 @@ internal sealed class GuestBrokerHostSession(
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly SemaphoreSlim _outputLock = new(1, 1);
     private int _requestCount;
+    private long _diagnosticSequence;
+    public string? DiagnosticDetail { get; private set; }
     public bool InternetCleanupVerified { get; private set; }
 
     public Task Started => _started.Task;
@@ -170,8 +173,23 @@ internal sealed class GuestBrokerHostSession(
                         _started.TrySetResult();
                     continue;
                 }
+                if (envelope.BodyCase == GuestEnvelope.BodyOneofCase.StreamChunk)
+                {
+                    // Runtime diagnostics are bounded snapshots, not certification reports
+                    // or artifact uploads. GuestBrokerSession emits these while npm runs.
+                    var chunk = envelope.StreamChunk;
+                    if (chunk.StreamId != "runtime.logs" || chunk.Sequence != _diagnosticSequence ||
+                        chunk.Sequence == long.MaxValue || chunk.Content.Length > 32 * 1024 ||
+                        chunk.Completed || chunk.Digest.Length != 0)
+                        throw new InvalidDataException("The guest runtime diagnostic stream is invalid.");
+                    _diagnosticSequence++;
+                    DiagnosticDetail = new string(Encoding.UTF8.GetString(chunk.Content.Span)
+                        .Where(character => !char.IsControl(character) || character == ' ')
+                        .TakeLast(8 * 1024).ToArray());
+                    continue;
+                }
                 if (envelope.BodyCase != GuestEnvelope.BodyOneofCase.ProxyRequest)
-                    throw new InvalidDataException("The guest sent an unsupported broker message.");
+                    throw new InvalidDataException($"The guest sent an unsupported broker message ({envelope.BodyCase}).");
 
                 proxyOperations.RemoveAll(operation => operation.IsCompleted);
                 if (proxyOperations.Count >= MaximumConcurrentProxyRequests)

@@ -138,24 +138,20 @@ static async Task<bool> CommandAsync(string directory, string executable, params
         RedirectStandardOutput = true, RedirectStandardError = true };
     foreach (var arg in args) start.ArgumentList.Add(arg);
     start.Environment["npm_config_cache"] = "/run/csweet/workload/cache/npm";
+    start.Environment["npm_config_loglevel"] = "verbose";
     try
     {
-        using var process = Process.Start(start);
-        if (process is null) return false;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
-        var error = process.StandardError.ReadToEndAsync(timeout.Token);
-        try { await process.WaitForExitAsync(timeout.Token); }
-        catch { process.Kill(true); throw; }
-        await output;
-        var diagnostic = await error;
-        if (process.ExitCode != 0)
-            Console.Error.WriteLine($"Dependency fixture: {executable} {string.Join(' ', args)} exited {process.ExitCode}: {diagnostic[Math.Max(0, diagnostic.Length - 1000)..]}");
-        return process.ExitCode == 0;
+        Console.Error.WriteLine($"Dependency fixture: starting {executable} {string.Join(' ', args)}");
+        var result = await CertificationCommand.RunAsync(start, TimeSpan.FromSeconds(60));
+        if (result.ExitCode != 0 || result.TimedOut)
+            Console.Error.WriteLine($"Dependency fixture: {executable} {string.Join(' ', args)} " +
+                $"{(result.TimedOut ? "timed out after 60 seconds" : $"exited {result.ExitCode}")}. " +
+                $"stdout: {result.Output} stderr: {result.Error}");
+        return result.ExitCode == 0 && !result.TimedOut;
     }
     catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception or OperationCanceledException)
     {
-        Console.Error.WriteLine($"Dependency fixture: {executable} failed ({e.GetType().Name}).");
+        Console.Error.WriteLine($"Dependency fixture: {executable} {string.Join(' ', args)} failed ({e.GetType().Name}): {e.Message}");
         return false;
     }
 }

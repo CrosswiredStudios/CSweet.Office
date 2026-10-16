@@ -82,6 +82,16 @@ commit, or a new version.
 
 ## Signing and installation
 
+Office 0.9.3 finalizes the runtime DNS link in
+`scripts/release/build-hosted-hyperv-image.sh` with guestfish filesystem operations
+after `virt-customize`, and verifies it before VHDX export. libguestfs temporarily
+substitutes and restores `/etc/resolv.conf` around chroot commands; setting the link
+inside `provision-development.sh` therefore did not survive hosted customization.
+Offline inspection of the published 0.9.2 image found Ubuntu's
+`../run/systemd/resolve/stub-resolv.conf` link. Its real Hyper-V probe passed direct
+public TCP/UDP and destination-denial checks but npm failed lookup with `EAI_AGAIN`.
+The source/Packer path does not use that chroot substitution lifecycle.
+
 Office 0.9.2 corrects the SDK launcher path in `build/provision-development.sh`.
 The hosted cloud image has no distro SDK at `/usr/bin/dotnet`; 0.9.1 only created
 `/usr/local/bin/dotnet`, while `GuestProbe.DotNetSdkPresentAsync` checks the former.
@@ -162,11 +172,14 @@ the development workflow does not label its archives as signed MSI/DEB installer
 `scripts/release/build-hosted-hyperv-image.sh`, `release/office-bootstrap.schema.json`,
 `build/provision-development.sh`,
 `src/CSweet.Office.GuestProbe/Program.cs`, `scripts/tests/test-development-dotnet-path.sh`,
+`src/CSweet.Office.GuestProbe/CertificationCommand.cs`,
 `scripts/windows/{Initialize-CSweetWindowsIsolationTest,New-CSweetWindowsRuntimePayload}.ps1`,
 `scripts/tests/Test-PrebuiltPayload.ps1`,
 `scripts/linux/{new-firecracker-guest,initialize-firecracker-test,new-runtime-payload}.sh`.
 
-Verified: 2026-10-15. `Test-PrebuiltPayload.ps1` passed under Windows PowerShell and PowerShell 7
+Verified: 2026-10-15. The DNS restoration mechanism is in upstream libguestfs
+[`daemon/sh.c`](https://github.com/libguestfs/libguestfs/blob/v1.52.0/daemon/sh.c),
+`set_up_etc_resolv_conf` / `free_resolver_state`. `Test-PrebuiltPayload.ps1` passed under Windows PowerShell and PowerShell 7
 for both broker protocol fixtures. `Test-HostedManifest.ps1` exercises Windows-only and combined packaging,
 required Windows assets, profile propagation, image-bound evidence, rejected missing/substituted
 images, hashes and archive image placement. `Test-DevelopmentBuildCoordination.ps1`

@@ -266,19 +266,27 @@ static async Task<Dictionary<string, bool>> RunInternetSmokeAsync(
         var session = new GuestBrokerHostSession(grant, collector, TimeProvider.System, boot, start, publicInternetIpv6: !ipv4Only);
         await using var transport = await ConnectGuestAsync(provider, helper, handle, socketOptions);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(4));
-        var task = session.RunAsync(transport, transport, timeout.Token);
-        var first = await Task.WhenAny(task, collector.Report).WaitAsync(timeout.Token);
-        if (first == task && !collector.Report.IsCompleted) await task;
-        var report = await collector.Report.WaitAsync(timeout.Token);
-        Console.WriteLine("Public internet probe: " + JsonSerializer.Serialize(report.Checks));
-        await task.WaitAsync(timeout.Token);
-        var checks = report.Checks.ToDictionary(x => x.Key, x => x.Value);
-        checks["publicInternetLeaseCleanup"] = session.InternetCleanupVerified;
-        if (!report.Passed || ProviderCertificationEvidence.RequiredInternetChecks.Where(key => !ipv4Only || key != "publicInternetIpv6")
-            .Any(key => !checks.GetValueOrDefault(key)))
-            throw new InvalidOperationException("The public internet/development certification failed: " +
-                string.Join(", ", checks.Where(x => !x.Value).Select(x => x.Key)));
-        return checks;
+        try
+        {
+            var task = session.RunAsync(transport, transport, timeout.Token);
+            var first = await Task.WhenAny(task, collector.Report).WaitAsync(timeout.Token);
+            if (first == task && !collector.Report.IsCompleted) await task;
+            var report = await collector.Report.WaitAsync(timeout.Token);
+            Console.WriteLine("Public internet probe: " + JsonSerializer.Serialize(report.Checks));
+            await task.WaitAsync(timeout.Token);
+            var checks = report.Checks.ToDictionary(x => x.Key, x => x.Value);
+            checks["publicInternetLeaseCleanup"] = session.InternetCleanupVerified;
+            if (!report.Passed || ProviderCertificationEvidence.RequiredInternetChecks.Where(key => !ipv4Only || key != "publicInternetIpv6")
+                .Any(key => !checks.GetValueOrDefault(key)))
+                throw new InvalidOperationException("The public internet/development certification failed: " +
+                    string.Join(", ", checks.Where(x => !x.Value).Select(x => x.Key)));
+            return checks;
+        }
+        catch (Exception exception) when (!string.IsNullOrWhiteSpace(session.DiagnosticDetail))
+        {
+            throw new InvalidOperationException(
+                $"Public internet certification failed: {exception.Message} Guest diagnostics: {session.DiagnosticDetail}", exception);
+        }
     }
     finally { EnsureSuccess(await InvokeHelperAsync(helper, "destroy", new PlatformHelperRequest { Handle = handle })); }
 }

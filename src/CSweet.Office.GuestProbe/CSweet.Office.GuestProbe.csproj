@@ -3,4 +3,5 @@
     <OutputType>Exe</OutputType>
     <Description>In-guest executable used only by the Hyper-V isolation certification smoke test.</Description>
   </PropertyGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.Office.Tests" /></ItemGroup>
 </Project>

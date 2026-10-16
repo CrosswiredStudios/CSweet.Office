@@ -47,6 +47,25 @@ its own floor of `1.14.0` or later to the same pair.
 
 ## The evidence file
 
+### Runtime diagnostic streams
+
+`GuestBrokerSession.ObserveDiagnosticsAsync` emits `runtime.logs` snapshots during
+runtime workloads, including the internet probe's dependency commands.
+`WindowsSmokeTest/CertificationBrokerHost.cs` accepts this stream after authentication,
+requires contiguous sequence numbers starting at zero, rejects chunks larger than
+32 KiB and artifact/completion metadata, and retains an 8 KiB sanitized tail.
+These snapshots do not satisfy report or completion requirements. Office 0.9.2's
+certification host lacked this handler and stopped on the first diagnostic frame.
+Office 0.9.3 corrects that host; `RunInternetSmokeAsync` includes retained diagnostics
+when certification fails. `CertificationBrokerHostTests` exercises the real
+authentication and framing path, report continuation, malformed/replayed diagnostics,
+and failed completion.
+
+`GuestProbe/CertificationCommand.cs` drains bounded stdout/stderr independently of
+the command timeout. A timed-out dependency process is killed and its output tail is
+retained, so `Program.CommandAsync` reports the actual command and registry error.
+`CertificationCommandTests` verifies timeout capture, output bounds and nonzero exits.
+
 `CSweet.Office.WindowsSmokeTest/Program.cs` writes a single JSON document. Starting with Office 0.6.3,
 new evidence has no automatic expiry. Older evidence, including the archived run of 2026-09-15,
 retains its original explicit expiry and must be regenerated through real host certification:
@@ -148,6 +167,11 @@ user-facing *"installed secure agent runtime is out of date"* message.
 ## Sources
 
 `src/CSweet.Office.WindowsSmokeTest/Program.cs`, `src/CSweet.Office.GuestProbe/Program.cs`,
+`src/CSweet.Office.WindowsSmokeTest/CertificationBrokerHost.cs`,
+`src/CSweet.Office.RuntimeGuest/GuestBrokerSession.cs`,
+`tests/CSweet.Office.Tests/CertificationBrokerHostTests.cs`,
+`src/CSweet.Office.GuestProbe/CertificationCommand.cs`,
+`tests/CSweet.Office.Tests/CertificationCommandTests.cs`,
 `scripts/windows/Initialize-CSweetWindowsIsolationTest.ps1`, `scripts/linux/initialize-firecracker-test.sh`,
 `scripts/linux/new-firecracker-guest.sh`, `scripts/linux/new-runtime-payload.sh`, `scripts/macos/new-runtime-payload.sh`,
 `scripts/release/{Invoke-PlatformRelease.ps1,Invoke-LinuxRelease.ps1,Invoke-MacRelease.ps1,New-OfficeReleaseManifest.ps1}`,
@@ -156,4 +180,8 @@ user-facing *"installed secure agent runtime is out of date"* message.
 `src/CSweet.Office.Runtime.Abstractions/IsolationModels.cs`, `docs/20-security/{08-provider-certification.md,11-security-invariants.md}`,
 `docs/30-workloads/06-guest-images.md`.
 
-Verified: 2026-09-28 (source; new target-host certification not executed during this change).
+Verified: 2026-10-15. All 237 Office tests passed against published contracts.
+`artifacts/c093c/windows-hyperv.json` records full v15-ipv4 certification of the
+DNS-corrected hosted-image copy with guest digest
+`sha256:48c8cb2be86c4b724c95bdff6b75bd7c28c1cde11099de70a05a06d01fe4736d`.
+The CI-built 0.9.3 image still requires its normal destination-host certification.
