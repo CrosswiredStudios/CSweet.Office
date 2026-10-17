@@ -50,6 +50,32 @@ There is no `SkippableFact`, no `[Trait]`, and no `Skip =` anywhere, so these sh
 Linux CI run. Do not read a green CI build as evidence that the Windows pipe ACL or the upgrade-probe
 harness was executed.
 
+## Windows CI child-process environment
+
+Both `ci.yml` (Ubuntu and Windows Server 2022) and the hosted Windows release test step
+retain TRX results under `artifacts/test-results`. Upload runs even when tests fail.
+The Windows test steps remove the process-scoped `PSModulePath` before starting .NET.
+PowerShell 5.1 children then construct their own module paths. PowerShell 7 only repairs
+this variable when it launches Windows PowerShell directly; an intermediate .NET process
+otherwise passes through PowerShell 7 module paths. See Microsoft's
+[module-path guidance](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_psmodulepath#starting-windows-powershell-from-powershell-7).
+
+`CertificationCommandTests` uses the system `cmd.exe /d` on Windows and `/bin/sh` on Unix.
+The timeout test still kills a sleeping child process and verifies retained stdout/stderr;
+the output test still requires exit 2 and both 4096-character tails. The short deadlines
+therefore exercise process supervision without depending on PowerShell startup. The two
+Windows-only onboarding checks continue to execute Windows PowerShell 5.1; the upgrade
+harness is explicitly noninteractive.
+
+The reported hosted run built successfully and failed four PowerShell-dependent tests
+at their deadlines. Its log does not establish the exact startup stall. All 241 tests
+passed locally before and after these changes, with published contracts. A hosted rerun
+is still required to confirm that runner's recovery; local results do not establish it.
+
+Sources: `.github/workflows/{ci,hosted-release}.yml`,
+`tests/CSweet.Office.Tests/{CertificationCommandTests,WindowsHyperVOnboardingTests}.cs`,
+`src/CSweet.Office.GuestProbe/CertificationCommand.cs`. Verified: 2026-10-16.
+
 ## The upgrade-probe harness
 
 `scripts/tests/Test-OfficeUpgradeProbe.ps1` is the only PowerShell test harness in the repository. It

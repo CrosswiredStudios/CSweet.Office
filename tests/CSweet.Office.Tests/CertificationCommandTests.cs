@@ -8,7 +8,7 @@ public sealed class CertificationCommandTests
     public async Task TimeoutRetainsOutputWrittenBeforeTheCommandWasKilled()
     {
         var result = await CertificationCommand.RunAsync(Command(
-            "[Console]::Out.WriteLine('stdout-before-timeout'); [Console]::Error.WriteLine('registry-request-stalled'); Start-Sleep -Seconds 30",
+            "echo stdout-before-timeout& echo registry-request-stalled 1>&2& ping.exe -n 31 127.0.0.1 >nul",
             "echo stdout-before-timeout; echo registry-request-stalled >&2; sleep 30"), TimeSpan.FromSeconds(3));
         Assert.True(result.TimedOut);
         Assert.Contains("stdout-before-timeout", result.Output);
@@ -19,26 +19,27 @@ public sealed class CertificationCommandTests
     public async Task OutputTailsAreBoundedAndNonzeroExitIsPreserved()
     {
         var result = await CertificationCommand.RunAsync(Command(
-            "[Console]::Out.Write(('x' * 12000) + 'output-tail'); [Console]::Error.Write(('y' * 12000) + 'error-tail'); exit 2",
+            "(for /L %i in (1,1,1200) do @echo xxxxxxxxxx)& echo output-tail& (for /L %i in (1,1,1200) do @echo yyyyyyyyyy) 1>&2& echo error-tail 1>&2& exit /b 2",
             "head -c 12000 /dev/zero | tr '\\0' x; printf output-tail; (head -c 12000 /dev/zero | tr '\\0' y; printf error-tail) >&2; exit 2"), TimeSpan.FromSeconds(10));
         Assert.False(result.TimedOut);
         Assert.Equal(2, result.ExitCode);
         Assert.Equal(4096, result.Output.Length);
         Assert.Equal(4096, result.Error.Length);
-        Assert.EndsWith("output-tail", result.Output);
-        Assert.EndsWith("error-tail", result.Error);
+        Assert.EndsWith("output-tail", result.Output.TrimEnd());
+        Assert.EndsWith("error-tail", result.Error.TrimEnd());
     }
 
     private static ProcessStartInfo Command(string windows, string linux)
     {
-        var command = new ProcessStartInfo(OperatingSystem.IsWindows() ? "powershell.exe" : "/bin/sh")
+        // These tests exercise process supervision, not PowerShell startup/module discovery.
+        var command = new ProcessStartInfo(OperatingSystem.IsWindows()
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe") : "/bin/sh")
         {
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true
         };
         if (OperatingSystem.IsWindows())
         {
-            command.ArgumentList.Add("-NoProfile"); command.ArgumentList.Add("-NonInteractive");
-            command.ArgumentList.Add("-Command"); command.ArgumentList.Add(windows);
+            command.ArgumentList.Add("/d"); command.ArgumentList.Add("/c"); command.ArgumentList.Add(windows);
         }
         else { command.ArgumentList.Add("-c"); command.ArgumentList.Add(linux); }
         return command;

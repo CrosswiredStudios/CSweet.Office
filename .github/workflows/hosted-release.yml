@@ -94,7 +94,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
-      - run: dotnet test CSweet.Office.Independent.slnx -c Release -p:UseLocalOfficeContracts=false
+      - name: Test independent Office
+        shell: pwsh
+        run: |
+          # Avoid passing PowerShell 7 modules through dotnet to Windows PowerShell 5.1.
+          Remove-Item Env:PSModulePath -ErrorAction SilentlyContinue
+          dotnet test CSweet.Office.Independent.slnx -c Release -p:UseLocalOfficeContracts=false --logger "trx;LogFileName=office-tests.trx" --results-directory artifacts/test-results
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: office-tests-${{ matrix.rid }}
+          path: artifacts/test-results
+          if-no-files-found: warn
       - shell: pwsh
         run: ./scripts/release/Build-HostedOfficeBundle.ps1 -RuntimeIdentifier '${{ matrix.rid }}' -OutputRoot artifacts/bundle
       - name: Verify prebuilt payload avoids compilation

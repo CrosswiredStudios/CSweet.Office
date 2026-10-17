@@ -17,7 +17,7 @@ Use `.github/workflows/release.yml` as the authority; it is not the hosted devel
 | Workflow name | `ci` |
 | Triggers | `pull_request`; `push` to `main` |
 | Permissions | `contents: read` |
-| Runner | `ubuntu-latest` |
+| Runner | Matrix: `ubuntu-latest`, `windows-2022`; failures do not cancel the other platform |
 | .NET | `actions/setup-dotnet@v4` with `dotnet-version: '10.0.x'` |
 | Job | `build-test` |
 
@@ -26,12 +26,20 @@ Use `.github/workflows/release.yml` as the authority; it is not the hosted devel
 | Checkout | `actions/checkout@v4` |
 | Restore | `dotnet restore CSweet.Office.Independent.slnx -p:UseLocalOfficeContracts=false` |
 | Build | `dotnet build CSweet.Office.Independent.slnx -c Release --no-restore -p:UseLocalOfficeContracts=false` |
-| Test | `dotnet test tests/CSweet.Office.Tests/CSweet.Office.Tests.csproj -c Release --no-build -p:UseLocalOfficeContracts=false` |
+| Test | `dotnet test tests/CSweet.Office.Tests/CSweet.Office.Tests.csproj -c Release --no-build -p:UseLocalOfficeContracts=false --logger "trx;LogFileName=office-tests.trx" --results-directory artifacts/test-results` |
+| Diagnostics | `actions/upload-artifact@v4` retains each platform's `artifacts/test-results`, including failed runs |
 
 Every command passes `-p:UseLocalOfficeContracts=false`, so CI compiles against the pinned package rather than a
 sibling checkout. The test step uses `--no-build`, which relies on the test project being part of the
 independent solution — see `docs/10-system/04-solution-map.md`. CI runs no packaging, signing, or certification
 step; those are release-only.
+
+The test step uses PowerShell 7 and removes the inherited `PSModulePath` on Windows
+before launching .NET, allowing its Windows PowerShell 5.1 children to construct their
+own module paths. The hosted release's Windows binaries job uses the same environment
+isolation and TRX retention. Source: `.github/workflows/{ci,hosted-release}.yml`;
+verified 2026-10-16. See the [testing guide](../50-development/07-testing-guide.md#windows-ci-child-process-environment)
+for the reported timeout evidence and the local-versus-hosted verification boundary.
 
 ## `release.yml`
 

@@ -32,6 +32,12 @@ download. `Test-HostedManifest.ps1` checks those modes after extracting the fina
 keeps configuration files non-executable. This corrects the Linux 0.6.0 archive, whose dotted
 Office executable names were skipped by the former extension-based check.
 
+Before packaging, the Windows binaries job runs independent Office tests against the
+published Contracts package. It clears the inherited PowerShell 7 `PSModulePath` before
+launching .NET and uploads `office-tests-win-x64` TRX diagnostics even on a test failure.
+These are source tests, separate from destination-host guest certification. Source:
+`.github/workflows/hosted-release.yml`; verified 2026-10-16.
+
 The release contains:
 
 - `office-bootstrap.json`: schema 1, Office/contracts/protocol versions, development signing label,

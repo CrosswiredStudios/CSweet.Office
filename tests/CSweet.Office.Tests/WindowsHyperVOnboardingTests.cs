@@ -346,7 +346,7 @@ public sealed class WindowsHyperVOnboardingTests
         {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
         };
-        foreach (var argument in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+        foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
             Path.Combine(RepositoryRoot(), "scripts", "tests", "Test-OfficeUpgradeProbe.ps1") })
             start.ArgumentList.Add(argument);
         using var process = System.Diagnostics.Process.Start(start)!;
