@@ -40,12 +40,42 @@ These are source tests, separate from destination-host guest certification. Sour
 
 The release contains:
 
-- `office-bootstrap.json`: schema 1, Office/contracts/protocol versions, development signing label,
+- `office-bootstrap.json`: schema 1 for single-file assets, or schema 2 when an archive is multipart; Office/contracts/protocol versions, development signing label,
   mandatory target-host certification, and exact immutable asset URLs, sizes, and SHA-256 hashes.
 - `csweet-office-<version>-windows-support.zip`: small preflight and installation scripts.
-- `csweet-office-<version>-windows-x64.zip`: scripts, self-contained components, guest probe,
-  certification runner, and a Hyper-V VHDX.
+- `csweet-office-<version>-windows-x64.zip` when at most 1 GiB, otherwise numbered
+  `.zip.part001`, `.zip.part002`, and subsequent parts: scripts, self-contained components,
+  guest probe, certification runner, and a Hyper-V VHDX.
 - `SHA256SUMS`: checksums for every published file above.
+
+## Multipart transport
+
+`OfficeBundleTransport.ps1` streams archives larger than 1 GiB into parts of at most
+1 GiB. At most 16 parts and 16 GiB per logical archive are accepted. The small Windows
+support ZIP stays a single file capped at 10 MiB. `PartSizeBytes` permits smaller release
+transport fixtures in tests; production defaults to 1 GiB.
+
+The schema 2 `assets` list still describes logical archives. Each multipart record carries
+the complete archive's name, byte count and SHA-256, plus ordered `parts` records containing
+each numbered name, exact size, SHA-256 and immutable URL under the same release tag. It has
+no logical archive download URL. The publisher removes the unsplit ZIP after producing all
+parts, so the workflow uploads only transport files, the bootstrap manifest and `SHA256SUMS`.
+The latter lists physical part checksums; the complete archive digest lives in the manifest.
+Single-file-only releases retain schema 1.
+
+> **Out of repo:** automatic reconstruction is implemented in Headquarters' multipart-capable
+> `CSweet.OfficeRelease.ps1`. Upgrade Headquarters before installing schema 2 Office 0.11.0
+> bundles. The protocol boundary is defined here by `release/office-bootstrap.schema.json`
+> and `releases/0.11.0.md`. Host certification remains a destination-host operation.
+
+`Test-HostedManifest.ps1` tests the actual publisher with small multipart fixtures, checks
+the schema and physical checksums, and reconstructs the original ZIP. Supplying
+`-InstallerScript ../csweet/src/CSweet.Api/Setup/CSweet.OfficeRelease.ps1` additionally exercises
+Headquarters discovery and automatic installation-file extraction using local download
+fixtures. `Test-OfficeBundleTransport.ps1` covers exact boundaries, short final parts and
+the 16-part bound. These tests do not publish a release or install an Office service.
+
+## Guest image construction
 
 Linux tarballs are absent from current hosted releases. A future Linux image job should have its
 own timeout, artifact upload and retry boundary before being added back to publication; merely
@@ -174,16 +204,18 @@ the development workflow does not label its archives as signed MSI/DEB installer
 ## Sources
 
 `.github/workflows/{hosted-release,release}.yml`,
-`scripts/release/{Get-OfficeReleaseMetadata,Build-HostedOfficeBundle,Publish-HostedOfficeAssets}.ps1`,
+`scripts/release/{Get-OfficeReleaseMetadata,Build-HostedOfficeBundle,Publish-HostedOfficeAssets,OfficeBundleTransport}.ps1`,
 `scripts/release/build-hosted-hyperv-image.sh`, `release/office-bootstrap.schema.json`,
 `build/provision-development.sh`,
 `src/CSweet.Office.GuestProbe/Program.cs`, `scripts/tests/test-development-dotnet-path.sh`,
 `src/CSweet.Office.GuestProbe/CertificationCommand.cs`,
 `scripts/windows/{Initialize-CSweetWindowsIsolationTest,New-CSweetWindowsRuntimePayload}.ps1`,
-`scripts/tests/Test-PrebuiltPayload.ps1`,
+`scripts/tests/{Test-PrebuiltPayload,Test-HostedManifest,Test-OfficeBundleTransport}.ps1`, `releases/0.11.0.md`,
 `scripts/linux/{new-firecracker-guest,initialize-firecracker-test,new-runtime-payload}.sh`.
 
-Verified: 2026-10-15. The DNS restoration mechanism is in upstream libguestfs
+Verified: 2026-10-16. Multipart fixtures and the cross-repository publisher-to-installer check
+passed locally; real hosted publication and installed-host certification were not run for
+this transport change. The DNS restoration mechanism is in upstream libguestfs
 [`daemon/sh.c`](https://github.com/libguestfs/libguestfs/blob/v1.52.0/daemon/sh.c),
 `set_up_etc_resolv_conf` / `free_resolver_state`. `Test-PrebuiltPayload.ps1` passed under Windows PowerShell and PowerShell 7
 for both broker protocol fixtures. `Test-HostedManifest.ps1` exercises Windows-only and combined packaging,

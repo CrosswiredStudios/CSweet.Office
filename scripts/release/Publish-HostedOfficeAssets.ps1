@@ -1,6 +1,8 @@
 param([Parameter(Mandatory)][string] $Version, [Parameter(Mandatory)][string] $InputRoot,
-    [Parameter(Mandatory)][string] $OutputRoot, [switch] $WindowsOnly)
+    [Parameter(Mandatory)][string] $OutputRoot, [switch] $WindowsOnly,
+    [ValidateRange(1, 1073741824)][long] $PartSizeBytes = 1GB)
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot/OfficeBundleTransport.ps1"
 $release = & "$PSScriptRoot/Get-OfficeReleaseMetadata.ps1" -Version $Version
 $InputRoot = [IO.Path]::GetFullPath($InputRoot)
 $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
@@ -54,6 +56,7 @@ $support = "csweet-office-$Version-windows-support.zip"
 $winAsset = "csweet-office-$Version-windows-x64.zip"
 $linuxAsset = "csweet-office-$Version-linux-x64.tar.gz"
 Compress-Archive -Path "$windows/scripts", "$windows/Directory.Build.props", "$windows/office-bundle.json" -DestinationPath "$OutputRoot/$support"
+if ((Get-Item -LiteralPath "$OutputRoot/$support").Length -gt 10MB) { throw 'Office support archive exceeds 10 MiB.' }
 Push-Location $windows
 try {
     & zip -q -r "$OutputRoot/$winAsset" . -x '*.pdb'
@@ -66,12 +69,11 @@ if (-not $WindowsOnly) {
     $assetNames += $linuxAsset
 }
 $assets = foreach ($name in $assetNames) {
-    $file = Get-Item "$OutputRoot/$name"
-    if ($file.Length -ge 2GB) { throw "GitHub release asset exceeds 2 GiB: $name" }
-    [ordered]@{ name = $name; size = $file.Length; sha256 = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        url = "https://github.com/CrosswiredStudios/CSweet.Office/releases/download/v$Version/$name" }
+    New-OfficeBundleTransport -ArchivePath "$OutputRoot/$name" -PartSizeBytes $PartSizeBytes `
+        -BaseUrl "https://github.com/CrosswiredStudios/CSweet.Office/releases/download/v$Version" -SingleFile:($name -ceq $support)
 }
-[ordered]@{ schemaVersion = 1; officeVersion = $Version; contractsVersion = $release.ContractsVersion
+$schemaVersion = if (@($assets | Where-Object { $null -ne $_.PSObject.Properties['parts'] }).Count -gt 0) { 2 } else { 1 }
+[ordered]@{ schemaVersion = $schemaVersion; officeVersion = $Version; contractsVersion = $release.ContractsVersion
     protocolVersion = '1.0'; signing = 'development'; requiresHostCertification = $true; assets = @($assets)
     environmentProfiles = @($guestProfile.environmentProfile); guestBrokerProtocolVersion = $guestProfile.guestBrokerProtocolVersion
 } | ConvertTo-Json -Depth 6 | Set-Content "$OutputRoot/office-bootstrap.json" -Encoding utf8

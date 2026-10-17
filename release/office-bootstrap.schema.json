@@ -3,32 +3,235 @@
   "title": "C-Sweet Office hosted development bootstrap",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "officeVersion", "contractsVersion", "protocolVersion", "signing", "requiresHostCertification", "assets"],
+  "required": [
+    "schemaVersion",
+    "officeVersion",
+    "contractsVersion",
+    "protocolVersion",
+    "signing",
+    "requiresHostCertification",
+    "assets"
+  ],
   "properties": {
-    "schemaVersion": { "const": 1 },
-    "officeVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
-    "contractsVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
-    "protocolVersion": { "const": "1.0" },
-    "signing": { "const": "development" },
-    "requiresHostCertification": { "const": true },
-    "environmentProfiles": { "type": "array", "items": { "const": "software-development-polyglot-v1" }, "minItems": 1, "maxItems": 1 },
-    "guestBrokerProtocolVersion": { "const": "1.1" },
+    "schemaVersion": {
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "officeVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "contractsVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "protocolVersion": {
+      "const": "1.0"
+    },
+    "signing": {
+      "const": "development"
+    },
+    "requiresHostCertification": {
+      "const": true
+    },
+    "environmentProfiles": {
+      "type": "array",
+      "items": {
+        "const": "software-development-polyglot-v1"
+      },
+      "minItems": 1,
+      "maxItems": 1
+    },
+    "guestBrokerProtocolVersion": {
+      "const": "1.1"
+    },
     "assets": {
-      "type": "array", "minItems": 2, "maxItems": 3,
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 3,
       "allOf": [
-        { "contains": { "properties": { "name": { "pattern": "-windows-support\\.zip$" } }, "required": ["name"] }, "minContains": 1, "maxContains": 1 },
-        { "contains": { "properties": { "name": { "pattern": "-windows-x64\\.zip$" } }, "required": ["name"] }, "minContains": 1, "maxContains": 1 }
+        {
+          "contains": {
+            "properties": {
+              "name": {
+                "pattern": "-windows-support\\.zip$"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "name": {
+                "pattern": "-windows-x64\\.zip$"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
       ],
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["name", "size", "sha256", "url"],
-        "properties": {
-          "name": { "type": "string", "pattern": "^csweet-office-[0-9]+\\.[0-9]+\\.[0-9]+-(windows-support\\.zip|windows-x64\\.zip|linux-x64\\.tar\\.gz)$" },
-          "size": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
-          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-          "url": { "type": "string", "pattern": "^https://github\\.com/CrosswiredStudios/CSweet\\.Office/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/csweet-office-" }
+        "oneOf": [
+          {
+            "$ref": "#/$defs/single"
+          },
+          {
+            "$ref": "#/$defs/multipart"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "single": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "size",
+        "sha256",
+        "url"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^csweet-office-[0-9]+\\.[0-9]+\\.[0-9]+-(windows-support\\.zip|windows-x64\\.zip|linux-x64\\.tar\\.gz)$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://github\\.com/CrosswiredStudios/CSweet\\.Office/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/csweet-office-"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "pattern": "-windows-support\\.zip$"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "size": {
+                "maximum": 10485760
+              }
+            }
+          }
+        }
+      ]
+    },
+    "part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "size",
+        "sha256",
+        "url"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^csweet-office-[0-9]+\\.[0-9]+\\.[0-9]+-(windows-x64\\.zip|linux-x64\\.tar\\.gz)\\.part[0-9]{3}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1073741824
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://github\\.com/CrosswiredStudios/CSweet\\.Office/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/csweet-office-"
+        }
+      }
+    },
+    "multipart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "size",
+        "sha256",
+        "parts"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^csweet-office-[0-9]+\\.[0-9]+\\.[0-9]+-(windows-x64\\.zip|linux-x64\\.tar\\.gz)$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 17179869184
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "parts": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/part"
+          }
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": 1
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "assets": {
+            "items": {
+              "$ref": "#/$defs/single"
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "assets": {
+            "contains": {
+              "$ref": "#/$defs/multipart"
+            },
+            "minContains": 1
+          }
+        }
+      }
+    }
+  ]
 }

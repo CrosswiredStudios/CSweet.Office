@@ -1,4 +1,6 @@
+param([string] $InstallerScript)
 $ErrorActionPreference = 'Stop'
+& "$PSScriptRoot/Test-OfficeBundleTransport.ps1"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root = Join-Path ([IO.Path]::GetTempPath()) "office-manifest-test-$([guid]::NewGuid().ToString('N'))"
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -115,6 +117,74 @@ try {
     if ($windowsManifest | ConvertTo-Json -Depth 6 | Test-Json -SchemaFile $schema -ErrorAction SilentlyContinue) {
         throw 'Duplicate support assets cannot replace the required Windows bundle.'
     }
+    # Force real publisher multipart output using a small random image and part boundary.
+    $multipartInput = "$root/multipart-input"
+    $multipartOutput = "$root/multipart-output"
+    New-Item -ItemType Directory "$multipartInput/binaries-win-x64" -Force | Out-Null
+    foreach ($name in @('scripts', 'Directory.Build.props', 'office-bundle.json')) {
+        Copy-Item -LiteralPath "$windowsInput/binaries-win-x64/$name" -Destination "$multipartInput/binaries-win-x64/$name" -Recurse
+    }
+    Copy-Item -LiteralPath "$windowsInput/windows-guest" -Destination "$multipartInput/windows-guest" -Recurse
+    $imagePath = "$multipartInput/windows-guest/csweet-agent-guest.vhdx"
+    $image = [byte[]]::new(256KB); [Random]::new(42).NextBytes($image); [IO.File]::WriteAllBytes($imagePath, $image)
+    $profile = Get-Content -LiteralPath "$multipartInput/windows-guest/guest-image-profile.json" -Raw | ConvertFrom-Json
+    $profile.guestImageSha256 = (Get-FileHash -LiteralPath $imagePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $profile | ConvertTo-Json | Set-Content -LiteralPath "$multipartInput/windows-guest/guest-image-profile.json" -Encoding utf8
+    & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot $multipartInput -OutputRoot $multipartOutput -WindowsOnly -PartSizeBytes 64KB
+    $multipartManifest = Get-Content -LiteralPath "$multipartOutput/office-bootstrap.json" -Raw | ConvertFrom-Json
+    $bundle = $multipartManifest.assets | Where-Object name -CEQ "csweet-office-$version-windows-x64.zip"
+    if ($multipartManifest.schemaVersion -ne 2 -or $bundle.parts.Count -lt 2 -or
+        (Test-Path -LiteralPath "$multipartOutput/$($bundle.name)")) { throw 'Multipart publication did not replace the oversized logical archive.' }
+    $joined = "$root/reconstructed.zip"
+    $output = [IO.File]::Create($joined)
+    try {
+        for ($index = 0; $index -lt $bundle.parts.Count; $index++) {
+            $part = $bundle.parts[$index]
+            $expectedName = '{0}.part{1:D3}' -f $bundle.name, ($index + 1)
+            $file = Get-Item -LiteralPath "$multipartOutput/$($part.name)"
+            if ($part.name -cne $expectedName -or $part.size -gt 64KB -or $file.Length -ne $part.size -or
+                (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $part.sha256) { throw 'Published part metadata differs from the bytes.' }
+            $input = [IO.File]::OpenRead($file.FullName)
+            try { $input.CopyTo($output) } finally { $input.Dispose() }
+        }
+    } finally { $output.Dispose() }
+    if ((Get-Item -LiteralPath $joined).Length -ne $bundle.size -or
+        (Get-FileHash -LiteralPath $joined -Algorithm SHA256).Hash.ToLowerInvariant() -cne $bundle.sha256) { throw 'Published archive digest did not survive reconstruction.' }
+    $zip = [IO.Compression.ZipFile]::OpenRead($joined)
+    try { if ($zip.GetEntry('guest/csweet-agent-guest.vhdx').Length -ne $image.Length) { throw 'Multipart bundle lost the guest image.' } }
+    finally { $zip.Dispose() }
+    foreach ($file in Get-ChildItem -LiteralPath $multipartOutput -File | Where-Object Name -NE 'SHA256SUMS') {
+        $line = "$((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($file.Name)"
+        if ($line -cnotin @(Get-Content -LiteralPath "$multipartOutput/SHA256SUMS")) { throw 'Physical release asset is missing from SHA256SUMS.' }
+    }
+    $invalid = $multipartManifest | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $invalid.schemaVersion = 1
+    if ($invalid | ConvertTo-Json -Depth 8 | Test-Json -SchemaFile $schema -ErrorAction SilentlyContinue) { throw 'Schema 1 admitted multipart assets.' }
+    $invalid.schemaVersion = 2
+    $invalid.assets[1].parts[0].size = 1GB + 1L
+    if ($invalid | ConvertTo-Json -Depth 8 | Test-Json -SchemaFile $schema -ErrorAction SilentlyContinue) { throw 'Schema admitted a part larger than 1 GiB.' }
+    if ($InstallerScript) {
+        . ([IO.Path]::GetFullPath($InstallerScript))
+        $script:publishedFixture = $multipartOutput
+        $script:publishedManifest = $multipartManifest
+        $script:publishedVersion = $version
+        function Get-CSweetReleaseJson([string] $Url) {
+            if ($Url.Contains('api.github.com')) { return @([pscustomobject]@{ tag_name = "v$script:publishedVersion"; draft = $false; prerelease = $false; assets = @([pscustomobject]@{ name = 'office-bootstrap.json' }) }) }
+            return $script:publishedManifest
+        }
+        function Invoke-CSweetReleaseDownload {
+            param($Uri, $OutputPath, $MaximumBytes, $TimeoutSeconds)
+            $file = Join-Path $script:publishedFixture ([uri]$Uri).Segments[-1]
+            if ((Get-Item -LiteralPath $file).Length -gt $MaximumBytes) { throw 'Fixture exceeded the authenticated download bound.' }
+            Copy-Item -LiteralPath $file -Destination $OutputPath
+        }
+        $release = Resolve-CSweetOfficeRelease 'x64'
+        Receive-CSweetOfficeAsset $release.Support "$root/installed-support" | Out-Null
+        Receive-CSweetOfficeAsset $release.Bundle "$root/installed-bundle" | Out-Null
+        if ((Get-FileHash -LiteralPath "$root/installed-bundle/guest/csweet-agent-guest.vhdx" -Algorithm SHA256).Hash.ToLowerInvariant() -cne $profile.guestImageSha256) { throw 'The real installer did not reconstruct the real publisher image.' }
+        Write-Host 'Cross-repository publisher -> discovery -> verification -> extraction passed.'
+    }
+    Write-Host 'Multipart publisher, schema, SHA256SUMS and reconstructed image checks passed.'
     Write-Host 'Combined and Windows-only archive layouts, manifest schema, sizes, hashes, and immutable URLs passed.'
 } finally {
     if ([IO.Path]::GetFullPath($root).StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()), [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $root)) {
