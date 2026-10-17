@@ -125,7 +125,7 @@ public sealed class RuntimeInternetTests
     public void InternetCertificationNeedsEveryRealProviderCheck()
     {
         var receipt = new ProviderCertificationEvidence("hyperv-gen2", "1.0.0", "windows", "x64", "sha256:image",
-            "1.1", "csweet-hardware-vm-smoke-v15", DateTimeOffset.UtcNow, null);
+            "1.1", ProviderCertificationEvidence.FullInternetSuite, DateTimeOffset.UtcNow, null);
         Assert.False(receipt.SupportsPublicInternet);
         var checks = ProviderCertificationEvidence.RequiredInternetChecks.ToDictionary(x => x, _ => true);
         Assert.True((receipt with { Checks = checks }).SupportsPublicInternet);

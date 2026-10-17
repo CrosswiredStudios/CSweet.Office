@@ -130,7 +130,10 @@ public sealed class GuestBrokerSession(
                         await workload.StopAsync(
                             TimeSpan.FromSeconds(Math.Clamp(command.ShutdownCommand.GracePeriodSeconds, 0, 60)),
                             cancellationToken);
-                        await SendExitAsync(output, 0, command.ShutdownCommand.ReasonCode, null, cancellationToken);
+                        await SendExitAsync(output, workload.ResourceFailureCode is null ? 0 : 137,
+                            workload.ResourceFailureCode ?? command.ShutdownCommand.ReasonCode,
+                            System.Text.Json.JsonSerializer.Serialize(new { peakMemoryBytes = workload.PeakMemoryBytes,
+                                log = string.IsNullOrWhiteSpace(workload.DiagnosticDetail) ? null : SanitizeDetail(workload.DiagnosticDetail) }), cancellationToken);
                         return;
                     case GuestEnvelope.BodyOneofCase.Health:
                         await SendHealthAsync(output, workload.IsRunning ? "running" : "ready", token);
@@ -213,13 +216,17 @@ public sealed class GuestBrokerSession(
             await SendExitAsync(
                 output,
                 code,
-                "process-exited",
-                string.IsNullOrWhiteSpace(workload.DiagnosticDetail)
-                    ? null
-                    : SanitizeDetail(workload.DiagnosticDetail),
+                workload.ResourceFailureCode ?? "process-exited",
+                System.Text.Json.JsonSerializer.Serialize(new { peakMemoryBytes = workload.PeakMemoryBytes,
+                    log = string.IsNullOrWhiteSpace(workload.DiagnosticDetail) ? null : SanitizeDetail(workload.DiagnosticDetail) }),
                 cancellationToken);
         }
         catch (OperationCanceledException) { }
+        catch (TimeoutException)
+        {
+            try { await SendExitAsync(output, 137, "workload-cleanup-timeout", null, CancellationToken.None); }
+            catch (IOException) { }
+        }
         catch (InvalidDataException)
         {
             try { await SendExitAsync(output, 137, "resource-limit-exceeded", null, CancellationToken.None); }

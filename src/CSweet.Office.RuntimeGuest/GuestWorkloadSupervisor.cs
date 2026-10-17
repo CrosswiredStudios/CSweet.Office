@@ -7,6 +7,8 @@ public interface IGuestWorkloadSupervisor : IAsyncDisposable
 {
     bool IsRunning { get; }
     string? DiagnosticDetail { get; }
+    string? ResourceFailureCode => null;
+    long PeakMemoryBytes => 0;
     Task StartAsync(IReadOnlyList<string> entrypoint, long maximumLogBytes,
         IReadOnlyDictionary<string, string> environment, CancellationToken cancellationToken);
     Task<int> WaitForExitAsync(CancellationToken cancellationToken);
@@ -17,12 +19,16 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
 {
     private readonly string _artifactRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.ArtifactRoot));
     private Process? _process;
+    private string? _cgroupPath;
     private Task[] _logDrains = [];
     private long _logBytes;
     private readonly object _diagnosticLock = new();
     private readonly StringBuilder _diagnosticTail = new();
 
     public bool IsRunning => _process is { HasExited: false };
+    public string? ResourceFailureCode => _cgroupPath is not null && ReadCounter(Path.Combine(_cgroupPath, "memory.events"), "oom_kill") > 0
+        ? "workload-memory-limit-exceeded" : null;
+    public long PeakMemoryBytes => _cgroupPath is not null && long.TryParse(File.ReadAllText(Path.Combine(_cgroupPath, "memory.peak")).Trim(), out var bytes) ? bytes : 0;
     public string? DiagnosticDetail
     {
         get
@@ -43,9 +49,11 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
 
         var executable = ResolveExecutable(entrypoint[0]);
         var runAsUnprivilegedUser = !OperatingSystem.IsWindows();
+        if (OperatingSystem.IsLinux() && options.WorkloadKind == 1 && environment.ContainsKey("CSWEET_WORKLOAD_MEMORY_MB"))
+            _cgroupPath = PrepareWorkloadCgroup(environment);
         var start = new ProcessStartInfo
         {
-            FileName = runAsUnprivilegedUser ? "/usr/bin/setpriv" : executable,
+            FileName = _cgroupPath is not null ? "/bin/sh" : runAsUnprivilegedUser ? "/usr/bin/setpriv" : executable,
             WorkingDirectory = _artifactRoot,
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -53,6 +61,16 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
             RedirectStandardInput = false,
             CreateNoWindow = true
         };
+        if (_cgroupPath is not null)
+        {
+            // Fixed privileged trampoline: move before dropping privileges or executing any
+            // artifact code. Entrypoint and arguments remain separate argv entries.
+            start.ArgumentList.Add("-c");
+            start.ArgumentList.Add("printf '%s' \"$$\" > \"$1\" || exit 126; shift; exec \"$@\"");
+            start.ArgumentList.Add("csweet-workload-launch");
+            start.ArgumentList.Add(Path.Combine(_cgroupPath, "cgroup.procs"));
+            start.ArgumentList.Add("/usr/bin/setpriv");
+        }
         if (runAsUnprivilegedUser)
         {
             start.ArgumentList.Add("--reuid=" + GuestUnixFilePermissions.WorkloadUser);
@@ -112,13 +130,14 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
     {
         var process = _process ?? throw new InvalidOperationException("The guest workload has not started.");
         await process.WaitForExitAsync(cancellationToken);
-        await Task.WhenAll(_logDrains).WaitAsync(cancellationToken);
+        await Task.WhenAll(_logDrains).WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
         return process.ExitCode;
     }
 
     public async Task StopAsync(TimeSpan gracePeriod, CancellationToken cancellationToken)
     {
         var process = _process;
+        if (_cgroupPath is not null) File.WriteAllText(Path.Combine(_cgroupPath, "cgroup.kill"), "1");
         if (process is null || process.HasExited) return;
         try { process.Kill(entireProcessTree: false); }
         catch (InvalidOperationException) { return; }
@@ -204,6 +223,7 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
     }
 
     internal static bool IsAllowedEnvironmentKey(string value) => value is
+        "CSWEET_WORKLOAD_MEMORY_MB" or "CSWEET_WORKLOAD_PROCESS_LIMIT" or
         "CSWEET_BUILD_ID" or "CSWEET_BUILD_EXPECTED_REVISION" or "CSWEET_BUILD_RECIPE_KEY" or
         "CSWEET_BUILD_TARGET_KEY" or "CSWEET_BUILD_CONFIGURATION_JSON" or
         "CSWEET_BUILD_SOURCE_URL" or "CSWEET_BUILD_SOURCE_COMMIT" or
@@ -212,4 +232,43 @@ public sealed class GuestWorkloadSupervisor(GuestServiceOptions options) : IGues
         "CSWEET_ALLOWED_DEPENDENCY_REGISTRIES" or "CSWEET_CERTIFICATION_FIXTURE_RESOURCE" or
         "CSWEET_WORKSPACE_MAXIMUM_ARCHIVE_BYTES" or "CSWEET_WORKSPACE_MAXIMUM_EXPANDED_BYTES" or
         "CSWEET_WORKSPACE_MAXIMUM_FILE_COUNT" or "CSWEET_CERTIFICATION_HOST_ADDRESSES";
+
+    internal static long WorkloadMemoryBudget(long physicalBytes, long authorizedBytes)
+    {
+        var total = Math.Min(physicalBytes, authorizedBytes);
+        var reserve = Math.Max(256L * 1024 * 1024, total / 4);
+        if (total - reserve < 256L * 1024 * 1024) throw new InvalidDataException("The VM has insufficient memory for workload and supervision.");
+        return total - reserve;
+    }
+
+    private static string PrepareWorkloadCgroup(IReadOnlyDictionary<string, string> environment)
+    {
+        var relative = File.ReadLines("/proc/self/cgroup").Single(x => x.StartsWith("0::", StringComparison.Ordinal))[3..];
+        if (!relative.StartsWith('/') || relative.Split('/').Any(x => x == "..")) throw new InvalidDataException("Invalid delegated cgroup path.");
+        var root = Path.GetFullPath("/sys/fs/cgroup" + relative);
+        var supervision = Path.Combine(root, "supervision");
+        Directory.CreateDirectory(supervision);
+        // Delegate=yes gives this service a private subtree. Keep the broker outside the
+        // memory-limited workload subtree; workload users cannot write either controller.
+        foreach (var pid in File.ReadAllLines(Path.Combine(root, "cgroup.procs")))
+            File.WriteAllText(Path.Combine(supervision, "cgroup.procs"), pid);
+        File.WriteAllText(Path.Combine(root, "cgroup.subtree_control"), "+memory +pids");
+        var workload = Path.Combine(root, "workload"); Directory.CreateDirectory(workload);
+        var physicalKb = ReadCounter("/proc/meminfo", "MemTotal:");
+        if (!environment.TryGetValue("CSWEET_WORKLOAD_MEMORY_MB", out var memory) || !long.TryParse(memory, out var mb) || mb <= 0 ||
+            !environment.TryGetValue("CSWEET_WORKLOAD_PROCESS_LIMIT", out var limit) || !int.TryParse(limit, out var processes) || processes <= 0)
+            throw new InvalidDataException("The signed workload resource envelope is incomplete.");
+        var authorizedBytes = checked(mb * 1024 * 1024);
+        File.WriteAllText(Path.Combine(workload, "memory.max"), WorkloadMemoryBudget(physicalKb * 1024, authorizedBytes).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        File.WriteAllText(Path.Combine(workload, "memory.swap.max"), "0");
+        File.WriteAllText(Path.Combine(workload, "memory.oom.group"), "1");
+        File.WriteAllText(Path.Combine(workload, "pids.max"), processes.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return workload;
+    }
+
+    private static long ReadCounter(string path, string name)
+    {
+        var fields = File.ReadLines(path).Select(x => x.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).FirstOrDefault(x => x.Length >= 2 && x[0] == name);
+        return fields is not null && long.TryParse(fields[1], out var value) ? value : 0;
+    }
 }

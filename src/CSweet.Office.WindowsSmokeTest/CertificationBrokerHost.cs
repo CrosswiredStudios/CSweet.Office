@@ -73,7 +73,7 @@ internal sealed class GuestBrokerHostSession(
     TimeProvider timeProvider,
     GuestBootConfiguration bootConfiguration,
     StartCommand startCommand,
-    bool publicInternetIpv6 = true)
+    bool publicInternetIpv6 = true, bool expectMemoryLimit = false)
 {
     private const int MaximumConcurrentProxyRequests = 32;
     private readonly TaskCompletionSource _started =
@@ -83,6 +83,7 @@ internal sealed class GuestBrokerHostSession(
     private long _diagnosticSequence;
     public string? DiagnosticDetail { get; private set; }
     public bool InternetCleanupVerified { get; private set; }
+    public bool MemoryLimitObserved { get; private set; }
 
     public Task Started => _started.Task;
 
@@ -162,6 +163,13 @@ internal sealed class GuestBrokerHostSession(
                 }
                 if (envelope.BodyCase == GuestEnvelope.BodyOneofCase.Exit)
                 {
+                    if (expectMemoryLimit && envelope.Exit.ReasonCode == "workload-memory-limit-exceeded")
+                    {
+                        using var detail = System.Text.Json.JsonDocument.Parse(envelope.Exit.Detail);
+                        MemoryLimitObserved = detail.RootElement.GetProperty("peakMemoryBytes").GetInt64() > 0;
+                        if (!MemoryLimitObserved) throw new InvalidOperationException("Memory limit receipt has no peak measurement.");
+                        return;
+                    }
                     if (envelope.Exit.ExitCode != 0)
                         throw new InvalidOperationException(
                             $"The guest workload failed ({envelope.Exit.ReasonCode}, exit {envelope.Exit.ExitCode}): {envelope.Exit.Detail}");

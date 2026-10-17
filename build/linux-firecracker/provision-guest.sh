@@ -88,7 +88,8 @@ ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
-ProtectControlGroups=true
+Delegate=memory pids
+ProtectControlGroups=false
 RestrictRealtime=true
 LockPersonality=true
 

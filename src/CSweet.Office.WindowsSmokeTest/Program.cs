@@ -198,6 +198,13 @@ if (builderChecks.Any(check => !check.Value))
         string.Join(", ", builderChecks.Where(check => !check.Value).Select(check => check.Key)));
 var internetChecks = arguments.PublicInternet ? await RunInternetSmokeAsync(
     helper, guestImage, guestDigest, artifactDigest, artifactIso, arguments.Provider, descriptor, guestArchitecture, socketOptions, arguments.PublicInternetIpv4Only) : new Dictionary<string, bool>();
+if (arguments.PublicInternet)
+{
+    var memoryChecks = await RunInternetSmokeAsync(helper, guestImage, guestDigest, artifactDigest, artifactIso,
+        arguments.Provider, descriptor, guestArchitecture, socketOptions, arguments.PublicInternetIpv4Only, memoryPressure: true);
+    internetChecks["workloadMemoryBoundary"] = memoryChecks.GetValueOrDefault("workloadMemoryBoundary");
+    if (!internetChecks["workloadMemoryBoundary"]) throw new InvalidOperationException("Guest memory pressure certification failed.");
+}
 var combinedChecks = validatedReport.Checks
     .Concat(builderChecks).Concat(internetChecks)
     .GroupBy(check => check.Key, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.All(check => check.Value), StringComparer.Ordinal);
@@ -231,14 +238,14 @@ Console.WriteLine(JsonSerializer.Serialize(new
 
 static async Task<Dictionary<string, bool>> RunInternetSmokeAsync(
     string helper, string guestImage, string guestDigest, string artifactDigest, string artifactIso,
-    string provider, IsolationProviderDescriptor descriptor, string architecture, HyperVSocketTransportOptions socketOptions, bool ipv4Only)
+    string provider, IsolationProviderDescriptor descriptor, string architecture, HyperVSocketTransportOptions socketOptions, bool ipv4Only, bool memoryPressure = false)
 {
     var id = Guid.NewGuid(); var installation = Guid.NewGuid(); var channel = Guid.NewGuid();
     var expires = DateTimeOffset.UtcNow.AddMinutes(5);
     var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     var image = new GuestImageReference("csweet-development-polyglot-v1", "1.0", guestDigest, "linux", architecture);
     var workload = new RuntimeWorkloadSpecification(id, image,
-        new WorkloadResourceLimits(1, 100, 1536, 2048, 128, 1024 * 1024, TimeSpan.FromMinutes(4)),
+        new WorkloadResourceLimits(1, 100, memoryPressure ? 1024 : 4096, 2048, 128, 1024 * 1024, TimeSpan.FromMinutes(4)),
         new BrokerChannelLease(channel, "1.1", secret, guestDigest, artifactDigest, expires),
         new AgentArtifactReference(artifactDigest, "smoke-test", "1.0", "linux", architecture),
         new RuntimeAgentIdentity(installation, Guid.NewGuid().ToString("D"), Guid.NewGuid()), ["probe"])
@@ -260,15 +267,23 @@ static async Task<Dictionary<string, bool>> RunInternetSmokeAsync(
             TickId = workload.Identity.TickId.ToString("D"), LocalBrokerSocketPath = "/run/csweet/broker.sock",
             WorkloadTokenPath = "/run/csweet/workload-token", MaximumFrameBytes = 16 * 1024 * 1024, PublicInternet = true };
         var start = new StartCommand { WorkloadKind = 1, MaximumLogBytes = 1024 * 1024 };
+        start.Environment.Add("CSWEET_WORKLOAD_MEMORY_MB", (memoryPressure ? 1024 : 4096).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        start.Environment.Add("CSWEET_WORKLOAD_PROCESS_LIMIT", "128");
         start.Entrypoint.Add("probe");
+        if (memoryPressure) start.Entrypoint.Add("--memory-pressure");
         start.Environment.Add("CSWEET_CERTIFICATION_HOST_ADDRESSES", string.Join(",", System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces().SelectMany(x => x.GetIPProperties().UnicastAddresses).Select(x => x.Address.ToString())));
         if (ipv4Only) start.Entrypoint.Add("--public-internet-ipv4-only");
-        var session = new GuestBrokerHostSession(grant, collector, TimeProvider.System, boot, start, publicInternetIpv6: !ipv4Only);
+        var session = new GuestBrokerHostSession(grant, collector, TimeProvider.System, boot, start, publicInternetIpv6: !ipv4Only, expectMemoryLimit: memoryPressure);
         await using var transport = await ConnectGuestAsync(provider, helper, handle, socketOptions);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(4));
         try
         {
             var task = session.RunAsync(transport, transport, timeout.Token);
+            if (memoryPressure)
+            {
+                await task.WaitAsync(timeout.Token);
+                return new() { ["workloadMemoryBoundary"] = session.MemoryLimitObserved };
+            }
             var first = await Task.WhenAny(task, collector.Report).WaitAsync(timeout.Token);
             if (first == task && !collector.Report.IsCompleted) await task;
             var report = await collector.Report.WaitAsync(timeout.Token);
@@ -276,7 +291,7 @@ static async Task<Dictionary<string, bool>> RunInternetSmokeAsync(
             await task.WaitAsync(timeout.Token);
             var checks = report.Checks.ToDictionary(x => x.Key, x => x.Value);
             checks["publicInternetLeaseCleanup"] = session.InternetCleanupVerified;
-            if (!report.Passed || ProviderCertificationEvidence.RequiredInternetChecks.Where(key => !ipv4Only || key != "publicInternetIpv6")
+            if (!report.Passed || ProviderCertificationEvidence.RequiredInternetChecks.Where(key => key != "workloadMemoryBoundary" && (!ipv4Only || key != "publicInternetIpv6"))
                 .Any(key => !checks.GetValueOrDefault(key)))
                 throw new InvalidOperationException("The public internet/development certification failed: " +
                     string.Join(", ", checks.Where(x => !x.Value).Select(x => x.Key)));

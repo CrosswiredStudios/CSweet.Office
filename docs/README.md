@@ -66,3 +66,5 @@ which invariant each test class pins.
 
 If you find drift, fix the page and update its `Verified:` date. If you cannot fix it, note the
 discrepancy in the page rather than leaving a claim that is quietly wrong.
+
+Coding memory protection and its certification boundary are described in [10-system/05-coding-resource-protection.md](10-system/05-coding-resource-protection.md).

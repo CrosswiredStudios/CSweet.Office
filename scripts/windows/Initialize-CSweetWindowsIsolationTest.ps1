@@ -301,7 +301,7 @@ $certificationLines | ForEach-Object { Write-Host $_ }
 $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
 if (-not $evidence.checks -or @($evidence.checks.PSObject.Properties | Where-Object {
     $_.Value -ne $true -and -not ($PublicInternetIpv4Only -and
-        $evidence.certificationSuiteVersion -ceq 'csweet-hardware-vm-smoke-v15-ipv4' -and $_.Name -ceq 'publicInternetIpv6')
+        $evidence.certificationSuiteVersion -ceq 'csweet-hardware-vm-smoke-v16-ipv4' -and $_.Name -ceq 'publicInternetIpv6')
 }).Count -ne 0) {
     throw 'Certification evidence contains a failed isolation check.'
 }

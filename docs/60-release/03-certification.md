@@ -185,3 +185,17 @@ Verified: 2026-10-15. All 237 Office tests passed against published contracts.
 DNS-corrected hosted-image copy with guest digest
 `sha256:48c8cb2be86c4b724c95bdff6b75bd7c28c1cde11099de70a05a06d01fe4736d`.
 The CI-built 0.9.3 image still requires its normal destination-host certification.
+
+## Coding memory certification in 0.10.0
+
+`ProviderCertificationEvidence.RequiredInternetChecks` now requires
+`workloadMemoryBoundary` under suite v16/v16-ipv4. `RunInternetSmokeAsync` starts a
+separate pressure fixture and accepts only the authenticated typed memory-limit exit
+with a measured peak. The ordinary development fixture starts at 4096 MiB. Existing
+v15 evidence above remains historical evidence for its original image, not this new
+resource guarantee. Rebuild and recertify the guest before advertising v16.
+
+Sources: `src/CSweet.Office.WindowsSmokeTest/{Program.cs,CertificationBrokerHost.cs}`,
+`src/CSweet.Office.GuestProbe/Program.cs`,
+`src/CSweet.Office.Runtime.Core/ExternalPlatformIsolationBackend.cs`.
+Verified: 2026-10-16 (source and regression tests; new real-VM certification pending).

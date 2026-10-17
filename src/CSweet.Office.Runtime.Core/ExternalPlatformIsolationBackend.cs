@@ -436,8 +436,8 @@ public sealed record ProviderCertificationEvidence(
     DateTimeOffset? CertificationExpiresAt)
 {
     public IReadOnlyDictionary<string, bool>? Checks { get; init; }
-    public const string FullInternetSuite = "csweet-hardware-vm-smoke-v15";
-    public const string Ipv4InternetSuite = "csweet-hardware-vm-smoke-v15-ipv4";
+    public const string FullInternetSuite = "csweet-hardware-vm-smoke-v16";
+    public const string Ipv4InternetSuite = "csweet-hardware-vm-smoke-v16-ipv4";
     public bool SupportsPublicInternet => BrokerProtocolVersion == "1.1" &&
         (CertificationSuiteVersion == FullInternetSuite && RequiredInternetChecks.All(Passed) ||
          CertificationSuiteVersion == Ipv4InternetSuite && RequiredInternetChecks.Where(x => x != "publicInternetIpv6").All(Passed));
@@ -445,5 +445,5 @@ public sealed record ProviderCertificationEvidence(
     private bool Passed(string key) => Checks?.TryGetValue(key, out var passed) == true && passed;
     public static readonly IReadOnlyList<string> RequiredInternetChecks =
         ["publicInternetTcp", "publicInternetUdp", "publicInternetIpv6", "publicInternetPrivateDenied",
-         "publicInternetHostDenied", "publicInternetLeaseCleanup", "developmentToolchain"];
+         "publicInternetHostDenied", "publicInternetLeaseCleanup", "developmentToolchain", "workloadMemoryBoundary"];
 }

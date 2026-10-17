@@ -5,6 +5,18 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
+if (args.Contains("--memory-pressure", StringComparer.Ordinal))
+{
+    // Certification only: native, touched pages force the kernel cgroup boundary rather
+    // than the CLR's smaller managed-heap limit. The authenticated broker must survive.
+    var page = new byte[1024 * 1024]; Array.Fill(page, (byte)0xA5);
+    for (var index = 0; index < 8192; index++)
+    {
+        var allocation = Marshal.AllocHGlobal(page.Length);
+        Marshal.Copy(page, 0, allocation, page.Length);
+    }
+    return 2; // A missing/ineffective boundary never certifies successfully.
+}
 var internet = Environment.GetEnvironmentVariable("CSWEET_RUNTIME_NETWORK_MODE") == "public-internet";
 var ipv4Only = args.Contains("--public-internet-ipv4-only", StringComparer.Ordinal);
 var checks = internet ? await InternetChecksAsync() : new Dictionary<string, bool>(StringComparer.Ordinal)
@@ -25,7 +37,7 @@ var checks = internet ? await InternetChecksAsync() : new Dictionary<string, boo
     ["dotnet-sdk-present"] = await DotNetSdkPresentAsync()
 };
 var report = new GuestProbeReport(
-    internet ? (ipv4Only ? "csweet-hardware-vm-smoke-v15-ipv4" : "csweet-hardware-vm-smoke-v15") : "csweet-hardware-vm-smoke-v14",
+    internet ? (ipv4Only ? "csweet-hardware-vm-smoke-v16-ipv4" : "csweet-hardware-vm-smoke-v16") : "csweet-hardware-vm-smoke-v14",
     checks.Where(check => !internet || !ipv4Only || check.Key != "publicInternetIpv6").All(check => check.Value),
     checks,
     Environment.OSVersion.VersionString,
