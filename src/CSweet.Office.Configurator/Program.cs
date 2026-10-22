@@ -60,6 +60,22 @@ var targeted = query.TryGetValue("office", out var targetText);
 var maintenance = targeted && query.GetValueOrDefault("operation") is "repair" or "upgrade";
 if (targeted && (!Guid.TryParse(targetText, out _) ||
     !query.TryGetValue("operation", out var operation) || operation is not ("repair" or "upgrade" or "remove"))) return 2;
+if (maintenance && query.GetValueOrDefault("operation") == "upgrade" && query.GetValueOrDefault("automatic") == "true")
+{
+    // This helper is installed with the independently released Office, never supplied as
+    // executable code by Headquarters. It accepts only the existing machine-bound handoff.
+    var helper = Path.Combine(installRoot, "Start-CSweetOfficeAutomaticUpdate.ps1");
+    if (!File.Exists(helper)) return 5;
+    var handoffPath = Path.Combine(Path.GetTempPath(), $"csweet-update-{Guid.NewGuid():N}.secret");
+    try
+    {
+        await File.WriteAllTextAsync(handoffPath, input.AbsoluteUri);
+        if (Run("icacls.exe", [handoffPath, "/inheritance:r", "/grant:r", "*S-1-5-18:F", "*S-1-5-32-544:F"]) != 0) return 5;
+        return Run(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
+            ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", helper, "-HandoffInputPath", handoffPath]);
+    }
+    finally { try { File.Delete(handoffPath); } catch (IOException) { } }
+}
 
 
 if (targeted)

@@ -39,6 +39,9 @@ public sealed class CertificationCommandTests
         };
         if (OperatingSystem.IsWindows())
         {
+            // Test runners can inherit a restricted PATH. The timeout fixture needs the
+            // Windows ping executable, not whichever command a parent process resolves.
+            command.Environment["PATH"] = Environment.GetFolderPath(Environment.SpecialFolder.System);
             command.ArgumentList.Add("/d"); command.ArgumentList.Add("/c"); command.ArgumentList.Add(windows);
         }
         else { command.ArgumentList.Add("-c"); command.ArgumentList.Add(linux); }

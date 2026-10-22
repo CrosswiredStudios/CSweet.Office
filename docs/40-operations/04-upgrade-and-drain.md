@@ -51,6 +51,33 @@ local authority on that.
 assignment is admitted to the active set, and `MarkAssignmentInactive` deletes it in the teardown block. The
 markers are the *only* local record that a workload was running, and every upgrade gate counts them.
 
+## Automatic Windows updates (0.12.0)
+
+`CSweet.Office.Configurator` routes an explicitly targeted automatic upgrade to the installed
+`scripts/windows/Start-CSweetOfficeAutomaticUpdate.ps1`. The helper exchanges the one-use handoff
+for a bounded, machine-bound preparation receipt, downloads the selected release, verifies its exact
+Office executable version, and completes certification before asking Headquarters to stop jobs.
+The preparation receipt cannot authorize installation.
+
+Headquarters pauses placement, fences the interrupted assignments, and waits for each physical teardown
+receipt. The helper obtains a fresh installer handoff only after these checks pass. Preflight, redemption,
+and the local upgrade probe below remain independent gates. Installation preserves identity and restarts
+the services; Headquarters verifies the selected version, a new authenticated heartbeat, and healthy
+capacity before restoring the previous work setting and recovering interrupted durable work. An Office
+that was already paused stays paused.
+
+The helper and `CSweet.OfficeRelease.ps1` are installed from the Office release payload, not downloaded
+as executable code from Headquarters. Existing remote installations below 0.12.0 require the current
+installer once to obtain this capability. The configured Headquarters development machine can use its
+existing server launcher. Published-update requests do not silently fall back to building local source.
+
+Sources: `src/CSweet.Office.Configurator/Program.cs`,
+`scripts/windows/{Start-CSweetOfficeAutomaticUpdate.ps1,CSweet.OfficeRelease.ps1,Install-CSweetOfficeRuntimeHost.ps1}`,
+`releases/0.12.0.md`; Headquarters `ExecutionFleetService.Updates` and
+`scripts/tests/Test-AutomaticOfficeUpdatePreparation.ps1` (including installed-helper parity).
+
+Verified: 2026-10-21.
+
 ## The recovery probe
 
 `scripts/windows/Get-CSweetOfficeRecoveryState.ps1` prints exactly one of four values on its last output line and

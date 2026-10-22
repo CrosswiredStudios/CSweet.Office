@@ -956,7 +956,8 @@ if ([IO.Path]::GetFullPath($manifestPath) -ine [IO.Path]::GetFullPath($installed
 }
 foreach ($scriptName in @('Install-CSweetOffice.ps1', 'Install-CSweetOfficeRuntimeHost.ps1',
     'CSweet.WindowsSetupProgress.ps1', 'Get-CSweetOfficeRecoveryState.ps1', 'Enter-CSweetOfficeMaintenance.ps1',
-    'Remove-CSweetOfficeForRecovery.ps1', 'Uninstall-CSweetOffice.ps1')) {
+    'Remove-CSweetOfficeForRecovery.ps1', 'Uninstall-CSweetOffice.ps1',
+    'Start-CSweetOfficeAutomaticUpdate.ps1', 'CSweet.OfficeRelease.ps1')) {
     $scriptSource = Join-Path $PSScriptRoot $scriptName
     $scriptDestination = Join-Path $InstallRoot $scriptName
     if ([IO.Path]::GetFullPath($scriptSource) -ine [IO.Path]::GetFullPath($scriptDestination)) {
