@@ -24,7 +24,7 @@ public sealed partial class OfficeWorker(
 {
     private readonly IReadOnlyDictionary<string, IAgentIsolationProvider> _providers = isolationProviders
         .ToDictionary(x => x.Descriptor.ProviderId, StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<Guid, (long Epoch, CancellationTokenSource Cancellation)> _activeAssignments = [];
+    private readonly ConcurrentDictionary<Guid, (long Epoch, CancellationTokenSource Cancellation, TaskCompletionSource Finished)> _activeAssignments = [];
     private readonly SemaphoreSlim _workloadSlots = new(Math.Max(1, options.MaximumConcurrentWorkloads));
     private readonly AssignmentStopJournal _stopJournal = new(options);
 
@@ -292,50 +292,97 @@ public sealed partial class OfficeWorker(
         var handler = certificateValidator.CreateRotatingHttpHandler(() => certificates.Current);
         using var channel = GrpcChannel.ForAddress(options.ControlPlaneUrl, new GrpcChannelOptions { HttpHandler = handler });
         var client = new OfficeGateway.OfficeGatewayClient(channel);
-        using var call = client.Connect(cancellationToken: cancellationToken);
-        using var writerLock = new SemaphoreSlim(1, 1);
         var renewalTask = RenewDuringSessionAsync(state, certificates, renewalLifetime.Token);
-        var readTask = ReadControlMessagesAsync(
-            call.ResponseStream, call.RequestStream, writerLock, client, state, cancellationToken);
         try
         {
-            var sendInventory = true;
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                var heartbeat = new OfficeHeartbeat
-                {
-                    OfficeVersion = typeof(OfficeWorker).Assembly.GetName().Version!.ToString(3),
-                    OccurredAtUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                    AllocatableCpuCount = options.AllocatableCpuCount,
-                    AllocatableMemoryMb = options.AllocatableMemoryMb,
-                    AllocatableDiskMb = options.AllocatableDiskMb,
-                    MaximumConcurrentWorkloads = options.MaximumConcurrentWorkloads
-                };
-                heartbeat.SecurityPosture = ProviderInventory(options.SecurityPosture());
-                if (sendInventory)
-                {
-                    heartbeat.Providers.AddRange(providers.Select(ProviderInventory));
-                    sendInventory = false;
-                }
-                await SendAsync(call.RequestStream, writerLock, new OfficeControlMessage
-                {
-                    ProtocolVersion = "1.0",
-                    OfficeId = state.OfficeId.ToString("D"),
-                    SessionEpoch = state.SessionEpoch,
-                    Heartbeat = heartbeat
-                }, cancellationToken);
-                await ReplayStopsAsync(call.RequestStream, writerLock, state, cancellationToken);
-                await Task.WhenAny(readTask, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
-                if (readTask.IsCompleted) await readTask;
-            }
+            await RunControlConnectionsAsync(state, client, cancellationToken);
         }
         finally
         {
             renewalLifetime.Cancel();
             try { await renewalTask; }
             catch (OperationCanceledException) when (renewalLifetime.IsCancellationRequested) { }
-            foreach (var active in _activeAssignments.Values) active.Cancellation.Cancel();
-            await call.RequestStream.CompleteAsync();
+        }
+    }
+
+    internal async Task RunControlConnectionsAsync(OfficeState state,
+        OfficeGateway.OfficeGatewayClient client, CancellationToken cancellationToken)
+    {
+        // Keep the gRPC channel and workload cancellation independent of an individual
+        // control call. SEC-INV-06 still binds every message to the same Office epoch.
+        var writer = new ReconnectingControlWriter(TimeSpan.FromSeconds(20));
+        using var writerLock = new SemaphoreSlim(1, 1);
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                using var connectionLifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                using var call = client.Connect(cancellationToken: connectionLifetime.Token);
+                writer.Attach(call.RequestStream);
+                var readTask = ReadControlMessagesAsync(call.ResponseStream, writer, writerLock,
+                    client, state, connectionLifetime.Token, cancellationToken);
+                try
+                {
+                    var sendInventory = true;
+                    while (!cancellationToken.IsCancellationRequested)
+                    {
+                        var heartbeat = new OfficeHeartbeat
+                        {
+                            OfficeVersion = typeof(OfficeWorker).Assembly.GetName().Version!.ToString(3),
+                            OccurredAtUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                            AllocatableCpuCount = options.AllocatableCpuCount,
+                            AllocatableMemoryMb = options.AllocatableMemoryMb,
+                            AllocatableDiskMb = options.AllocatableDiskMb,
+                            MaximumConcurrentWorkloads = options.MaximumConcurrentWorkloads
+                        };
+                        heartbeat.SecurityPosture = ProviderInventory(options.SecurityPosture());
+                        if (sendInventory)
+                        {
+                            heartbeat.Providers.AddRange((await inventory.ProbeAsync(connectionLifetime.Token)).Select(ProviderInventory));
+                            sendInventory = false;
+                        }
+                        await writer.WriteConnectedAsync(call.RequestStream, new OfficeControlMessage
+                        {
+                            ProtocolVersion = "1.0",
+                            OfficeId = state.OfficeId.ToString("D"),
+                            SessionEpoch = state.SessionEpoch,
+                            Heartbeat = heartbeat
+                        }, cancellationToken);
+                        await ReplayStopsAsync(writer, writerLock, state, connectionLifetime.Token);
+                        await Task.WhenAny(readTask, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
+                        if (readTask.IsCompleted)
+                        {
+                            await readTask;
+                            throw new IOException("The Office control stream ended.");
+                        }
+                    }
+                }
+                catch (Exception exception) when (ReconnectingControlWriter.IsTransient(exception) && !cancellationToken.IsCancellationRequested)
+                {
+                    logger.LogWarning(exception, "The Office control stream ended; reconnecting while active workload tunnels remain open.");
+                }
+                finally
+                {
+                    writer.Detach(call.RequestStream);
+                    await connectionLifetime.CancelAsync();
+                    try { await readTask; }
+                    catch (Exception exception) { logger.LogDebug(exception, "The previous Office control reader ended."); }
+                }
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+        }
+        finally
+        {
+            // Explicit shutdown or rejected identity still stops workloads. A transient
+            // connection loss stays inside the loop; sends have a bounded reconnect grace.
+            var activeAssignments = _activeAssignments.Values.ToArray();
+            foreach (var active in activeAssignments)
+            {
+                try { await active.Cancellation.CancelAsync(); }
+                catch (ObjectDisposedException) { /* Assignment cleanup won the race. */ }
+            }
+            try { await Task.WhenAll(activeAssignments.Select(x => x.Finished.Task)).WaitAsync(TimeSpan.FromSeconds(15)); }
+            catch (TimeoutException) { logger.LogWarning("Office shutdown cleanup remains pending in the durable stop journal."); }
         }
     }
 
@@ -377,7 +424,8 @@ public sealed partial class OfficeWorker(
         SemaphoreSlim writerLock,
         OfficeGateway.OfficeGatewayClient gatewayClient,
         OfficeState state,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CancellationToken assignmentLifetime)
     {
         using var assignmentVerificationKey = ECDsa.Create();
         var assignmentPublicKey = Convert.FromBase64String(state.AssignmentVerificationPublicKeyBase64);
@@ -424,7 +472,7 @@ public sealed partial class OfficeWorker(
                 logger.LogInformation("Received fenced workload assignment {AssignmentId} at epoch {Epoch}.",
                     message.Assignment.AssignmentId, message.Assignment.FencingEpoch);
                 var assignmentId = Guid.Parse(message.Assignment.AssignmentId);
-                var assignmentCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var assignmentCancellation = CancellationTokenSource.CreateLinkedTokenSource(assignmentLifetime);
                 // Journal every received epoch even when the previous one still owns the slot.
                 // A later recovery hint can then durably retire the skipped attempt.
                 if (!_stopJournal.TryBegin(state.OfficeId, assignmentId,
@@ -433,11 +481,12 @@ public sealed partial class OfficeWorker(
                     assignmentCancellation.Dispose();
                     continue;
                 }
-                if (_activeAssignments.TryAdd(assignmentId, (message.Assignment.FencingEpoch, assignmentCancellation)))
+                var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                if (_activeAssignments.TryAdd(assignmentId, (message.Assignment.FencingEpoch, assignmentCancellation, finished)))
                 {
                     stateStore.MarkAssignmentActive(assignmentId);
                     _ = ExecuteAssignmentAsync(message.Assignment, writer, writerLock, gatewayClient, state,
-                        assignmentCancellation).ContinueWith(task =>
+                        assignmentCancellation, finished).ContinueWith(task =>
                         {
                             if (task.Exception is not null)
                                 logger.LogError(task.Exception, "Execution assignment {AssignmentId} failed.", assignmentId);
@@ -485,7 +534,8 @@ public sealed partial class OfficeWorker(
         SemaphoreSlim writerLock,
         OfficeGateway.OfficeGatewayClient gatewayClient,
         OfficeState state,
-        CancellationTokenSource assignmentCancellation)
+        CancellationTokenSource assignmentCancellation,
+        TaskCompletionSource finished)
     {
         var assignmentId = Guid.Parse(assignment.AssignmentId);
         IsolationWorkloadHandle? handle = null;
@@ -578,8 +628,12 @@ public sealed partial class OfficeWorker(
                 exception,
                 "Assignment {AssignmentId} epoch {FencingEpoch} failed while executing provider {ProviderId}.",
                 assignmentId, assignment.FencingEpoch, assignment.ProviderId);
+            // Do not postpone teardown for another reconnect window after a disconnected
+            // report already timed out. The durable stop journal will report its outcome.
+            if (writer is ReconnectingControlWriter { IsConnected: false }) return;
             try
             {
+                using var reportTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 var failure = DescribeExecutionFailure(exception);
                 await SendStatusAsync(writer, writerLock, state, assignment,
                     "Failed", failure.FailureCode, failure.SanitizedFailure,
@@ -587,7 +641,7 @@ public sealed partial class OfficeWorker(
                     provider is not null && handle is not null
                         ? await ReadLogsAsync(provider, handle, CancellationToken.None)
                         : null,
-                    CancellationToken.None);
+                    reportTimeout.Token);
             }
             catch (Exception reportException)
             {
@@ -626,6 +680,7 @@ public sealed partial class OfficeWorker(
             if (enteredSlot) _workloadSlots.Release();
             _activeAssignments.TryRemove(assignmentId, out _);
             assignmentCancellation.Dispose();
+            finished.TrySetResult();
         }
     }
 
@@ -804,14 +859,18 @@ public sealed partial class OfficeWorker(
 
     private static OfficeControlMessage Envelope(OfficeState state, AssignmentLeaseRenewal renewal) => new()
     {
-        ProtocolVersion = "1.0", OfficeId = state.OfficeId.ToString("D"),
-        SessionEpoch = state.SessionEpoch, LeaseRenewal = renewal
+        ProtocolVersion = "1.0",
+        OfficeId = state.OfficeId.ToString("D"),
+        SessionEpoch = state.SessionEpoch,
+        LeaseRenewal = renewal
     };
 
     private static OfficeControlMessage Envelope(OfficeState state, AssignmentStatusUpdate status) => new()
     {
-        ProtocolVersion = "1.0", OfficeId = state.OfficeId.ToString("D"),
-        SessionEpoch = state.SessionEpoch, AssignmentStatus = status
+        ProtocolVersion = "1.0",
+        OfficeId = state.OfficeId.ToString("D"),
+        SessionEpoch = state.SessionEpoch,
+        AssignmentStatus = status
     };
 
     private static async Task SendAsync(
@@ -820,6 +879,11 @@ public sealed partial class OfficeWorker(
         OfficeControlMessage message,
         CancellationToken cancellationToken)
     {
+        if (writer is ReconnectingControlWriter reconnecting)
+        {
+            await reconnecting.WriteAsync(message, cancellationToken);
+            return;
+        }
         await writerLock.WaitAsync(cancellationToken);
         try { await writer.WriteAsync(message, cancellationToken); }
         finally { writerLock.Release(); }

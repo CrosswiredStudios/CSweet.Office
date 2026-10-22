@@ -60,6 +60,29 @@ decisions and so it knows whether to extend the *broker lease* on its side. Trea
 authorization extension would require the RuntimeHost to hold open-ended trust in the message stream rather
 than in a verified signature — which is the property the design refuses to give up.
 
+## Control reconnection
+
+`OfficeWorker.RunControlConnectionsAsync` keeps the process-owned gRPC channel and active workload
+lifetimes across transient failures of the control call. It reconnects after five seconds using the
+same Office session epoch. `ReconnectingControlWriter` serializes writes and lets authenticated,
+idempotent status/lease reports wait up to twenty seconds for a replacement writer. A stale control
+call cannot detach the replacement. Per-workload broker tunnels remain on the shared channel and
+are not cancelled merely because the control call ended.
+
+Identity rejection, invalid control envelopes and process shutdown still cancel active assignments.
+A report that cannot reconnect within its bounded wait fails its assignment through the existing
+teardown journal. Guest tunnel loss still ends the affected workload. These paths preserve
+SEC-INV-06, SEC-INV-07, SEC-INV-09 and SEC-INV-23.
+
+`OfficeControlReconnectTests` exercises two signed runtime assignments through the real Node
+execution loop with simulated provider and gRPC transports: a dropped control stream leaves both
+workloads and tunnels intact; redelivery creates no additional VM; fencing stops only its matching
+epoch; a rejected Office identity stops both. The tests also cover queued write recovery,
+cancellation and bounded reconnect waits.
+
+> **Out of repo:** Headquarters owns assignment renewal and fresh runtime/MCP identity recovery.
+> This client does not extend a signed authorization or grant execution after an expired/fenced lease.
+
 ## Admission control
 
 The only backpressure in the Node is a semaphore:
@@ -104,11 +127,12 @@ Regardless of how the assignment ended, the `finally` block:
 
 ## Sources
 
-`src/CSweet.Office.Node/{OfficeWorker.cs,OfficeWorker.Stops.cs,AssignmentStopJournal.cs}`,
+`src/CSweet.Office.Node/{OfficeWorker.cs,OfficeWorker.Stops.cs,AssignmentStopJournal.cs,ReconnectingControlWriter.cs}`,
+`tests/CSweet.Office.Tests/OfficeControlReconnectTests.cs`,
 `src/CSweet.Office.Runtime.LocalRpc/RuntimeHostRequestDispatcher.cs`,
 `src/CSweet.Office.Runtime.LocalRpc/RuntimeHostAuthorizationGate.cs`,
 `src/CSweet.Office.RuntimeGuest/GuestBrokerSession.cs`,
 `src/CSweet.Office.Runtime.Core/ExternalPlatformIsolationBackend.cs`,
 `scripts/windows/Install-CSweetOfficeRuntimeHost.ps1`.
 
-Verified: 2026-10-07.
+Verified: 2026-10-21.
