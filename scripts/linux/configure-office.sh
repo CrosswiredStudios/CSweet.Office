@@ -16,8 +16,10 @@ control_plane=$1
 shift
 dedicated=false
 accepted=false
+storage_volume=
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --storage-volume) [ "$#" -ge 2 ] || exit 2; storage_volume=$2; shift 2 ;;
     --dedicated-host) dedicated=true; shift ;;
     --accept-baseline-risk) accepted=true; shift ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
@@ -35,7 +37,7 @@ fi
 if [ "$dedicated" = true ]; then
   echo "Security label: Hardened (dedicated-host declaration)."
   echo "Keep Ubuntu, KVM, Firecracker, firmware, and CPU microcode patched."
-  exec "$installer" "$package_root" "$control_plane" --security-profile hardened --dedicated-host
+  exec "$installer" "$package_root" "$control_plane" --security-profile hardened --dedicated-host --storage-volume "$storage_volume"
 fi
 
 echo "Security label: Baseline (shared or personal host)."
@@ -51,4 +53,4 @@ if [ "$accepted" != true ]; then
   IFS= read -r answer
   case "$answer" in y|Y|yes|YES) ;; *) echo "Setup cancelled." >&2; exit 1 ;; esac
 fi
-exec "$installer" "$package_root" "$control_plane" --security-profile baseline
+exec "$installer" "$package_root" "$control_plane" --security-profile baseline --storage-volume "$storage_volume"

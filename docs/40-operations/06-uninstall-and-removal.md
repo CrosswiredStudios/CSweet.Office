@@ -1,5 +1,11 @@
 # Uninstall and removal
 
+Office 0.13.0 supports [installation drive selection](09-storage-selection.md). Locations in the
+examples below describe the system-volume defaults; the storage resolver supplies registered
+locations for installations on another volume. See `scripts/windows/CSweet.OfficeStorage.ps1`
+and `scripts/office-storage.sh` for destination resolution.
+
+
 **Audience:** administrators removing an Office permanently, and reviewers checking what removal actually does.
 
 Removal is destructive and gated: every platform refuses to proceed until the Office is drained with zero active
@@ -150,4 +156,4 @@ administrator decisions, and removal is never executed unattended by the recover
 `src/CSweet.Office.Configurator/Program.cs`, `README.md`, `releases/0.5.0.md`,
 `docs/20-security/06-host-privilege-model.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-10-24.

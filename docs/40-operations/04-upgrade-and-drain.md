@@ -1,5 +1,11 @@
 # Upgrade and drain
 
+Office 0.13.0 supports [installation drive selection](09-storage-selection.md). Locations in the
+examples below describe the system-volume defaults; the storage resolver supplies registered
+locations for installations on another volume. See `scripts/windows/CSweet.OfficeStorage.ps1`
+and `scripts/office-storage.sh` for destination resolution.
+
+
 **Audience:** operators and administrators upgrading an Office without re-enrolling it.
 
 An Office keeps its identity across a version upgrade only if it is drained first. Drain is a marker file, not a
@@ -76,7 +82,7 @@ Sources: `src/CSweet.Office.Configurator/Program.cs`,
 `releases/0.12.0.md`; Headquarters `ExecutionFleetService.Updates` and
 `scripts/tests/Test-AutomaticOfficeUpdatePreparation.ps1` (including installed-helper parity).
 
-Verified: 2026-10-21.
+Verified: 2026-10-24.
 
 ## The recovery probe
 
@@ -164,7 +170,7 @@ VM, and an unrecognized provider record. Run it after touching
 `src/CSweet.Office.Configurator/Program.cs`, `releases/0.5.3.md`,
 `docs/20-security/11-security-invariants.md`, `docs/30-workloads/01-assignment-and-lease-semantics.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-10-24.
 
 ## Guided local debug builds
 
@@ -186,4 +192,4 @@ through -PayloadResultPath. The Headquarters development launcher consumes that 
 select a payload directory by its timestamp. Verify coordination with
 scripts/tests/Test-DevelopmentBuildCoordination.ps1.
 
-Verified: 2026-09-16.
+Verified: 2026-10-24.

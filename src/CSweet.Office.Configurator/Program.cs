@@ -54,6 +54,7 @@ var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? 
 var installRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", ".."));
 if (string.Equals(Path.GetFileName(installRoot), "recovery", StringComparison.OrdinalIgnoreCase))
     installRoot = Path.GetDirectoryName(installRoot)!;
+var installedStorage = ReadInstalledStorage(installRoot);
 var architecture = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
 var existingState = ProbeExistingInstallation(installRoot, query.ContainsKey("office") && query.GetValueOrDefault("operation") == "upgrade");
 var targeted = query.TryGetValue("office", out var targetText);
@@ -81,13 +82,14 @@ if (maintenance && query.GetValueOrDefault("operation") == "upgrade" && query.Ge
 if (targeted)
 {
     var statePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "CSweet", "Office", "node", "node-state.json");
+    if (installedStorage is not null) statePath = Path.Combine(installedStorage.DataRoot, "node", "node-state.json");
     using var identity = JsonDocument.Parse(await File.ReadAllTextAsync(statePath));
     if (identity.RootElement.GetProperty("OfficeId").GetGuid() != Guid.Parse(targetText!)) return 4;
 }
 
 using var preflightResponse = await client.PostAsJsonAsync("api/offices/local-sessions/preflight",
     new AssistedOfficePreflightRequest(handoff, Environment.MachineName, "windows", architecture, version,
-        existingState));
+        existingState, installedStorage));
 var preflight = await preflightResponse.Content.ReadFromJsonAsync<AssistedOfficePreflightResponse>();
 if (preflight is null || preflight.AssistedSetupSessionId != sessionId) return 4;
 if (string.Equals(preflight.ExistingInstallationAction, "remove", StringComparison.Ordinal))
@@ -101,6 +103,7 @@ if (string.Equals(preflight.ExistingInstallationAction, "remove", StringComparis
 }
 if (!preflight.ProceedToRedemption) return 0;
 if (!preflightResponse.IsSuccessStatusCode || !preflight.Succeeded) return 4;
+if (preflight.Storage is { } requestedStorage && !ValidateStorage(installRoot, requestedStorage)) return 5;
 
 using var response = await client.PostAsJsonAsync("api/offices/local-sessions/redeem",
     new RedeemAssistedOfficeSetupRequest(handoff, Environment.MachineName, "windows", architecture, version));
@@ -154,6 +157,8 @@ try
         "-ProgressPath", progressPath, "-ProgressJobId", sessionId.ToString("D"),
         "-NonInteractive", "-Elevated"
     };
+    if (redemption.Storage is { } storage)
+        arguments.AddRange(["-StorageVolumeId", storage.VolumeId, "-InstallRoot", storage.InstallRoot, "-DataRoot", storage.DataRoot]);
     if (!maintenance) arguments.AddRange(["-EnrollmentTokenInputPath", tokenPath]);
     if (!string.IsNullOrWhiteSpace(redemption.ControlPlaneCertificateSha256))
     {
@@ -191,6 +196,36 @@ finally
     try { File.Delete(tokenPath); } catch { }
 }
 
+static OfficeInstallationLocation? ReadInstalledStorage(string installRoot)
+{
+    var helper = Path.Combine(installRoot, "CSweet.OfficeStorage.ps1");
+    if (!File.Exists(helper)) return null;
+    var script = "$ErrorActionPreference='Stop'; . '" + helper.Replace("'", "''") + "'; ConvertTo-Json -InputObject (Get-CSweetInstalledOfficeStorage) -Compress";
+    var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"))
+    { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+    foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script)) })
+        start.ArgumentList.Add(argument);
+    using var process = Process.Start(start) ?? throw new IOException("Office storage discovery could not start.");
+    var output = process.StandardOutput.ReadToEndAsync();
+    var error = process.StandardError.ReadToEndAsync();
+    if (!process.WaitForExit(15_000)) { process.Kill(entireProcessTree: true); throw new IOException("Office storage discovery timed out."); }
+    if (process.ExitCode != 0) throw new IOException("Office storage discovery failed.");
+    _ = error.GetAwaiter().GetResult();
+    return JsonSerializer.Deserialize<OfficeInstallationLocation>(output.GetAwaiter().GetResult());
+}
+
+static bool ValidateStorage(string installRoot, OfficeInstallationLocation storage)
+{
+    var helper = Path.Combine(installRoot, "CSweet.OfficeStorage.ps1");
+    if (!File.Exists(helper)) return false;
+    var data = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(storage)));
+    var script = "$ErrorActionPreference='Stop'; . '" + helper.Replace("'", "''") + "'; " +
+        "$s=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + data + "')) | ConvertFrom-Json; " +
+        "Resolve-CSweetOfficeStorage -VolumeId $s.VolumeId -InstallRoot $s.InstallRoot -DataRoot $s.DataRoot -RequiredDiskMb $s.RequiredDiskMb | Out-Null";
+    return Run(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
+        ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script))]) == 0;
+}
+
 static string ProbeExistingInstallation(string installRoot, bool forUpgrade)
 {
     var script = Path.Combine(installRoot, "Get-CSweetOfficeRecoveryState.ps1");
@@ -223,6 +258,7 @@ static bool StageRemoval(string installRoot, Uri origin, string? certificate, st
         var receipt = Path.Combine(stageRoot, "setup-receipt.secret");
         File.Copy(Path.Combine(installRoot, "Remove-CSweetOfficeForRecovery.ps1"), helper, overwrite: false);
         File.Copy(Path.Combine(installRoot, "Uninstall-CSweetOffice.ps1"), uninstaller, overwrite: false);
+        File.Copy(Path.Combine(installRoot, "CSweet.OfficeStorage.ps1"), Path.Combine(stageRoot, "CSweet.OfficeStorage.ps1"), overwrite: false);
         File.WriteAllText(secret, handoff);
         File.WriteAllText(receipt, setupReceipt);
         if (Run("icacls.exe", [stageRoot, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"]) != 0)

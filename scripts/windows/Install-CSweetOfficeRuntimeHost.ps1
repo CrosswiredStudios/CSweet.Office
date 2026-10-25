@@ -2,8 +2,9 @@
 param(
     [Parameter(Mandatory = $true)]
     [string] $PayloadRoot,
-    [string] $InstallRoot = "$env:ProgramFiles\CSweet\Office",
-    [string] $DataRoot = "$env:ProgramData\CSweet\Office",
+    [string] $InstallRoot,
+    [string] $StorageVolumeId,
+    [string] $DataRoot,
     [string] $ControlPlaneUserSid,
     [string] $ControlPlaneUrl,
     [string] $ControlPlaneCertificateSha256,
@@ -359,6 +360,10 @@ function Remove-LegacyDirectory([string] $Path) {
 }
 
 Assert-Administrator
+. (Join-Path $PSScriptRoot 'CSweet.OfficeStorage.ps1')
+$storage = Resolve-CSweetOfficeStorage -VolumeId $StorageVolumeId -InstallRoot $InstallRoot -DataRoot $DataRoot -RequiredDiskMb $AllocatableDiskMb
+$InstallRoot = $storage.InstallRoot
+$DataRoot = $storage.DataRoot
 Assert-NotDomainController
 $runtimeHostServiceName = 'CSweet.Office.RuntimeHost'
 $nodeServiceName = 'CSweet.Office.Node'
@@ -592,6 +597,8 @@ foreach ($file in $manifest.files) {
 # Keep a pristine verified payload for repairs. Runtime appsettings are rewritten below
 # and must never be reused as the signed source for another installation.
 $recoveryPayload = Resolve-SafeChildPath $InstallRoot ('recovery/' + [string]$manifest.packageVersion)
+[void](Initialize-CSweetOfficeStaging $storage)
+Save-CSweetOfficeStorage $storage
 New-Item -ItemType Directory -Path $recoveryPayload -Force | Out-Null
 foreach ($file in $manifest.files) {
     $source = Resolve-SafeChildPath $PayloadRoot ([string]$file.path)
@@ -957,7 +964,7 @@ if ([IO.Path]::GetFullPath($manifestPath) -ine [IO.Path]::GetFullPath($installed
 foreach ($scriptName in @('Install-CSweetOffice.ps1', 'Install-CSweetOfficeRuntimeHost.ps1',
     'CSweet.WindowsSetupProgress.ps1', 'Get-CSweetOfficeRecoveryState.ps1', 'Enter-CSweetOfficeMaintenance.ps1',
     'Remove-CSweetOfficeForRecovery.ps1', 'Uninstall-CSweetOffice.ps1',
-    'Start-CSweetOfficeAutomaticUpdate.ps1', 'CSweet.OfficeRelease.ps1')) {
+    'Start-CSweetOfficeAutomaticUpdate.ps1', 'CSweet.OfficeRelease.ps1', 'CSweet.OfficeStorage.ps1')) {
     $scriptSource = Join-Path $PSScriptRoot $scriptName
     $scriptDestination = Join-Path $InstallRoot $scriptName
     if ([IO.Path]::GetFullPath($scriptSource) -ine [IO.Path]::GetFullPath($scriptDestination)) {

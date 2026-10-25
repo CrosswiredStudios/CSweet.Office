@@ -5,6 +5,7 @@ param(
     [switch] $DevelopmentTools,
     [switch] $PublicInternetIpv4Only,
     [string] $PrebuiltRoot,
+    [string] $WorkingRoot,
     [switch] $SkipInstall,
     [string] $PayloadResultPath,
     [switch] $NoElevation,
@@ -83,6 +84,7 @@ if (-not (Test-Administrator)) {
     if ($PublicInternetIpv4Only) { $arguments += "-PublicInternetIpv4Only" }
     if ($RebuildGuest) { $arguments += '-RebuildGuest' }
     if ($SkipInstall) { $arguments += '-SkipInstall' }
+    if ($WorkingRoot) { $arguments += @('-WorkingRoot', (Quote-ProcessArgument $WorkingRoot)) }
     if ($PayloadResultPath) { $arguments += @('-PayloadResultPath', (Quote-ProcessArgument $PayloadResultPath)) }
     $process = Start-Process -FilePath $hostExecutable -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList ($arguments -join ' ')
     if ($process.ExitCode -ne 0) { throw "The elevated Windows isolation test exited with code $($process.ExitCode)." }
@@ -191,7 +193,7 @@ if ($PrebuiltRoot) {
     if (-not (Test-Path -LiteralPath $guestImage -PathType Leaf)) { throw 'The prebuilt guest image is missing.' }
 } else {
     $guestFingerprint = (Get-GuestBuildFingerprint $repositoryRoot) + $(if ($DevelopmentTools) { "-development" } else { "-restricted" })
-    $guestImageRoot = Join-Path $repositoryRoot 'artifacts\windows-runtime\source'
+    $guestImageRoot = if ($WorkingRoot) { Join-Path $WorkingRoot 'source' } else { Join-Path $repositoryRoot 'artifacts\windows-runtime\source' }
     $guestImage = Join-Path $guestImageRoot "csweet-agent-guest-$guestFingerprint.vhdx"
     # Prefer the latest complete build of this fingerprint, including a forced rebuild.
     # Keep older/installed images immutable instead of replacing disks they may reference.
@@ -229,7 +231,7 @@ if ($PrebuiltRoot) {
 }
 
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
-$runRoot = Join-Path $repositoryRoot "artifacts\windows-test\certification-$runId"
+$runRoot = if ($WorkingRoot) { Join-Path $WorkingRoot "certification-$runId" } else { Join-Path $repositoryRoot "artifacts\windows-test\certification-$runId" }
 $helperPublish = Join-Path $runRoot 'helper'
 $probePublish = Join-Path $runRoot 'probe'
 $smokePublish = Join-Path $runRoot 'smoke'

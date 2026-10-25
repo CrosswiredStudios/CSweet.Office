@@ -9,6 +9,7 @@ if (await ControlPlaneCertificateProbe.TryRunAsync(args) is { } probeExitCode)
     return;
 }
 
+CSweet.Office.Runtime.Core.OfficeStorageGuard.VerifyWindowsVolume();
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService(options => options.ServiceName = "CSweet.Office.Node");
 builder.Services.AddSystemd();

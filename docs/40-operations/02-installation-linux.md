@@ -1,5 +1,11 @@
 # Linux installation
 
+Office 0.13.0 supports [installation drive selection](09-storage-selection.md). Locations in the
+examples below describe the system-volume defaults; the storage resolver supplies registered
+locations for installations on another volume. See `scripts/windows/CSweet.OfficeStorage.ps1`
+and `scripts/office-storage.sh` for destination resolution.
+
+
 **Audience:** Linux administrators installing an Office on an Ubuntu 24.04 host.
 
 Linux installs in two steps, deliberately separated: a signed package places the payload, and a root-only
@@ -137,4 +143,4 @@ are discarded and a fresh identity is enrolled (`SEC-INV-18`).
 `scripts/linux/{install-office.sh,configure-office.sh,uninstall-office.sh,new-native-packages.sh,csweet-office-node.service,csweet-office-runtime.service}`,
 `README.md`, `docs/20-security/06-host-privilege-model.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-10-24.

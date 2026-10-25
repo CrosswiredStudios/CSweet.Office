@@ -75,6 +75,8 @@ install -m 0644 "$guest_signature" "$output_root/images/csweet-agent-guest.ext4.
 install -m 0644 "$signing_certificate" "$output_root/certificates/guest-image-signing.cer"
 install -m 0644 "$evidence" "$output_root/certification/linux-firecracker.json"
 install -m 0755 "$script_root/install-office.sh" "$output_root/install-office.sh"
+install -m 0644 "$script_root/../office-storage.sh" "$output_root/office-storage.sh"
+install -m 0755 "$script_root/../office-start.sh" "$output_root/office-start.sh"
 install -m 0755 "$script_root/uninstall-office.sh" "$output_root/uninstall-office.sh"
 install -m 0644 "$script_root/csweet-office-runtime.service" "$output_root/csweet-office-runtime.service"
 install -m 0644 "$script_root/csweet-office-node.service" "$output_root/csweet-office-node.service"

@@ -13,6 +13,7 @@ administrator performing the work; the guarantees the work rests on are in
 | [05-repair-and-recovery.md](05-repair-and-recovery.md) | Guided Windows recovery, the maintenance service, and why it works when the Node does not. |
 | [06-uninstall-and-removal.md](06-uninstall-and-removal.md) | Removal on all three platforms, what is deleted, and what is deliberately left behind. |
 | [07-diagnostics-and-troubleshooting.md](07-diagnostics-and-troubleshooting.md) | Symptom table, failure codes, log locations, and the live smoke test. |
+| [09-storage-selection.md](09-storage-selection.md) | Fixed-volume selection, saved locations, and maintenance compatibility. |
 | [08-security-postures.md](08-security-postures.md) | `baseline`, `hardened`, and `development`, the dual opt-in, and mixed-use hosts. |
 
 ## Hardware virtualization is not optional

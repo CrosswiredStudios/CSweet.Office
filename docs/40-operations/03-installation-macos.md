@@ -1,5 +1,11 @@
 # macOS installation
 
+Office 0.13.0 supports [installation drive selection](09-storage-selection.md). Locations in the
+examples below describe the system-volume defaults; the storage resolver supplies registered
+locations for installations on another volume. See `scripts/windows/CSweet.OfficeStorage.ps1`
+and `scripts/office-storage.sh` for destination resolution.
+
+
 **Audience:** macOS administrators installing an Office on a host with Apple Virtualization.framework support.
 
 macOS installs in two steps, like Linux: a signed and notarized pkg places the payload, and a root-only
@@ -150,4 +156,4 @@ reaped, so a crash during a build can leave an orphaned VM to clean up by hand. 
 `src/CSweet.Office.Runtime.AppleVirtualization.Helper/` (entitlement and socket contract),
 `README.md`, `docs/20-security/06-host-privilege-model.md`, `docs/20-security/12-known-limits-and-tradeoffs.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-10-24.

@@ -6,12 +6,13 @@ After=local-fs.target
 Type=notify
 User=root
 Group=csweet-runtime
-ExecStart=/opt/csweet/office/CSweet.Office.RuntimeHost
+ExecStartPre=/usr/sbin/csweet-office-start --verify
+ExecStart="__OFFICE_INSTALL_ROOT__/CSweet.Office.RuntimeHost"
 EnvironmentFile=/etc/csweet/runtime-host.env
-Environment=CSweet__Office__Providers__Firecracker__ArtifactImageRoot=/var/lib/csweet/artifact-media
-Environment=CSweet__Office__Providers__Firecracker__PayloadManifestPath=/opt/csweet/office/runtime-manifest.json
-Environment=CSweet__Office__RuntimeHost__Authentication__SharedKeyFilePath=/var/lib/csweet/office/runtime-host.key
-Environment=CSweet__Office__RuntimeHost__Authorization__StateDirectory=/var/lib/csweet/office/authorization
+Environment="CSweet__Office__Providers__Firecracker__ArtifactImageRoot=__OFFICE_ARTIFACT_ROOT__"
+Environment="CSweet__Office__Providers__Firecracker__PayloadManifestPath=__OFFICE_INSTALL_ROOT__/runtime-manifest.json"
+Environment="CSweet__Office__RuntimeHost__Authentication__SharedKeyFilePath=__OFFICE_DATA_ROOT__/runtime-host.key"
+Environment="CSweet__Office__RuntimeHost__Authorization__StateDirectory=__OFFICE_DATA_ROOT__/authorization"
 Restart=on-failure
 RestartSec=5
 RuntimeDirectory=csweet
@@ -26,7 +27,7 @@ DevicePolicy=closed
 DeviceAllow=/dev/kvm rw
 RestrictAddressFamilies=AF_UNIX
 CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID CAP_SYS_ADMIN CAP_SYS_CHROOT CAP_MKNOD CAP_KILL
-ReadWritePaths=/var/lib/csweet/office /var/lib/csweet/artifact-media /run/csweet /sys/fs/cgroup
+ReadWritePaths="__OFFICE_DATA_ROOT__" "__OFFICE_ARTIFACT_ROOT__" /run/csweet /sys/fs/cgroup
 UMask=0007
 
 [Install]

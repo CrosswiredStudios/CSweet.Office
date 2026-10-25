@@ -47,6 +47,7 @@ mkdir -p "$staged_payload" "$package_root/usr/local/sbin" "$(dirname "$output_pk
 ditto "$payload_root" "$staged_payload"
 install -m 0755 "$script_root/configure-office.sh" \
   "$package_root/usr/local/sbin/csweet-configure-office"
+install -m 0644 "$script_root/../office-storage.sh" "$package_root/usr/local/sbin/csweet-office-storage.sh"
 install -m 0755 "$script_root/uninstall-office.sh" \
   "$package_root/usr/local/sbin/csweet-uninstall-office"
 

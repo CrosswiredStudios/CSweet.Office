@@ -8,7 +8,7 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "Run this command with sudo." >&2
   exit 1
 fi
-if [ "$#" -ne 1 ]; then
+if [ "$#" -ne 1 ] && [ "$#" -ne 3 ]; then
   echo "usage: sudo $0 https://control-plane" >&2
   exit 2
 fi
@@ -21,4 +21,7 @@ if [ ! -x "$installer" ]; then
   exit 2
 fi
 
-exec "$installer" "$package_root" "$1"
+control_plane=$1
+shift
+if [ "$#" -ne 0 ]; then [ "$1" = --storage-volume ] || { echo 'Expected --storage-volume UUID.' >&2; exit 2; }; fi
+exec "$installer" "$package_root" "$control_plane" "$@"

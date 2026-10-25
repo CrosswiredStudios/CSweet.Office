@@ -10,7 +10,9 @@ User=csweet-node
 Group=csweet-node
 SupplementaryGroups=csweet-runtime
 EnvironmentFile=/etc/csweet/office.env
-ExecStart=/opt/csweet/office/CSweet.Office.Node
+# Verify mounted storage outside the node's private /dev namespace; this command only reads state.
+ExecStartPre=+/usr/sbin/csweet-office-start --verify
+ExecStart="__OFFICE_INSTALL_ROOT__/CSweet.Office.Node"
 Restart=always
 RestartSec=5
 NoNewPrivileges=yes
@@ -18,7 +20,7 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
-ReadWritePaths=/var/lib/csweet/office /var/lib/csweet/artifact-media /run/csweet
+ReadWritePaths="__OFFICE_DATA_ROOT__" "__OFFICE_ARTIFACT_ROOT__" /run/csweet
 
 [Install]
 WantedBy=multi-user.target

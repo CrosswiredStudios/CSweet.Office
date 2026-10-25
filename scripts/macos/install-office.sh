@@ -12,8 +12,10 @@ result_file=
 security_profile=baseline
 mixed_use=true
 allow_development=false
+storage_volume=
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --storage-volume) [ "$#" -ge 2 ] || exit 2; storage_volume=$2; shift 2 ;;
     --enrollment-token-file) [ "$#" -ge 2 ] || exit 2; token_file=$2; shift 2 ;;
     --result-job-id) [ "$#" -ge 2 ] || exit 2; result_job_id=$2; shift 2 ;;
     --security-profile) [ "$#" -ge 2 ] || exit 2; security_profile=$2; shift 2 ;;
@@ -51,9 +53,16 @@ fi
 if find "$package_root" -type l -print -quit | grep -q .; then
   echo "Execution packages may not contain symbolic links." >&2; exit 2
 fi
+. "$package_root/office-storage.sh"
+office_select_storage "$storage_volume" || exit 2
+# Older installations have no registration yet and must retain their system destination.
+if [ ! -e "$office_record" ] && [ -e /Library/Application\ Support/CSweet/Office/CSweet.Office.Node ] && [ "$office_mount" != / ]; then
+  echo 'Keep the system volume for this existing Office. Moving an installed Office is not supported.' >&2
+  exit 2
+fi
 if [ -f /Library/LaunchDaemons/com.csweet.office.node.plist ] ||
-   [ -e /Library/Application\ Support/CSweet/Office/CSweet.Office.Node ]; then
-  maintenance=/Library/Application\ Support/CSweet/Office/maintenance
+   [ -e "$office_install_root"/CSweet.Office.Node ]; then
+  maintenance="$office_data_root"/maintenance
   drain_state=
   [ ! -f "$maintenance/drain-state" ] || drain_state=$(tr -d '\r\n' < "$maintenance/drain-state")
   active_count=0
@@ -113,44 +122,44 @@ elif [ -t 0 ]; then printf 'Enrollment token: ' >&2; stty -echo; IFS= read -r to
 else IFS= read -r token; fi
 if [ "${#token}" -lt 32 ] || [ "${#token}" -gt 256 ]; then echo "Invalid enrollment token." >&2; exit 2; fi
 
-install -d -m 0755 /Library/Application\ Support/CSweet/Office /Library/Application\ Support/CSweet/Office/artifact-media
-install -d -o _csweetnode -g _csweet -m 0700 /Library/Application\ Support/CSweet/Office/node
-install -d -o root -g wheel -m 0700 /Library/Application\ Support/CSweet/Office/authorization
-install -d -m 0700 /Library/Application\ Support/CSweet/Office/AppleVirtualization /Library/Application\ Support/CSweet/Office/AppleVirtualization/instances
+office_save_storage
+install -d -o root -m 0755 /usr/local/sbin
+install -m 0644 "$package_root/office-storage.sh" /usr/local/sbin/csweet-office-storage.sh
+install -m 0755 "$package_root/office-start.sh" /usr/local/sbin/csweet-office-start
+install -d -m 0755 "$office_install_root" "$office_data_root"/artifact-media
+install -d -o _csweetnode -g _csweet -m 0700 "$office_data_root"/node
+install -d -o root -g wheel -m 0700 "$office_data_root"/authorization
+install -d -m 0700 "$office_data_root"/AppleVirtualization "$office_data_root"/AppleVirtualization/instances
 install -d -m 0700 /var/run/csweet-av
-ditto "$package_root" /Library/Application\ Support/CSweet/Office
-chown -R root:wheel /Library/Application\ Support/CSweet/Office
-chmod 0755 /Library/Application\ Support/CSweet/Office/CSweet.Office.RuntimeHost /Library/Application\ Support/CSweet/Office/CSweet.Office.Node /Library/Application\ Support/CSweet/Office/CSweet.Office.Runtime.AppleVirtualization.Helper
-chmod 0644 /Library/Application\ Support/CSweet/Office/runtime-manifest.json
-chown -R root:wheel /Library/Application\ Support/CSweet/Office/AppleVirtualization
-chmod 0700 /Library/Application\ Support/CSweet/Office/AppleVirtualization /Library/Application\ Support/CSweet/Office/AppleVirtualization/instances
+ditto "$package_root" "$office_install_root"
+chown -R root:wheel "$office_install_root"
+chmod 0755 "$office_install_root"/CSweet.Office.RuntimeHost "$office_install_root"/CSweet.Office.Node "$office_install_root"/CSweet.Office.Runtime.AppleVirtualization.Helper
+chmod 0644 "$office_install_root"/runtime-manifest.json
+chown -R root:wheel "$office_data_root"/AppleVirtualization
+chmod 0700 "$office_data_root"/AppleVirtualization "$office_data_root"/AppleVirtualization/instances
 chown root:wheel /var/run/csweet-av
 chmod 0700 /var/run/csweet-av
-if [ ! -f /Library/Application\ Support/CSweet/Office/runtime-host.key ]; then
+if [ ! -f "$office_data_root"/runtime-host.key ]; then
   umask 027
-  dd if=/dev/urandom bs=32 count=1 2>/dev/null | base64 > /Library/Application\ Support/CSweet/Office/runtime-host.key
+  dd if=/dev/urandom bs=32 count=1 2>/dev/null | base64 > "$office_data_root"/runtime-host.key
 fi
-chown root:_csweet /Library/Application\ Support/CSweet/Office/runtime-host.key
-chmod 0640 /Library/Application\ Support/CSweet/Office/runtime-host.key
-/Library/Application\ Support/CSweet/Office/CSweet.Office.Node \
+chown root:_csweet "$office_data_root"/runtime-host.key
+chmod 0640 "$office_data_root"/runtime-host.key
+"$office_install_root"/CSweet.Office.Node \
   --initialize-headquarters-assignment-trust "$control_plane" \
-  /Library/Application\ Support/CSweet/Office/authorization/headquarters-trust.json
-chown root:wheel /Library/Application\ Support/CSweet/Office/authorization/headquarters-trust.json
-chmod 0600 /Library/Application\ Support/CSweet/Office/authorization/headquarters-trust.json
-printf '%s' "$token" > /Library/Application\ Support/CSweet/Office/node/enrollment.secret
+  "$office_data_root"/authorization/headquarters-trust.json
+chown root:wheel "$office_data_root"/authorization/headquarters-trust.json
+chmod 0600 "$office_data_root"/authorization/headquarters-trust.json
+printf '%s' "$token" > "$office_data_root"/node/enrollment.secret
 unset token
-chmod 0600 /Library/Application\ Support/CSweet/Office/node/enrollment.secret
-chown -R _csweetnode:_csweet /Library/Application\ Support/CSweet/Office/node
-chown -R _csweetnode:_csweet /Library/Application\ Support/CSweet/Office/artifact-media
-chmod 0770 /Library/Application\ Support/CSweet/Office/artifact-media
-install -m 0644 "$package_root/com.csweet.office.runtime.plist" /Library/LaunchDaemons/com.csweet.office.runtime.plist
-escaped_control_plane=$(printf '%s' "$control_plane" | sed 's/[&|\\]/\\&/g')
-sed -e "s|__CONTROL_PLANE_URL__|$escaped_control_plane|g" \
-  -e "s|__SECURITY_PROFILE__|$security_profile|g" \
-  -e "s|__MIXED_USE_HOST__|$mixed_use|g" \
-  -e "s|__ALLOW_DEVELOPMENT_ASSIGNMENTS__|$allow_development|g" \
-  "$package_root/com.csweet.office.node.plist" > /Library/LaunchDaemons/com.csweet.office.node.plist
-chmod 0644 /Library/LaunchDaemons/com.csweet.office.node.plist
+chmod 0600 "$office_data_root"/node/enrollment.secret
+chown -R _csweetnode:_csweet "$office_data_root"/node
+chown -R _csweetnode:_csweet "$office_data_root"/artifact-media
+chmod 0770 "$office_data_root"/artifact-media
+for service in runtime node; do
+  office_render_plist "$package_root/com.csweet.office.$service.plist" "/Library/LaunchDaemons/com.csweet.office.$service.plist"
+  chmod 0644 "/Library/LaunchDaemons/com.csweet.office.$service.plist"
+done
 launchctl bootstrap system /Library/LaunchDaemons/com.csweet.office.runtime.plist
 launchctl bootstrap system /Library/LaunchDaemons/com.csweet.office.node.plist
 write_result completed

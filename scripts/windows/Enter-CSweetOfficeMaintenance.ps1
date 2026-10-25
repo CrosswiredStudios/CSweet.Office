@@ -6,6 +6,14 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CSweet.OfficeStorage.ps1')
+$registeredStorage = Get-CSweetInstalledOfficeStorage -RegisteredOnly
+if ($null -ne $registeredStorage) {
+    $resolvedStorage = Resolve-CSweetOfficeStorage -VolumeId $registeredStorage.VolumeId -SkipSpaceCheck
+    $InstallRoot = $resolvedStorage.InstallRoot
+    $DataRoot = $resolvedStorage.DataRoot
+}
+
 
 # The helper runs with explicit administrator approval. Never use the server's last
 # reported work count as permission to stop local work or discard identity files.

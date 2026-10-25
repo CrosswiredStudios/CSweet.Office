@@ -9,7 +9,17 @@ if [ "$#" -eq 1 ]; then
 fi
 if [ "$(id -u)" -ne 0 ]; then echo "Run this uninstaller with sudo." >&2; exit 1; fi
 
-maintenance=/Library/Application\ Support/CSweet/Office/maintenance
+helper=$(dirname "$0")/csweet-office-storage.sh
+[ -f "$helper" ] || helper=$(dirname "$0")/office-storage.sh
+. "$helper"
+office_storage_platform
+if [ -e "$office_record" ] || [ -L "$office_record" ]; then
+  office_load_storage || exit 2
+else
+  office_mount=/
+  office_set_roots
+fi
+maintenance="$office_data_root"/maintenance
 drain_state=
 [ ! -f "$maintenance/drain-state" ] || drain_state=$(tr -d '\r\n' < "$maintenance/drain-state")
 active_count=0
@@ -27,7 +37,8 @@ launchctl bootout system/com.csweet.office.runtime 2>/dev/null || true
 rm -f -- /Library/LaunchDaemons/com.csweet.office.node.plist
 rm -f -- /Library/LaunchDaemons/com.csweet.office.runtime.plist
 rm -rf -- /Library/Application\ Support/CSweet/Execution
-rm -rf -- /Library/Application\ Support/CSweet/Office
+rm -rf -- "$office_install_root"
+[ "$office_data_root" = "$office_install_root" ] || rm -rf -- "$office_data_root"
 rm -rf -- /Library/Application\ Support/CSweet/ArtifactMedia
 rm -rf -- /Library/Application\ Support/CSweet/AgentRuntime
 rm -rf -- /Library/Application\ Support/CSweet/InstallerPayload
@@ -42,3 +53,7 @@ rm -f -- /usr/local/sbin/csweet-uninstall-office
 pkgutil --forget com.csweet.office.payload >/dev/null 2>&1 || true
 
 echo "C-Sweet RuntimeHost and Office were uninstalled. Revoke the node in fleet administration if it was not already revoked."
+
+rm -f -- "$office_record"
+
+rm -f -- /usr/local/sbin/csweet-office-start

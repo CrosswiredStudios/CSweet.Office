@@ -3,6 +3,9 @@ param(
     [Parameter(Mandatory = $true)] [string] $PayloadRoot,
     [Parameter(Mandatory = $true)] [string] $ControlPlaneUrl,
     [string] $ControlPlaneCertificateSha256,
+    [string] $StorageVolumeId,
+    [string] $InstallRoot,
+    [string] $DataRoot,
     [string] $EnrollmentTokenInputPath,
     [guid] $AssistedSetupSessionId = [guid]::Empty,
     [int] $AllocatableCpuCount = 0,
@@ -36,6 +39,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     if (-not [String]::IsNullOrWhiteSpace($ControlPlaneCertificateSha256)) {
         $arguments += @('-ControlPlaneCertificateSha256', ('"' + $ControlPlaneCertificateSha256 + '"'))
     }
+    foreach ($name in @('StorageVolumeId','InstallRoot','DataRoot')) {
+        $value = Get-Variable -Name $name -ValueOnly
+        if ($value) { $arguments += @('-' + $name, ('"' + $value + '"')) }
+    }
     if ($NonInteractive) { $arguments += '-NonInteractive' }
     if (-not [String]::IsNullOrWhiteSpace($EnrollmentTokenInputPath)) {
         $arguments += @('-EnrollmentTokenInputPath', ('"' + $EnrollmentTokenInputPath + '"'))
@@ -56,6 +63,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     return
 }
 
+. (Join-Path $PSScriptRoot 'CSweet.OfficeStorage.ps1')
+$storage = Resolve-CSweetOfficeStorage -VolumeId $StorageVolumeId -InstallRoot $InstallRoot -DataRoot $DataRoot -RequiredDiskMb $AllocatableDiskMb -Interactive:(-not $NonInteractive)
+Write-Host "Office services: $($storage.InstallRoot)"
+Write-Host "Office data: $($storage.DataRoot)"
 $inputPath = $EnrollmentTokenInputPath
 $createdInput = $false
 if ($ExistingInstallationAction -ne 'upgrade' -and [String]::IsNullOrWhiteSpace($inputPath)) {
@@ -71,6 +82,7 @@ if ($ExistingInstallationAction -ne 'upgrade' -and [String]::IsNullOrWhiteSpace(
 }
 try {
     & (Join-Path $PSScriptRoot 'Install-CSweetOfficeRuntimeHost.ps1') -PayloadRoot $PayloadRoot `
+        -StorageVolumeId $storage.VolumeId -InstallRoot $storage.InstallRoot -DataRoot $storage.DataRoot `
         -ControlPlaneUrl $ControlPlaneUrl -ControlPlaneCertificateSha256 $ControlPlaneCertificateSha256 `
         -EnrollmentTokenInputPath $inputPath -NonInteractive:$NonInteractive `
         -SecurityProfile $SecurityProfile -MixedUseHost $MixedUseHost `

@@ -12,8 +12,10 @@ result_file=
 security_profile=baseline
 mixed_use=true
 allow_development=false
+storage_volume=
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --storage-volume) [ "$#" -ge 2 ] || exit 2; storage_volume=$2; shift 2 ;;
     --enrollment-token-file) [ "$#" -ge 2 ] || exit 2; token_file=$2; shift 2 ;;
     --result-job-id) [ "$#" -ge 2 ] || exit 2; result_job_id=$2; shift 2 ;;
     --security-profile) [ "$#" -ge 2 ] || exit 2; security_profile=$2; shift 2 ;;
@@ -60,8 +62,15 @@ fi
 if find "$package_root" -type l -print -quit | grep -q .; then
   echo "Execution packages may not contain symbolic links." >&2; exit 2
 fi
-if [ -f /etc/systemd/system/csweet-office-node.service ] || [ -e /opt/csweet/office/CSweet.Office.Node ]; then
-  maintenance=/var/lib/csweet/office/maintenance
+. "$package_root/office-storage.sh"
+office_select_storage "$storage_volume" || exit 2
+# Older installations have no registration yet and must retain their system destination.
+if [ ! -e "$office_record" ] && [ -e /opt/csweet/office/CSweet.Office.Node ] && [ "$office_mount" != / ]; then
+  echo 'Keep the system volume for this existing Office. Moving an installed Office is not supported.' >&2
+  exit 2
+fi
+if [ -f /etc/systemd/system/csweet-office-node.service ] || [ -e "$office_install_root"/CSweet.Office.Node ]; then
+  maintenance="$office_data_root"/maintenance
   drain_state=
   [ ! -f "$maintenance/drain-state" ] || drain_state=$(tr -d '\r\n' < "$maintenance/drain-state")
   active_count=0
@@ -89,64 +98,70 @@ elif [ -t 0 ]; then printf 'Enrollment token: ' >&2; stty -echo; IFS= read -r to
 else IFS= read -r token; fi
 if [ "${#token}" -lt 32 ] || [ "${#token}" -gt 256 ]; then echo "Invalid enrollment token." >&2; exit 2; fi
 
-install -d -m 0755 /opt/csweet/office /etc/csweet /var/lib/csweet/office /var/lib/csweet/office /var/lib/csweet/office/firecracker
-chown root:root /var/lib/csweet/office/firecracker
-chmod 0700 /var/lib/csweet/office/firecracker
-cp -R "$package_root/." /opt/csweet/office/
-chown -R root:root /opt/csweet/office
-chmod 0755 /opt/csweet/office/CSweet.Office.RuntimeHost /opt/csweet/office/CSweet.Office.Node /opt/csweet/office/CSweet.Office.Runtime.Firecracker.Helper
-chmod 0755 /opt/csweet/office/firecracker/firecracker /opt/csweet/office/firecracker/jailer
-chmod 0644 /opt/csweet/office/firecracker/vmlinux
-chmod 0644 /opt/csweet/office/firecracker/initrd.img
-chmod 0644 /opt/csweet/office/runtime-manifest.json
-id csweet-node >/dev/null 2>&1 || useradd --system --home /var/lib/csweet/office --shell /usr/sbin/nologin csweet-node
+office_save_storage
+install -d -o root -m 0755 /usr/sbin
+install -m 0644 "$package_root/office-storage.sh" /usr/sbin/csweet-office-storage.sh
+install -m 0755 "$package_root/office-start.sh" /usr/sbin/csweet-office-start
+install -d -m 0755 "$office_install_root" /etc/csweet "$office_data_root" "$office_data_root" "$office_data_root"/firecracker
+chown root:root "$office_data_root"/firecracker
+chmod 0700 "$office_data_root"/firecracker
+cp -R "$package_root/." "$office_install_root"/
+chown -R root:root "$office_install_root"
+chmod 0755 "$office_install_root"/CSweet.Office.RuntimeHost "$office_install_root"/CSweet.Office.Node "$office_install_root"/CSweet.Office.Runtime.Firecracker.Helper
+chmod 0755 "$office_install_root"/firecracker/firecracker "$office_install_root"/firecracker/jailer
+chmod 0644 "$office_install_root"/firecracker/vmlinux
+chmod 0644 "$office_install_root"/firecracker/initrd.img
+chmod 0644 "$office_install_root"/runtime-manifest.json
+id csweet-node >/dev/null 2>&1 || useradd --system --home "$office_data_root" --shell /usr/sbin/nologin csweet-node
 id csweet-vm >/dev/null 2>&1 || useradd --system --home /nonexistent --shell /usr/sbin/nologin csweet-vm
 getent group csweet-runtime >/dev/null 2>&1 || groupadd --system csweet-runtime
 usermod -a -G csweet-runtime csweet-node
-install -d -o csweet-node -g csweet-node -m 0700 /var/lib/csweet/office/node
-install -d -o root -g root -m 0700 /var/lib/csweet/office/authorization
+install -d -o csweet-node -g csweet-node -m 0700 "$office_data_root"/node
+install -d -o root -g root -m 0700 "$office_data_root"/authorization
 vm_uid=$(id -u csweet-vm)
 vm_gid=$(id -g csweet-vm)
-install -d -o csweet-node -g csweet-runtime -m 0770 /var/lib/csweet/artifact-media
-if [ ! -f /var/lib/csweet/office/runtime-host.key ]; then
+install -d -o csweet-node -g csweet-runtime -m 0770 "$office_artifact_root"
+if [ ! -f "$office_data_root"/runtime-host.key ]; then
   umask 007
-  dd if=/dev/urandom bs=32 count=1 2>/dev/null | base64 > /var/lib/csweet/office/runtime-host.key
+  dd if=/dev/urandom bs=32 count=1 2>/dev/null | base64 > "$office_data_root"/runtime-host.key
 fi
-chown root:csweet-runtime /var/lib/csweet/office/runtime-host.key
-chmod 0640 /var/lib/csweet/office/runtime-host.key
-/opt/csweet/office/CSweet.Office.Node \
+chown root:csweet-runtime "$office_data_root"/runtime-host.key
+chmod 0640 "$office_data_root"/runtime-host.key
+"$office_install_root"/CSweet.Office.Node \
   --initialize-headquarters-assignment-trust "$control_plane" \
-  /var/lib/csweet/office/authorization/headquarters-trust.json
-chown root:root /var/lib/csweet/office/authorization/headquarters-trust.json
-chmod 0600 /var/lib/csweet/office/authorization/headquarters-trust.json
-install -o csweet-node -g csweet-node -m 0600 /dev/null /var/lib/csweet/office/node/enrollment.secret
-printf '%s' "$token" > /var/lib/csweet/office/node/enrollment.secret
+  "$office_data_root"/authorization/headquarters-trust.json
+chown root:root "$office_data_root"/authorization/headquarters-trust.json
+chmod 0600 "$office_data_root"/authorization/headquarters-trust.json
+install -o csweet-node -g csweet-node -m 0600 /dev/null "$office_data_root"/node/enrollment.secret
+printf '%s' "$token" > "$office_data_root"/node/enrollment.secret
 unset token
 cat > /etc/csweet/office.env <<EOF
 CSweet__Office__Node__ControlPlaneUrl=$control_plane
-CSweet__Office__Node__StateDirectory=/var/lib/csweet/office/node
-CSweet__Office__Node__ArtifactCacheDirectory=/var/lib/csweet/office/node/artifact-cache
-CSweet__Office__Node__ArtifactMediaDirectory=/var/lib/csweet/artifact-media
-CSweet__Office__Node__EnrollmentTokenFilePath=/var/lib/csweet/office/node/enrollment.secret
+CSweet__Office__Node__StateDirectory="$office_data_root"/node
+CSweet__Office__Node__ArtifactCacheDirectory="$office_data_root"/node/artifact-cache
+CSweet__Office__Node__ArtifactMediaDirectory="$office_artifact_root"
+CSweet__Office__Node__EnrollmentTokenFilePath="$office_data_root"/node/enrollment.secret
 CSweet__Office__Node__SecurityProfile=$security_profile
 CSweet__Office__Node__MixedUseHost=$mixed_use
 CSweet__Office__Node__AllowDevelopmentAssignments=$allow_development
 CSweet__Office__RuntimeHost__UnixSocketPath=/run/csweet/csweet-office-runtime-v1.sock
-CSweet__Office__RuntimeHost__Authentication__SharedKeyFilePath=/var/lib/csweet/office/runtime-host.key
-CSweet__Office__RuntimeHost__Authorization__StateDirectory=/var/lib/csweet/office/authorization
+CSweet__Office__RuntimeHost__Authentication__SharedKeyFilePath="$office_data_root"/runtime-host.key
+CSweet__Office__RuntimeHost__Authorization__StateDirectory="$office_data_root"/authorization
 EOF
 chmod 0600 /etc/csweet/office.env
 cat > /etc/csweet/runtime-host.env <<EOF
-CSWEET_FIRECRACKER_DATA_ROOT=/var/lib/csweet/office/firecracker
-CSWEET_FIRECRACKER_PACKAGE_ROOT=/opt/csweet/office/firecracker
+CSWEET_FIRECRACKER_DATA_ROOT="$office_data_root"/firecracker
+CSWEET_FIRECRACKER_PACKAGE_ROOT="$office_install_root"/firecracker
 CSWEET_FIRECRACKER_WORKLOAD_UID=$vm_uid
 CSWEET_FIRECRACKER_WORKLOAD_GID=$vm_gid
 CSWEET_FIRECRACKER_GUEST_VSOCK_PORT=5000
-CSWEET_ARTIFACT_MEDIA_ROOT=/var/lib/csweet/artifact-media
+CSWEET_ARTIFACT_MEDIA_ROOT="$office_artifact_root"
 EOF
 chmod 0600 /etc/csweet/runtime-host.env
-install -m 0644 "$package_root/csweet-office-runtime.service" /etc/systemd/system/csweet-office-runtime.service
-install -m 0644 "$package_root/csweet-office-node.service" /etc/systemd/system/csweet-office-node.service
+for service in csweet-office-runtime csweet-office-node; do
+  office_render_unit "$package_root/$service.service" "/etc/systemd/system/$service.service"
+  chmod 0644 "/etc/systemd/system/$service.service"
+done
 systemctl daemon-reload
 systemctl enable --now csweet-office-runtime.service csweet-office-node.service
 write_result completed

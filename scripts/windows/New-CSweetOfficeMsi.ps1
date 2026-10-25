@@ -29,9 +29,10 @@ $reparsePoint = Get-ChildItem -LiteralPath $PayloadRoot -Recurse -Force |
     Select-Object -First 1
 if ($null -ne $reparsePoint) { throw "Payload may not contain reparse points: $($reparsePoint.FullName)" }
 
-$scriptFiles = @('Install-CSweetOffice.ps1', 'Install-CSweetOfficeRuntimeHost.ps1',
+$scriptFiles = @('CSweet.OfficeStorage.ps1', 'Install-CSweetOffice.ps1', 'Install-CSweetOfficeRuntimeHost.ps1',
     'CSweet.WindowsSetupProgress.ps1', 'Get-CSweetOfficeRecoveryState.ps1', 'Enter-CSweetOfficeMaintenance.ps1',
-    'Remove-CSweetOfficeForRecovery.ps1', 'Uninstall-CSweetOffice.ps1')
+    'Remove-CSweetOfficeForRecovery.ps1', 'Uninstall-CSweetOffice.ps1',
+    'Start-CSweetOfficeAutomaticUpdate.ps1', 'CSweet.OfficeRelease.ps1')
 foreach ($file in $scriptFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $file) -PathType Leaf)) {
         throw "Installer source is missing $file."
@@ -94,6 +95,7 @@ try {
     AddLine 2 '<MajorUpgrade DowngradeErrorMessage="A newer C-Sweet Office package is already installed." />'
     AddLine 2 '<MediaTemplate EmbedCab="yes" />'
     AddLine 2 '<Property Id="CSWEET_FORCE_REMOVE" Secure="yes" />'
+    AddLine 2 '<Property Id="INSTALLFOLDER" Secure="yes"><RegistrySearch Id="OfficeInstallLocation" Root="HKLM" Key="Software\CSweet\Office\Storage" Name="InstallRoot" Type="raw" /></Property>'
     AddLine 2 '<CustomAction Id="RemoveExecutionFleet" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" ExeCommand="&quot;[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]Uninstall-CSweetOffice.ps1&quot; -Elevated" />'
     AddLine 2 '<CustomAction Id="ForceRemoveExecutionFleet" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" ExeCommand="&quot;[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]Uninstall-CSweetOffice.ps1&quot; -Force -Elevated" />'
     AddLine 2 '<InstallExecuteSequence>'

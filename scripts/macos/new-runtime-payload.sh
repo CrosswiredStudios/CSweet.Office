@@ -56,6 +56,8 @@ install -m 0644 "$guest_signature" "$output_root/images/csweet-agent-guest.img.s
 install -m 0644 "$signing_certificate" "$output_root/certificates/guest-image-signing.cer"
 install -m 0644 "$evidence" "$output_root/certification/macos-apple-virtualization.json"
 install -m 0755 "$script_root/install-office.sh" "$output_root/install-office.sh"
+install -m 0644 "$script_root/../office-storage.sh" "$output_root/office-storage.sh"
+install -m 0755 "$script_root/../office-start.sh" "$output_root/office-start.sh"
 install -m 0755 "$script_root/uninstall-office.sh" "$output_root/uninstall-office.sh"
 install -m 0644 "$script_root/com.csweet.office.runtime.plist" "$output_root/com.csweet.office.runtime.plist"
 install -m 0644 "$script_root/com.csweet.office.node.plist" "$output_root/com.csweet.office.node.plist"

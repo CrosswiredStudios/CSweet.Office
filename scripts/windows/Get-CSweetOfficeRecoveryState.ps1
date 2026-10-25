@@ -7,6 +7,14 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CSweet.OfficeStorage.ps1')
+$registeredStorage = Get-CSweetInstalledOfficeStorage -RegisteredOnly
+if ($null -ne $registeredStorage) {
+    $resolvedStorage = Resolve-CSweetOfficeStorage -VolumeId $registeredStorage.VolumeId -SkipSpaceCheck
+    $InstallRoot = $resolvedStorage.InstallRoot
+    $DataRoot = $resolvedStorage.DataRoot
+}
+
 
 function Test-WithinRoot([string] $Candidate, [string] $Root) {
     if ([String]::IsNullOrWhiteSpace($Candidate)) { return $false }

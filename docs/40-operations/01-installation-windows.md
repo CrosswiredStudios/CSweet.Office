@@ -1,5 +1,11 @@
 # Windows installation
 
+Office 0.13.0 supports [installation drive selection](09-storage-selection.md). Locations in the
+examples below describe the system-volume defaults; the storage resolver supplies registered
+locations for installations on another volume. See `scripts/windows/CSweet.OfficeStorage.ps1`
+and `scripts/office-storage.sh` for destination resolution.
+
+
 **Audience:** Windows administrators installing an Office on a Windows host, and developers installing a
 locally built payload.
 
@@ -177,4 +183,4 @@ directory ACL is reset so only the control-plane user (read), `SYSTEM`, and `Adm
 `src/CSweet.Office.Runtime.HyperV.Helper/HyperVHelperController.cs`, `src/CSweet.Office.Node/OfficeOptions.cs`,
 `README.md`, `docs/20-security/06-host-privilege-model.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-10-24.

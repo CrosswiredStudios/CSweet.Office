@@ -9,7 +9,17 @@ if [ "$#" -eq 1 ]; then
 fi
 if [ "$(id -u)" -ne 0 ]; then echo "Run this uninstaller as root." >&2; exit 1; fi
 
-maintenance=/var/lib/csweet/office/maintenance
+helper=$(dirname "$0")/csweet-office-storage.sh
+[ -f "$helper" ] || helper=$(dirname "$0")/office-storage.sh
+. "$helper"
+office_storage_platform
+if [ -e "$office_record" ] || [ -L "$office_record" ]; then
+  office_load_storage || exit 2
+else
+  office_mount=/
+  office_set_roots
+fi
+maintenance="$office_data_root"/maintenance
 drain_state=
 [ ! -f "$maintenance/drain-state" ] || drain_state=$(tr -d '\r\n' < "$maintenance/drain-state")
 active_count=0
@@ -30,10 +40,10 @@ rm -f -- /etc/csweet/office.env
 rm -f -- /etc/csweet/runtime-host.env
 systemctl daemon-reload
 
-rm -rf -- /opt/csweet/office
-rm -rf -- /var/lib/csweet/office
-rm -rf -- /var/lib/csweet/office
-rm -rf -- /var/lib/csweet/artifact-media
+rm -rf -- "$office_install_root"
+rm -rf -- "$office_data_root"
+rm -rf -- "$office_data_root"
+rm -rf -- "$office_artifact_root"
 rmdir /opt/csweet 2>/dev/null || true
 rmdir /etc/csweet 2>/dev/null || true
 rmdir /var/lib/csweet 2>/dev/null || true
@@ -43,3 +53,7 @@ if getent passwd csweet-vm >/dev/null 2>&1; then userdel csweet-vm; fi
 if getent group csweet-runtime >/dev/null 2>&1; then groupdel csweet-runtime; fi
 
 echo "C-Sweet RuntimeHost and Office were uninstalled. Revoke the node in fleet administration if it was not already revoked."
+
+rm -f -- "$office_record"
+
+rm -f -- /usr/sbin/csweet-office-start

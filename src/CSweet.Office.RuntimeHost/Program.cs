@@ -7,6 +7,7 @@ using CSweet.Office.Runtime.Protocol;
 using CSweet.Office.Runtime.Core;
 using CSweet.Office.RuntimeHost;
 
+CSweet.Office.Runtime.Core.OfficeStorageGuard.VerifyWindowsVolume();
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService(options => options.ServiceName = "CSweet.Office.RuntimeHost");
 builder.Services.AddSystemd();

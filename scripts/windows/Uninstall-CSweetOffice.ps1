@@ -53,9 +53,17 @@ function Write-OfficeRemovalProgress {
         -EstimatedRemainingMaximumSeconds $EstimatedRemainingMaximumSeconds
 }
 
+. (Join-Path $PSScriptRoot 'CSweet.OfficeStorage.ps1')
+$registeredStorage = Get-CSweetInstalledOfficeStorage
+$resolvedStorage = if ($null -ne $registeredStorage) { Resolve-CSweetOfficeStorage -VolumeId $registeredStorage.VolumeId -SkipSpaceCheck } else { $null }
 $nodeRoot = Join-Path $env:ProgramData 'CSweet\Office'
 $programFilesRoot = Join-Path $env:ProgramFiles 'CSweet\Office'
 $runtimeDataRoot = Join-Path $env:ProgramData 'CSweet\Office'
+if ($null -ne $resolvedStorage) {
+    $nodeRoot = $resolvedStorage.DataRoot
+    $programFilesRoot = $resolvedStorage.InstallRoot
+    $runtimeDataRoot = $resolvedStorage.DataRoot
+}
 $hyperVDataRoot = Join-Path $runtimeDataRoot 'hyperv'
 $legacyNodeRoot = Join-Path $env:ProgramData 'CSweet\SatelliteOffice'
 $legacyProgramFilesRoot = Join-Path $env:ProgramFiles 'CSweet\SatelliteOffice'
@@ -201,7 +209,7 @@ foreach ($name in @('CSWEET_HYPERV_BROKER_SERVICE_ID', 'CSWEET_HYPERV_DATA_ROOT'
 }
 
 Remove-Item -LiteralPath 'HKLM:\Software\Classes\csweet-office' -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath 'HKLM:\Software\CSweet\Office' -Recurse -Force -ErrorAction SilentlyContinue
+
 
 Write-OfficeRemovalProgress -PhaseKey 'remove-office-data' -PhaseDisplayName 'Removing Office data' `
     -Message 'Windows is deleting Office identities, caches, runtime data, and installed files.' `
@@ -214,3 +222,5 @@ Write-OfficeRemovalProgress -PhaseKey 'office-removed-locally' -PhaseDisplayName
     -Message 'Windows removed the existing Office. C-Sweet is confirming completion.' `
     -PercentComplete 95 -EstimatedRemainingMinimumSeconds 0 -EstimatedRemainingMaximumSeconds 15
 Write-Host 'C-Sweet Office was fully uninstalled, including installed versions, cached artifacts, guest disks, and owned Hyper-V VMs. Repository build artifacts were not removed. Revoke the host in fleet administration if it was not already revoked.' -ForegroundColor Green
+
+Remove-Item -LiteralPath 'HKLM:\Software\CSweet\Office' -Recurse -Force -ErrorAction SilentlyContinue

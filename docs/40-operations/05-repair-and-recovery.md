@@ -1,5 +1,11 @@
 # Repair and recovery
 
+Office 0.13.0 supports [installation drive selection](09-storage-selection.md). Locations in the
+examples below describe the system-volume defaults; the storage resolver supplies registered
+locations for installations on another volume. See `scripts/windows/CSweet.OfficeStorage.ps1`
+and `scripts/office-storage.sh` for destination resolution.
+
+
 **Audience:** Windows administrators recovering an Office that cannot enroll, cannot reach Headquarters, or has
 lost its operational certificate.
 
@@ -168,4 +174,4 @@ not a convenience flag, and not something the recovery service may do on its own
 `src/CSweet.Office.Runtime.HyperV/WindowsRuntimeHostProvisioner.cs`, `README.md`, `releases/0.5.0.md`,
 `docs/20-security/06-host-privilege-model.md`, `docs/20-security/11-security-invariants.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-10-24.

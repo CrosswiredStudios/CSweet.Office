@@ -8,6 +8,13 @@ $maintenance = Join-Path $node 'maintenance'
 $active = Join-Path $maintenance 'active-assignments'
 $hyperv = Join-Path $data 'hyperv'
 $instance = [guid]::NewGuid().ToString('N')
+# Isolate the fixture from any real Office storage registration on the developer's machine.
+function Test-Path {
+    [CmdletBinding()]
+    param([Parameter(Position=0)][string]$Path, [string]$LiteralPath, [string]$PathType)
+    if ($LiteralPath -eq 'HKLM:\SOFTWARE\CSweet\Office\Storage') { return $false }
+    Microsoft.PowerShell.Management\Test-Path @PSBoundParameters
+}
 function Get-Service { param($Name, $ErrorAction) [pscustomobject]@{ Name=$Name } }
 function Get-CimInstance { param($ClassName, $Filter) [pscustomobject]@{ PathName=('node.exe --contentRoot "' + $install + '"') } }
 function Get-Module { param([switch]$ListAvailable, $Name) 'available' }

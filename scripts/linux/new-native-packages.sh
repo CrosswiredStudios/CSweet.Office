@@ -59,6 +59,7 @@ stage_package_tree() {
   cp -a "$payload_root/." "$destination/usr/lib/csweet/office-installer/"
   install -m 0755 "$script_root/configure-office.sh" \
     "$destination/usr/sbin/csweet-configure-office"
+  install -m 0644 "$script_root/../office-storage.sh" "$destination/usr/sbin/csweet-office-storage.sh"
   install -m 0755 "$script_root/uninstall-office.sh" \
     "$destination/usr/sbin/csweet-uninstall-office"
 }
@@ -78,7 +79,7 @@ Section: admin
 Priority: optional
 Architecture: $deb_arch
 Maintainer: C-Sweet Release Engineering
-Depends: systemd
+Depends: systemd, jq, util-linux
 Description: C-Sweet Office enrollment payload
  Installs the signed, non-secret runtime payload. Run
  csweet-configure-office separately to enroll this machine.
@@ -124,7 +125,7 @@ Summary: C-Sweet Office enrollment payload
 License: Proprietary
 BuildArch: $rpm_arch
 Source0: %{name}-%{version}.tar.gz
-Requires: systemd
+Requires: systemd, jq, util-linux
 
 %description
 Installs the signed, non-secret C-Sweet runtime payload. Enrollment is a
@@ -152,6 +153,7 @@ fi
 /usr/lib/csweet/office-installer
 /usr/sbin/csweet-configure-office
 /usr/sbin/csweet-uninstall-office
+/usr/sbin/csweet-office-storage.sh
 EOF
   rpmbuild --define "_topdir $rpm_root" -bb "$rpm_root/SPECS/csweet-office.spec"
   rpm_path=$(find "$rpm_root/RPMS" -type f -name '*.rpm' -print -quit)
