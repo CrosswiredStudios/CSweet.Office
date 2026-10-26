@@ -62,6 +62,8 @@ internal static class ToolchainGuestProgram
                 RedirectStandardError = true,
                 RedirectStandardInput = false
             };
+            ConfigurePreparedNodeEnvironment(start, "/usr/lib/csweet/toolchains/node-typescript",
+                Path.Combine(Path.GetDirectoryName(inputRoot)!, "cache", "npm"));
             using var process = Process.Start(start) ?? throw new IOException("The immutable toolchain adapter did not start.");
             var stdout = CopyOutputAsync(process.StandardOutput, Console.Out);
             var stderr = CopyOutputAsync(process.StandardError, Console.Error);
@@ -77,6 +79,18 @@ internal static class ToolchainGuestProgram
             Console.Error.WriteLine(Sanitize(exception.Message));
             return 1;
         }
+    }
+
+    internal static void ConfigurePreparedNodeEnvironment(ProcessStartInfo start, string imageRoot, string writableCache)
+    {
+        if (!File.Exists(Path.Combine(imageRoot, "versions.json"))) return;
+        var cache = Path.Combine(imageRoot, "npm-cache");
+        var browsers = Path.Combine(imageRoot, "browsers");
+        if (!Directory.Exists(cache) || !Directory.Exists(browsers))
+            throw new InvalidDataException("The certified Node environment is incomplete.");
+        CopyFixture(cache, writableCache, 512L * 1024 * 1024);
+        start.Environment["npm_config_cache"] = writableCache;
+        start.Environment["PLAYWRIGHT_BROWSERS_PATH"] = browsers;
     }
 
     internal static Uri SourceArchiveUri(Uri repository, string commit, string? trustedArchive = null, string? buildIdentity = null)

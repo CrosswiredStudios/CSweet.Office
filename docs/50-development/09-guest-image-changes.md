@@ -144,3 +144,15 @@ the guest image digest, and the broker protocol version. Therefore:
 `docs/30-workloads/06-guest-images.md`.
 
 Verified: 2026-09-19.
+
+## Node toolchain image inputs
+
+`build/provision-node-toolchain.sh` restores the two exact fixture lockfiles under `build/toolchains/node-typescript`, adds PRISM BREAK's retained Phaser 3.90.0 dependency pin, installs the Playwright package's Chromium revision, and proves both lockfiles restore offline plus a headless canvas screenshot. `build/development-tools.lock.json` pins Node 24.15.0 by official artifact hashes; `build/provision-development.sh` verifies Node and npm versions before running this preparation.
+
+`ToolchainGuestProgram.ConfigurePreparedNodeEnvironment` copies the image cache into the disposable workload cache and sets fixed npm/browser locations for the adapter child process. The source image cache stays unchanged. The environment allow-list, no-NIC isolation, signed assignment and artifact checks are unchanged (SEC-INV-07, SEC-INV-21, SEC-INV-22). `Get-GuestBuildFingerprint` includes the new provisioning script and lockfile tree. Hosted builds remain subject to destination-host certification.
+
+## Sources
+
+`build/{development-tools.lock.json,provision-development.sh,provision-node-toolchain.sh}`, `build/toolchains/node-typescript`, `scripts/{Prepare-CSweetDevelopmentPayload.ps1,windows/Initialize-CSweetWindowsIsolationTest.ps1}`, `src/CSweet.Office.ToolchainGuest/Program.cs`, `tests/CSweet.Office.Tests/ToolchainGuestSecurityTests.cs`.
+
+Verified: 2026-10-26.

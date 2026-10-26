@@ -5,6 +5,30 @@ namespace CSweet.Office.Tests;
 public sealed class ToolchainGuestSecurityTests
 {
     [Fact]
+    public void PreparedNodeCacheIsCopiedIntoDisposableStorageWithoutMutatingTheImage()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "csweet-node-image-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var image = Path.Combine(root, "image"); var cache = Path.Combine(root, "scratch", "npm");
+            Directory.CreateDirectory(Path.Combine(image, "npm-cache", "_cacache"));
+            Directory.CreateDirectory(Path.Combine(image, "browsers"));
+            File.WriteAllText(Path.Combine(image, "versions.json"), "{}");
+            var content = Path.Combine(image, "npm-cache", "_cacache", "content"); File.WriteAllText(content, "pinned-content");
+            var start = new System.Diagnostics.ProcessStartInfo("adapter");
+            ToolchainGuestProgram.ConfigurePreparedNodeEnvironment(start, image, cache);
+            Assert.Equal(cache, start.Environment["npm_config_cache"]);
+            Assert.Equal(Path.Combine(image, "browsers"), start.Environment["PLAYWRIGHT_BROWSERS_PATH"]);
+            Assert.Equal("pinned-content", File.ReadAllText(Path.Combine(cache, "_cacache", "content")));
+            File.WriteAllText(Path.Combine(cache, "_cacache", "content"), "disposable-change");
+            Assert.Equal("pinned-content", File.ReadAllText(content));
+            Directory.Delete(Path.Combine(image, "browsers"));
+            Assert.Throws<InvalidDataException>(() => ToolchainGuestProgram.ConfigurePreparedNodeEnvironment(start, image, cache));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public void OfflineSourceUsesOnlyExactBrokerBuildReference()
     {
         var build = Guid.NewGuid(); var commit = new string('a', 40);
