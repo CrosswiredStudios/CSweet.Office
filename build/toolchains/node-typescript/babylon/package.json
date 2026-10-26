@@ -1,0 +1,9 @@
+{
+  "name": "csweet-babylon-certification-fixture",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": { "lint": "tsc --noEmit", "test": "vitest run tests/unit.test.ts", "build": "vite build", "smoke": "playwright test tests/smoke.spec.ts" },
+  "dependencies": { "@babylonjs/core": "9.0.0" },
+  "devDependencies": { "@playwright/test": "1.62.1", "@types/node": "24.13.3", "typescript": "5.9.2", "vite": "7.3.6", "vitest": "3.2.7" }
+}

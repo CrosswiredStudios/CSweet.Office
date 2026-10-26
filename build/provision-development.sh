@@ -23,7 +23,12 @@ SOURCES
 apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=3 -o APT::Update::Error-Mode=any update
 DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=3 \
   --snapshot 20261012T000000Z install -y --no-install-recommends \
-  bash python3.12 python3.12-venv git curl ca-certificates build-essential pkg-config ripgrep openssh-client iproute2 unzip xz-utils
+  bash python3.12 python3.12-venv git curl ca-certificates build-essential pkg-config ripgrep openssh-client iproute2 unzip xz-utils \
+  xvfb fonts-noto-color-emoji fonts-unifont libfontconfig1 libfreetype6 xfonts-cyrillic xfonts-scalable \
+  fonts-liberation fonts-ipafont-gothic fonts-wqy-zenhei fonts-tlwg-loma-otf fonts-freefont-ttf \
+  libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 \
+  libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 \
+  libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2
 python3.12 - "$payload" "$arch" <<'PYTHON'
 import hashlib,json,pathlib,sys
 root=pathlib.Path(sys.argv[1]); lock=json.loads((root/'development-tools.lock.json').read_text()); a=lock['architectures'][sys.argv[2]]
@@ -42,13 +47,15 @@ ln -sfn /usr/share/dotnet/dotnet /usr/bin/dotnet
 ln -sfn /usr/bin/dotnet /usr/local/bin/dotnet
 unzip -p "$payload/tun2socks.zip" "$tun_entry" >/usr/lib/csweet/tun2socks
 chmod 0755 /usr/lib/csweet/tun2socks
-test "$(node --version)" = 'v22.23.3'
-test "$(npm --version)" = '10.9.9'
+test "$(node --version)" = 'v24.15.0'
+test "$(npm --version)" = '11.12.1'
 /usr/bin/dotnet --list-sdks | grep -q '^10.0.401 '
 python3.12 --version
 git --version
 curl --version >/dev/null
 cp "$payload/development-tools.lock.json" /usr/lib/csweet/development-tools.lock.json
+bash "$payload/provision-node-toolchain.sh" "$payload/node-toolchain"
+
 dpkg-query -W -f='${Package}=${Version}\n' | LC_ALL=C sort >/usr/lib/csweet/development-distro.lock
 install -d -m 0755 /etc/modules-load.d
 printf 'tun\n' >/etc/modules-load.d/csweet-development-tun.conf

@@ -26,3 +26,6 @@ foreach ($download in @(
 Copy-Item -LiteralPath $lockPath -Destination (Join-Path $payload 'development-tools.lock.json')
 Copy-Item -LiteralPath (Join-Path $root 'build/provision-development.sh') -Destination (Join-Path $payload 'provision-development.sh')
 Set-Content -LiteralPath (Join-Path $payload 'development-architecture') -Value $Architecture -Encoding Ascii
+
+Copy-Item -LiteralPath (Join-Path $root 'build/provision-node-toolchain.sh') -Destination (Join-Path $payload 'provision-node-toolchain.sh')
+Copy-Item -LiteralPath (Join-Path $root 'build/toolchains/node-typescript') -Destination (Join-Path $payload 'node-toolchain') -Recurse

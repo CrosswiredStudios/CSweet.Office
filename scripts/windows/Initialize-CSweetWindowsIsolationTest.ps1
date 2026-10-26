@@ -41,6 +41,8 @@ function Get-GuestBuildFingerprint([string] $RepositoryRoot) {
         (Join-Path $RepositoryRoot 'build\windows-hyperv'),
         (Join-Path $RepositoryRoot 'build\development-tools.lock.json'),
         (Join-Path $RepositoryRoot 'build\provision-development.sh'),
+        (Join-Path $RepositoryRoot 'build\provision-node-toolchain.sh'),
+        (Join-Path $RepositoryRoot 'build\toolchains'),
         (Join-Path $RepositoryRoot 'scripts\Prepare-CSweetDevelopmentPayload.ps1'),
         (Join-Path $RepositoryRoot '..\CSweet.Office.Contracts\src\CSweet.Office.Contracts')
     )
