@@ -21,9 +21,15 @@ for project in CSweet.Office.RuntimeGuest CSweet.Office.BuilderGuest CSweet.Offi
 done
 # The cloud image has a signed Ubuntu EFI boot chain suitable for Hyper-V Generation 2.
 export LIBGUESTFS_BACKEND=direct
+# virt-customize defaults to one appliance vCPU. Use the runner's cores, capped at 4
+# (override with CSWEET_IMAGE_BUILD_CPUS), so package installs and the sgrep build run in parallel.
+build_cpus=${CSWEET_IMAGE_BUILD_CPUS:-$(nproc)}
+[[ "$build_cpus" =~ ^[0-9]+$ ]] || build_cpus=1
+(( build_cpus < 1 )) && build_cpus=1
+(( build_cpus > 4 )) && build_cpus=4
 qemu-img create -f qcow2 "$work/expanded.qcow2" 12G
 virt-resize --expand /dev/sda1 "$work/$image" "$work/expanded.qcow2"
-virt-customize -a "$work/expanded.qcow2" --memsize 4096 \
+virt-customize -a "$work/expanded.qcow2" --memsize 4096 --smp "$build_cpus" \
   --install linux-tools-virtual,linux-cloud-tools-virtual \
   --copy-in "$work/csweet-image-payload:/tmp" \
   --upload "$root/build/windows-hyperv/provision-guest.sh:/tmp/csweet-provision-guest.sh" \

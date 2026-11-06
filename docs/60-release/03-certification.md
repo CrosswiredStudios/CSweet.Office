@@ -30,6 +30,15 @@ For each run it:
 There is no simulated or in-process substitute in the evidence path: the checks are produced by the guest, and
 the host only aggregates them.
 
+**Host reuse (Windows guided setup, 0.15.0).** `Initialize-CSweetWindowsIsolationTest.ps1` skips the runner when
+this same host certified byte-identical inputs within the last 24 hours: the cache key in
+`%ProgramData%\CSweet\Setup\certification-cache` (SYSTEM and Administrators only) is the SHA-256 of the guest
+image, the Hyper-V helper, the guest probe and the runner, plus the development and IPv4-only flags. The cached
+evidence is re-hashed, re-checked like fresh evidence, and saved only after a run whose checks all passed. A
+changed input, an older or future-dated record, or `-Recertify` runs the VMs again. Evidence is still produced
+by real guests; reuse never synthesises it. Sources: `scripts/windows/CSweet.CertificationCache.ps1`,
+`scripts/tests/Test-CertificationCache.ps1`. Verified: 2026-11-06 (source review; not yet run on a host).
+
 | Platform path | Entry point | Host requirements | Guest image |
 |---|---|---|---|
 | Windows / Hyper-V | `scripts/windows/Initialize-CSweetWindowsIsolationTest.ps1` | Administrator, Hyper-V, a cached or freshly built `.vhdx` | `New-CSweetHyperVTestGuest.ps1`, cached by the bundle fingerprint |
@@ -199,3 +208,18 @@ Sources: `src/CSweet.Office.WindowsSmokeTest/{Program.cs,CertificationBrokerHost
 `src/CSweet.Office.GuestProbe/Program.cs`,
 `src/CSweet.Office.Runtime.Core/ExternalPlatformIsolationBackend.cs`.
 Verified: 2026-10-16 (source and regression tests; new real-VM certification pending).
+
+## Semantic search check in 0.15.0
+
+The public-internet probe's `DependencyFixtureAsync` now also runs `SemanticSearchFixtureAsync`: `sgrep --version`,
+then one `sgrep --json -n 1 --model code` search over a generated C# file under `/run/csweet/workload/sgrep-fixture`
+with `HF_HUB_OFFLINE=1`, the image's read-only `HF_HUB_CACHE` and `TREE_SITTER_LANGUAGE_PACK_CACHE_DIR`, and
+`SGREP_CACHE_DIR=/run/csweet/workload/cache/sgrep`. The file exceeds sgrep's chunk size so the C# parser must load from
+the image. The check passes only on exit code 0 and a non-empty JSON array whose entries carry string `path` and
+`content` and ordered positive `start`/`end` lines. A failure fails the existing `developmentToolchain` check; no key
+was added to `RequiredInternetChecks`, and the suite stays `csweet-hardware-vm-smoke-v16` (`-ipv4`). The restricted
+v14 probe is unchanged, because images built without the development payload do not contain sgrep. The new image
+still needs fresh evidence, since evidence binds the guest image digest.
+
+Sources: `src/CSweet.Office.GuestProbe/Program.cs`, `src/CSweet.Office.Runtime.Core/ExternalPlatformIsolationBackend.cs`.
+Verified: 2026-11-05 (source review and probe compilation; real-VM certification pending).

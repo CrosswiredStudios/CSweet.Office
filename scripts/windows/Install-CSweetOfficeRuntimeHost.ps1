@@ -23,7 +23,12 @@ param(
     [switch] $NonInteractive,
     [string] $ProgressPath,
     [guid] $ProgressJobId = [guid]::Empty,
-    [string] $ProgressWorkflow = 'packaged-installer'
+    [string] $ProgressWorkflow = 'packaged-installer',
+    # Before its first claim the Node verifies the installed guest image (a full SHA-256 pass
+    # over a multi-GB VHDX) through RuntimeHost. Wait long enough for that, but stay inside the
+    # fifteen-minute Headquarters enrollment window that enrollment-ready opened.
+    [ValidateRange(60, 840)]
+    [int] $EnrollmentTimeoutSeconds = 600
 )
 
 Set-StrictMode -Version Latest
@@ -866,6 +871,9 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
     if ($token.Length -lt 32 -or $token.Length -gt 256) { throw 'The protected enrollment token is invalid.' }
     New-Item -ItemType Directory -Path $nodeDataRoot -Force | Out-Null
     $nodeTokenPath = Join-Path $nodeDataRoot 'enrollment.secret'
+    # A marker left by the Node for an earlier, rejected token must not fail this fresh enrollment.
+    $enrollmentRejectedPath = Join-Path $nodeDataRoot 'enrollment-rejected.json'
+    if (Test-Path -LiteralPath $enrollmentRejectedPath -PathType Leaf) { Remove-Item -LiteralPath $enrollmentRejectedPath -Force }
     [IO.File]::WriteAllText($nodeTokenPath, $token, [Text.UTF8Encoding]::new($false))
     $token = $null
     & "$env:SystemRoot\System32\icacls.exe" $nodeDataRoot '/inheritance:r' '/grant:r' "*$nodeServiceSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Host
@@ -916,9 +924,24 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
     (Get-Service -Name $nodeServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
 
     $nodeStatePath = Join-Path $nodeDataRoot 'node-state.json'
-    $enrollmentDeadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
+    $enrollmentWaitStarted = [DateTimeOffset]::UtcNow
+    $enrollmentDeadline = $enrollmentWaitStarted.AddSeconds($EnrollmentTimeoutSeconds)
+    $enrollmentProgressAt = [DateTimeOffset]::MinValue
     while (-not (Test-Path -LiteralPath $nodeStatePath -PathType Leaf) -and
            [DateTimeOffset]::UtcNow -lt $enrollmentDeadline) {
+        if ([DateTimeOffset]::UtcNow - $enrollmentProgressAt -ge [TimeSpan]::FromSeconds(15)) {
+            # Refresh the owner heartbeat so Headquarters does not treat this wait as an interrupted setup.
+            $enrollmentElapsed = [int]([DateTimeOffset]::UtcNow - $enrollmentWaitStarted).TotalSeconds
+            Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $ProgressWorkflow `
+                -State running -PhaseKey connect-office -PhaseDisplayName 'Connecting your Office' `
+                -Message "The Office service is verifying its secure runtime before it connects ($enrollmentElapsed seconds so far)." `
+                -PercentComplete 97 -EstimatedRemainingMinimumSeconds 5 `
+                -EstimatedRemainingMaximumSeconds ([Math]::Max(30, $EnrollmentTimeoutSeconds - $enrollmentElapsed))
+            $enrollmentProgressAt = [DateTimeOffset]::UtcNow
+        }
+        if (Test-Path -LiteralPath $enrollmentRejectedPath -PathType Leaf) {
+            throw 'Headquarters rejected the Office connection code as invalid, expired, or already used. Generate a new connection code in C-Sweet, then run this installer again.'
+        }
         $nodeService = Get-Service -Name $nodeServiceName
         if ($nodeService.Status -ne 'Running') {
             throw 'The Office Node service stopped before enrollment completed.'
@@ -940,10 +963,10 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
             }
             throw "Office enrollment failed ($errorCode): $errorMessage"
         }
-        Start-Sleep -Milliseconds 500
+        Start-Sleep -Seconds 2
     }
     if (-not (Test-Path -LiteralPath $nodeStatePath -PathType Leaf)) {
-        throw "The Office Node service started but did not enroll within 60 seconds. Check the '$nodeServiceName' Windows Application log for the control-plane connection error."
+        throw "The Office Node service started but did not enroll within $EnrollmentTimeoutSeconds seconds. Check the '$nodeServiceName' Windows Application log for the control-plane connection error."
     }
 }
 elseif ($null -ne $existingNodeConfiguration) {

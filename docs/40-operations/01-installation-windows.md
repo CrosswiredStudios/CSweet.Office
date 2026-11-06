@@ -158,10 +158,40 @@ must be drained and reinstalled.
 | Hyper-V access | The RuntimeHost service SID is added to `Hyper-V Administrators` (`S-1-5-32-578`), and the virtual machines group `S-1-5-83-0` receives `RX` on the guest-image directory and `R` on the image. |
 | Event Log | Application sources named `CSweet.Office.Node` and `CSweet.Office.RuntimeHost`, created before the services start and primed with an informational entry. |
 
-The installer then waits up to 30 seconds for each service to reach `Running` and up to 60 seconds for
-`<DataRoot>\node\node-state.json` to appear. When the Node logs an enrollment failure it extracts the error code
-from the Event Log; `invalid_enrollment` is reported with the instruction to generate a fresh connection code in
-C-Sweet.
+The installer then waits up to 30 seconds for each service to reach `Running` and up to
+`-EnrollmentTimeoutSeconds` (default 600, range 60–840, so it ends inside Headquarters' fifteen-minute
+enrollment window) for `<DataRoot>\node\node-state.json` to appear. The wait is long because the Node's
+first claim follows a full provider probe through RuntimeHost, which hashes the multi-GB guest image; on a
+development host that took 70–125 seconds, and the old fixed 60-second wait failed the install and caused
+the token to be revoked just before the Node used it. While waiting, the installer refreshes the progress
+file every 15 seconds (`connect-office`, 97%) so C-Sweet does not treat the wait as an interrupted setup.
+It still fails fast: when the Node logs an enrollment failure the error code is read from the Event Log, and
+when the Node writes `<DataRoot>\node\enrollment-rejected.json` (see
+[../20-security/01-identity-and-enrollment.md](../20-security/01-identity-and-enrollment.md)) the install
+stops. `invalid_enrollment` is reported with the instruction to generate a fresh connection code in
+C-Sweet. Writing a new `enrollment.secret` removes a stale rejection marker first.
+
+### Guided-setup speed
+
+`Initialize-CSweetWindowsIsolationTest.ps1` fingerprints the guest image once (the same SHA-256 feeds the
+development signature) and keys a host certification cache in
+`%ProgramData%\CSweet\Setup\certification-cache` (SYSTEM and Administrators only,
+`CSweet.CertificationCache.ps1`) by the image, Hyper-V helper, guest probe and certification runner
+digests plus the profile flags. A run within 24 hours of this host's own successful certification of
+identical inputs reuses that evidence instead of booting the certification VMs; any changed input, an
+older or future-dated record, or evidence whose hash no longer matches runs certification again, and
+`-Recertify` forces it. RuntimeHost still verifies image, signature and evidence on every probe
+(`SEC-INV-10`). A source guest-image build gets `-BuildCpuCount` (normally the selected Office CPU
+budget, capped at 4) as `PKR_VAR_build_cpus` instead of a fixed two vCPUs, and the hosted release build
+passes `--smp` (runner cores, capped at 4) to `virt-customize`, which otherwise gives its appliance one vCPU.
+
+After a `restart-required` stop the bootstrap does not resume on its own: the progress message tells the
+administrator to restart and choose **Continue setup** in C-Sweet, which relaunches setup for the same
+session with a fresh one-use handoff.
+
+> **Out of repo:** the Continue setup and Start over actions and the resume eligibility check live in
+> C-Sweet (`ExecutionFleetService.LocalSetupRecovery.cs`); this repository only writes the
+> `restart-required` progress record they read.
 
 ## The progress file
 
@@ -178,9 +208,10 @@ directory ACL is reset so only the control-plane user (read), `SYSTEM`, and `Adm
 
 ## Sources
 
-`scripts/windows/{Install-CSweetOffice.ps1,Install-CSweetOfficeRuntimeHost.ps1,CSweet.WindowsSetupProgress.ps1,New-CSweetOfficeMsi.ps1,Get-CSweetOfficeRecoveryState.ps1}`,
+`scripts/windows/{Install-CSweetOffice.ps1,Install-CSweetOfficeRuntimeHost.ps1,CSweet.WindowsSetupProgress.ps1,New-CSweetOfficeMsi.ps1,Get-CSweetOfficeRecoveryState.ps1,Initialize-CSweetWindowsIsolationTest.ps1,CSweet.CertificationCache.ps1,New-CSweetHyperVTestGuest.ps1}`,
+`scripts/release/build-hosted-hyperv-image.sh`, `src/CSweet.Office.Node/OfficeWorker.cs`, `src/CSweet.Office.Runtime.Core/ExternalPlatformIsolationBackend.cs`,
 `src/CSweet.Office.Runtime.HyperV/{WindowsHyperVHostProbe.cs,WindowsHyperVHostReadiness.cs,WindowsHyperVFeatureProvisioner.cs,WindowsRuntimeHostProvisioner.cs,WindowsRuntimeHostProgressStore.cs}`,
 `src/CSweet.Office.Runtime.HyperV.Helper/HyperVHelperController.cs`, `src/CSweet.Office.Node/OfficeOptions.cs`,
 `README.md`, `docs/20-security/06-host-privilege-model.md`.
 
-Verified: 2026-10-24.
+Verified: 2026-11-06.

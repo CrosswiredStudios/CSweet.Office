@@ -156,3 +156,19 @@ Verified: 2026-09-19.
 `build/{development-tools.lock.json,provision-development.sh,provision-node-toolchain.sh}`, `build/toolchains/node-typescript`, `scripts/{Prepare-CSweetDevelopmentPayload.ps1,windows/Initialize-CSweetWindowsIsolationTest.ps1}`, `src/CSweet.Office.ToolchainGuest/Program.cs`, `tests/CSweet.Office.Tests/ToolchainGuestSecurityTests.cs`.
 
 Verified: 2026-10-26.
+
+## sgrep image inputs
+
+`build/toolchains/sgrep/provision-sgrep.sh` runs from `build/provision-development.sh` after the Node toolchain step. `scripts/Prepare-CSweetDevelopmentPayload.ps1` downloads `rust.tar.xz` (official `static.rust-lang.org` Rust 1.90.0 installer for the payload architecture) and `sgrep-source.tar.gz` (GitHub archive of `context-dot-dev/sgrep` at revision `dde0c13c8d6081f9c6d6d1d33580eebf1034aecf`, version 0.3.0), verifies both against the `rust*` and `sgrep` entries in `build/development-tools.lock.json`, and stages the script directory as `sgrep-toolchain`. `provision-development.sh` re-verifies both hashes inside the image before extracting anything.
+
+The script installs Rust into a temporary prefix, builds with `cargo build --release --locked` (crates are fetched from crates.io at build time; `Cargo.lock` pins their checksums; `-j` is `nproc` capped at 4), installs `/usr/local/bin/sgrep` as `0755 root`, and deletes Rust, `CARGO_HOME`, the target directory and the sources. It then runs `--model code` and `--model text` searches with `--no-cache` over a temporary polyglot fixture whose code files exceed sgrep's 2048-character chunk size, so both pinned Hugging Face models and the ten tree-sitter parsers sgrep uses (C, C++, C#, Go, Java, JavaScript, Python, Rust, TSX, TypeScript) are downloaded into `/usr/lib/csweet/toolchains/sgrep/{hf-cache,parsers}`. Everything under that root is made `root`-owned and not group- or other-writable, which tree-sitter-language-pack requires before it loads a parser.
+
+The build fails unless `nobody`, with `HF_HUB_OFFLINE=1`, both caches unwritable and only a fresh `SGREP_CACHE_DIR` writable, gets non-empty search JSON for both models and a reused index. The image records `versions.json` (sgrep, revision, Rust, tree-sitter-language-pack, model ids and revisions, parser languages) and `env` (the runtime `KEY=VALUE` settings) under the same root. sgrep reads the verified model and parser files without taking a lock in either directory, so agents do not copy them; they set the `env` values plus a scratch `SGREP_CACHE_DIR` on the `sgrep` child process, or pass `--no-cache`. The workload environment allow-list is unchanged (`SEC-INV-21`).
+
+`Get-GuestBuildFingerprint` already covers the lockfile, `provision-development.sh`, the whole `build\toolchains` tree and the Prepare script. `scripts/tests/test-development-sgrep-wiring.sh` checks that the three files name the same artifacts and that the recipe invokes the script; it does not build anything.
+
+### Sources
+
+`build/{development-tools.lock.json,provision-development.sh}`, `build/toolchains/sgrep/provision-sgrep.sh`, `scripts/{Prepare-CSweetDevelopmentPayload.ps1,windows/Initialize-CSweetWindowsIsolationTest.ps1}`, `scripts/tests/test-development-sgrep-wiring.sh`, `src/CSweet.Office.GuestProbe/Program.cs`.
+
+Verified: 2026-11-05 (source review, wiring test, and `provision-sgrep.sh` run in Ubuntu 24.04 with the hash-checked payload; full image build and real-VM certification pending).

@@ -14,7 +14,10 @@ $artifacts = $lock.architectures.$Architecture
 foreach ($download in @(
     @{ Name = 'node.tar.xz'; Url = $artifacts.nodeUrl; Hash = $artifacts.nodeSha256; Algorithm = 'SHA256' },
     @{ Name = 'dotnet.tar.gz'; Url = $artifacts.dotnetUrl; Hash = $artifacts.dotnetSha512; Algorithm = 'SHA512' },
-    @{ Name = 'tun2socks.zip'; Url = $artifacts.tunUrl; Hash = $artifacts.tunSha256; Algorithm = 'SHA256' }
+    @{ Name = 'tun2socks.zip'; Url = $artifacts.tunUrl; Hash = $artifacts.tunSha256; Algorithm = 'SHA256' },
+    # Build-only inputs for sgrep. The Rust toolchain is removed from the image after the build.
+    @{ Name = 'rust.tar.xz'; Url = $artifacts.rustUrl; Hash = $artifacts.rustSha256; Algorithm = 'SHA256' },
+    @{ Name = 'sgrep-source.tar.gz'; Url = $lock.sgrep.sourceUrl; Hash = $lock.sgrep.sourceSha256; Algorithm = 'SHA256' }
 )) {
     $target = Join-Path $payload $download.Name
     if (-not (Test-Path -LiteralPath $target)) {
@@ -29,3 +32,4 @@ Set-Content -LiteralPath (Join-Path $payload 'development-architecture') -Value 
 
 Copy-Item -LiteralPath (Join-Path $root 'build/provision-node-toolchain.sh') -Destination (Join-Path $payload 'provision-node-toolchain.sh')
 Copy-Item -LiteralPath (Join-Path $root 'build/toolchains/node-typescript') -Destination (Join-Path $payload 'node-toolchain') -Recurse
+Copy-Item -LiteralPath (Join-Path $root 'build/toolchains/sgrep') -Destination (Join-Path $payload 'sgrep-toolchain') -Recurse
