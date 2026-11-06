@@ -22,7 +22,7 @@ done
 # The cloud image has a signed Ubuntu EFI boot chain suitable for Hyper-V Generation 2.
 export LIBGUESTFS_BACKEND=direct
 # virt-customize defaults to one appliance vCPU. Use the runner's cores, capped at 4
-# (override with CSWEET_IMAGE_BUILD_CPUS), so package installs run in parallel.
+# (override with CSWEET_IMAGE_BUILD_CPUS), so package installs and the sgrep build run in parallel.
 build_cpus=${CSWEET_IMAGE_BUILD_CPUS:-$(nproc)}
 [[ "$build_cpus" =~ ^[0-9]+$ ]] || build_cpus=1
 (( build_cpus < 1 )) && build_cpus=1

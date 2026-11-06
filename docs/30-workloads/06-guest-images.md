@@ -158,3 +158,26 @@ the detached `GuestImageSignaturePath`, the pinned `GuestImageSigningCertificate
 `src/CSweet.Office.RuntimeGuest/GuestWorkloadSupervisor.cs`.
 
 Verified: 2026-09-15.
+
+## Development tools baked into the image
+
+When the development payload is present, `build/provision-development.sh` installs the pinned Node, npm, .NET SDK,
+Python, git and ripgrep, prepares the Node toolchain cache under `/usr/lib/csweet/toolchains/node-typescript`, and
+runs `build/toolchains/sgrep/provision-sgrep.sh`. Office 0.15.0 adds `/usr/local/bin/sgrep` (sgrep 0.3.0, built from a
+pinned source revision; the Rust toolchain is not kept) and its read-only assets under
+`/usr/lib/csweet/toolchains/sgrep`:
+
+| Path | Contents |
+|---|---|
+| `hf-cache` | The pinned `minishlab/potion-code-16M-v2` and `minishlab/potion-base-8M` model files, used as `HF_HUB_CACHE`. |
+| `parsers` | tree-sitter parsers for C, C++, C#, Go, Java, JavaScript, Python, Rust, TSX and TypeScript, used as `TREE_SITTER_LANGUAGE_PACK_CACHE_DIR`. |
+| `versions.json` | sgrep version and revision, Rust version, tree-sitter-language-pack version, model ids and revisions, parser languages. |
+| `env` | The runtime settings: both cache paths and `HF_HUB_OFFLINE=1`. The caller adds a writable `SGREP_CACHE_DIR` on scratch or passes `--no-cache`. |
+
+The root filesystem is read-only at run time, and sgrep only reads verified files from these directories. The image
+build proves an unprivileged offline search before the image is produced; see
+[50-development/09-guest-image-changes.md](../50-development/09-guest-image-changes.md#sgrep-image-inputs).
+
+Sources: `build/provision-development.sh`, `build/toolchains/sgrep/provision-sgrep.sh`, `build/provision-node-toolchain.sh`.
+
+Verified: 2026-11-05 (source review, and `provision-sgrep.sh` run in Ubuntu 24.04 with the hash-checked payload: build, model and parser warm-up, and offline search as `nobody` against read-only caches; full image build pending).

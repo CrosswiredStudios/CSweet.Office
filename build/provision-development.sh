@@ -32,11 +32,11 @@ DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Check-Valid-Until=false -o Ac
 python3.12 - "$payload" "$arch" <<'PYTHON'
 import hashlib,json,pathlib,sys
 root=pathlib.Path(sys.argv[1]); lock=json.loads((root/'development-tools.lock.json').read_text()); a=lock['architectures'][sys.argv[2]]
-for name,algorithm,key in [('node.tar.xz','sha256','nodeSha256'),('dotnet.tar.gz','sha512','dotnetSha512'),('tun2socks.zip','sha256','tunSha256')]:
+for name,algorithm,expected in [('node.tar.xz','sha256',a['nodeSha256']),('dotnet.tar.gz','sha512',a['dotnetSha512']),('tun2socks.zip','sha256',a['tunSha256']),('rust.tar.xz','sha256',a['rustSha256']),('sgrep-source.tar.gz','sha256',lock['sgrep']['sourceSha256'])]:
  h=hashlib.new(algorithm)
  with (root/name).open('rb') as f:
   for chunk in iter(lambda:f.read(1024*1024),b''): h.update(chunk)
- if h.hexdigest()!=a[key]: raise SystemExit('Pinned development artifact failed verification: '+name)
+ if h.hexdigest()!=expected: raise SystemExit('Pinned development artifact failed verification: '+name)
 PYTHON
 tar -xJf "$payload/node.tar.xz" --strip-components=1 -C /usr/local
 install -d -m 0755 /usr/share/dotnet /usr/lib/csweet
@@ -55,6 +55,9 @@ git --version
 curl --version >/dev/null
 cp "$payload/development-tools.lock.json" /usr/lib/csweet/development-tools.lock.json
 bash "$payload/provision-node-toolchain.sh" "$payload/node-toolchain"
+# Builds sgrep from the hash-verified source above, bakes its models and parsers read-only,
+# and removes the temporary Rust toolchain before the image is measured.
+bash "$payload/sgrep-toolchain/provision-sgrep.sh" "$payload"
 
 dpkg-query -W -f='${Package}=${Version}\n' | LC_ALL=C sort >/usr/lib/csweet/development-distro.lock
 install -d -m 0755 /etc/modules-load.d

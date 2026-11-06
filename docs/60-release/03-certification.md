@@ -208,3 +208,18 @@ Sources: `src/CSweet.Office.WindowsSmokeTest/{Program.cs,CertificationBrokerHost
 `src/CSweet.Office.GuestProbe/Program.cs`,
 `src/CSweet.Office.Runtime.Core/ExternalPlatformIsolationBackend.cs`.
 Verified: 2026-10-16 (source and regression tests; new real-VM certification pending).
+
+## Semantic search check in 0.15.0
+
+The public-internet probe's `DependencyFixtureAsync` now also runs `SemanticSearchFixtureAsync`: `sgrep --version`,
+then one `sgrep --json -n 1 --model code` search over a generated C# file under `/run/csweet/workload/sgrep-fixture`
+with `HF_HUB_OFFLINE=1`, the image's read-only `HF_HUB_CACHE` and `TREE_SITTER_LANGUAGE_PACK_CACHE_DIR`, and
+`SGREP_CACHE_DIR=/run/csweet/workload/cache/sgrep`. The file exceeds sgrep's chunk size so the C# parser must load from
+the image. The check passes only on exit code 0 and a non-empty JSON array whose entries carry string `path` and
+`content` and ordered positive `start`/`end` lines. A failure fails the existing `developmentToolchain` check; no key
+was added to `RequiredInternetChecks`, and the suite stays `csweet-hardware-vm-smoke-v16` (`-ipv4`). The restricted
+v14 probe is unchanged, because images built without the development payload do not contain sgrep. The new image
+still needs fresh evidence, since evidence binds the guest image digest.
+
+Sources: `src/CSweet.Office.GuestProbe/Program.cs`, `src/CSweet.Office.Runtime.Core/ExternalPlatformIsolationBackend.cs`.
+Verified: 2026-11-05 (source review and probe compilation; real-VM certification pending).
