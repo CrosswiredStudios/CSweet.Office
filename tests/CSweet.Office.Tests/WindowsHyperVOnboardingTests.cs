@@ -239,7 +239,11 @@ public sealed class WindowsHyperVOnboardingTests
         Assert.Contains("$config.CSweet.Office.Node = $existingNodeConfiguration", installer, StringComparison.Ordinal);
         Assert.Contains("elseif ($null -ne $existingNodeConfiguration)", installer, StringComparison.Ordinal);
         Assert.Contains("The existing Office content root is outside the protected install directory.", installer, StringComparison.Ordinal);
-        Assert.Contains("did not enroll within 60 seconds", installer, StringComparison.Ordinal);
+        Assert.Contains("did not enroll within $EnrollmentTimeoutSeconds seconds", installer, StringComparison.Ordinal);
+        Assert.Contains("[int] $EnrollmentTimeoutSeconds = 600", installer, StringComparison.Ordinal);
+        Assert.Contains("[ValidateRange(60, 840)]", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddSeconds(60)", installer, StringComparison.Ordinal);
+        Assert.Contains("enrollment-rejected.json", installer, StringComparison.Ordinal);
         Assert.Contains("Generate a new connection code in C-Sweet", installer, StringComparison.Ordinal);
         Assert.Contains("Office enrollment failed", installer, StringComparison.Ordinal);
         Assert.Contains("$minimumOfficeVersion = [Version]'0.1.0.0'", installer, StringComparison.Ordinal);

@@ -30,6 +30,15 @@ For each run it:
 There is no simulated or in-process substitute in the evidence path: the checks are produced by the guest, and
 the host only aggregates them.
 
+**Host reuse (Windows guided setup, 0.14.1).** `Initialize-CSweetWindowsIsolationTest.ps1` skips the runner when
+this same host certified byte-identical inputs within the last 24 hours: the cache key in
+`%ProgramData%\CSweet\Setup\certification-cache` (SYSTEM and Administrators only) is the SHA-256 of the guest
+image, the Hyper-V helper, the guest probe and the runner, plus the development and IPv4-only flags. The cached
+evidence is re-hashed, re-checked like fresh evidence, and saved only after a run whose checks all passed. A
+changed input, an older or future-dated record, or `-Recertify` runs the VMs again. Evidence is still produced
+by real guests; reuse never synthesises it. Sources: `scripts/windows/CSweet.CertificationCache.ps1`,
+`scripts/tests/Test-CertificationCache.ps1`. Verified: 2026-11-06 (source review; not yet run on a host).
+
 | Platform path | Entry point | Host requirements | Guest image |
 |---|---|---|---|
 | Windows / Hyper-V | `scripts/windows/Initialize-CSweetWindowsIsolationTest.ps1` | Administrator, Hyper-V, a cached or freshly built `.vhdx` | `New-CSweetHyperVTestGuest.ps1`, cached by the bundle fingerprint |

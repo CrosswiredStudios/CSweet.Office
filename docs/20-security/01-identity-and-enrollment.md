@@ -83,6 +83,19 @@ The enrollment token is accepted from exactly three places, in precedence order:
 
 After enrollment the token is cleared from the options object as well.
 
+A definitive rejection is never retried. When the claim returns `invalid_enrollment` (the token is invalid,
+expired, revoked or already used), `EnrollAsync` clears the token, deletes `enrollment.secret`, writes
+`enrollment-rejected.json` (`state`, `errorCode`, `rejectedAt`; `OfficeWorker.RecordEnrollmentRejectionAsync`)
+in the state directory, and logs the rejection once as an error. Until the installer writes a new token (and
+removes the marker), `EnrollAsync` stops before the provider probe and before any claim
+(`OfficeEnrollmentAwaitingTokenException`), logs one warning, and checks again every 30 seconds. Transport
+failures and other errors keep the ordinary 5-second reconnect loop.
+
+The claim still follows a full provider probe, because the claim carries the provider inventory that
+Headquarters records and approves. The probe now hashes the guest image once and checks both its pinned
+digest and its detached signature against that pass (`ExternalPlatformIsolationBackend.ProbeAsync`), which
+halves the delay before the first claim; the installer's enrollment wait covers the rest.
+
 Enrollment tokens must not be placed in command-line arguments. The Linux installer enforces this by having
 no `--enrollment-token` option at all — a property asserted by a test.
 
@@ -122,8 +135,9 @@ waits a **fixed 5 seconds** — no exponential backoff, no jitter — before rel
 
 ## Sources
 
-`src/CSweet.Office.Node/{OfficeStateStore.cs,OfficeWorker.cs,OfficeOptions.cs,Program.cs}`,
+`src/CSweet.Office.Node/{OfficeStateStore.cs,OfficeWorker.cs,OfficeEnrollmentExceptions.cs,OfficeOptions.cs,Program.cs}`,
+`src/CSweet.Office.Runtime.Core/ExternalPlatformIsolationBackend.cs`, `tests/CSweet.Office.Tests/OfficeSetupFlowTests.cs`,
 `tests/CSweet.Office.Tests/{OfficeTests.cs,OfficeCertificateRecoveryTests.cs}`,
 `scripts/windows/Install-CSweetOfficeRuntimeHost.ps1`, `scripts/linux/install-office.sh`.
 
-Verified: 2026-09-15.
+Verified: 2026-11-06.

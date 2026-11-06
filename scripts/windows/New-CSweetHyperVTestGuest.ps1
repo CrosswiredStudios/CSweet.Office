@@ -7,10 +7,15 @@ param(
     [string] $IsolationRoot = "$PSScriptRoot\..\..\..\CSweet.Isolation",
     [switch] $DevelopmentTools,
     [string] $ProgressPath,
-    [guid] $ProgressJobId = [guid]::Empty
+    [guid] $ProgressJobId = [guid]::Empty,
+    # Build VM vCPUs. 0 uses half the host's logical processors. Always capped at 4.
+    [ValidateRange(0, 64)][int] $BuildCpuCount = 0
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($BuildCpuCount -le 0) { $BuildCpuCount = [Math]::Max(1, [int][Math]::Floor([Environment]::ProcessorCount / 2)) }
+# The Packer template reads this as var.build_cpus (validated to 1-4).
+$env:PKR_VAR_build_cpus = [string][Math]::Min(4, $BuildCpuCount)
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 Import-Module (Join-Path $IsolationRoot 'tools\LinuxImage\CSweet.LinuxImage.psd1') -Force
 $progressHelper = Join-Path $PSScriptRoot 'CSweet.WindowsSetupProgress.ps1'
