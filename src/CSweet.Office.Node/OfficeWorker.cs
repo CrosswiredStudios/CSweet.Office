@@ -64,6 +64,22 @@ public sealed partial class OfficeWorker(
                 finally { certificate.Dispose(); }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+            catch (OfficeEnrollmentRejectedException exception)
+            {
+                // Logged once as an error: the installer fails fast on this exact event text.
+                logger.LogError(exception, "Office enrollment was rejected. Waiting for a new connection code.");
+                await Task.Delay(EnrollmentRejectedPollInterval, stoppingToken);
+            }
+            catch (OfficeEnrollmentAwaitingTokenException)
+            {
+                // A rejected token is never retried. Stay quiet until the installer supplies a new code.
+                if (!_awaitingTokenLogged)
+                {
+                    logger.LogWarning("Office enrollment is waiting for a new connection code; the previous code was rejected.");
+                    _awaitingTokenLogged = true;
+                }
+                await Task.Delay(EnrollmentRejectedPollInterval, stoppingToken);
+            }
             catch (Exception exception)
             {
                 logger.LogError(exception, "The office control session ended; reconnecting.");
@@ -72,8 +88,44 @@ public sealed partial class OfficeWorker(
         }
     }
 
+    private static readonly TimeSpan EnrollmentRejectedPollInterval = TimeSpan.FromSeconds(30);
+    internal const string EnrollmentRejectedFileName = "enrollment-rejected.json";
+    private bool _awaitingTokenLogged;
+
+    /// <summary>Only a definitive control-plane rejection stops claims; transport errors keep retrying.</summary>
+    internal static bool IsDefinitiveEnrollmentRejection(string? errorCode) =>
+        string.Equals(errorCode, "invalid_enrollment", StringComparison.Ordinal);
+
+    internal static bool IsAwaitingNewEnrollment(string stateDirectory) =>
+        File.Exists(Path.Combine(stateDirectory, EnrollmentRejectedFileName));
+
+    /// <summary>
+    /// Records a rejected one-use token and deletes it, so the Node never claims with it again.
+    /// The installer removes the marker when it writes a fresh token.
+    /// </summary>
+    internal static async Task RecordEnrollmentRejectionAsync(
+        string stateDirectory, string? enrollmentTokenPath, string errorCode, DateTimeOffset rejectedAt,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(stateDirectory);
+        var marker = Path.Combine(stateDirectory, EnrollmentRejectedFileName);
+        var temporary = marker + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1,
+            state = "enrollment-rejected",
+            errorCode,
+            rejectedAt = rejectedAt.ToUniversalTime()
+        }), cancellationToken);
+        File.Move(temporary, marker, overwrite: true);
+        if (enrollmentTokenPath is not null && File.Exists(enrollmentTokenPath)) File.Delete(enrollmentTokenPath);
+    }
+
     private async Task<OfficeState> EnrollAsync(X509Certificate2 certificate, CancellationToken cancellationToken)
     {
+        if (IsAwaitingNewEnrollment(options.ResolveStateDirectory()))
+            throw new OfficeEnrollmentAwaitingTokenException();
+        _awaitingTokenLogged = false;
         var token = options.EnrollmentToken;
         string? enrollmentTokenPath = null;
         if (string.IsNullOrWhiteSpace(token) && !string.IsNullOrWhiteSpace(options.EnrollmentTokenFilePath))
@@ -125,6 +177,14 @@ public sealed partial class OfficeWorker(
         }
         if (result is null)
             throw new InvalidDataException("The control plane returned an empty enrollment response.");
+        if (!result.Succeeded && IsDefinitiveEnrollmentRejection(result.ErrorCode))
+        {
+            options.EnrollmentToken = string.Empty;
+            await RecordEnrollmentRejectionAsync(options.ResolveStateDirectory(), enrollmentTokenPath,
+                result.ErrorCode!, DateTimeOffset.UtcNow, cancellationToken);
+            throw new OfficeEnrollmentRejectedException(
+                $"Office enrollment failed ({result.ErrorCode}): {result.Message}");
+        }
         if (!response.IsSuccessStatusCode || !result.Succeeded || result.OfficeId is null ||
             string.IsNullOrWhiteSpace(result.EnrollmentReceipt) || string.IsNullOrWhiteSpace(result.AssignmentSigningKeyId) ||
             string.IsNullOrWhiteSpace(result.AssignmentVerificationPublicKeyBase64))

@@ -118,10 +118,19 @@ public sealed class OfficeTests : IDisposable
         var worker = File.ReadAllText(Path.Combine(
             RepositoryRoot(), "src", "CSweet.Office.Node", "OfficeWorker.cs"));
 
-        var saveState = worker.IndexOf("await stateStore.SaveAsync(state, cancellationToken);", StringComparison.Ordinal);
-        var deleteToken = worker.IndexOf("File.Delete(enrollmentTokenPath);", StringComparison.Ordinal);
+        // Successful enrollment: the token is deleted only after the enrolled state is saved.
+        var enroll = worker.IndexOf("private async Task<OfficeState> EnrollAsync(", StringComparison.Ordinal);
+        Assert.True(enroll >= 0);
+        var saveState = worker.IndexOf("await stateStore.SaveAsync(state, cancellationToken);", enroll, StringComparison.Ordinal);
+        var deleteToken = worker.IndexOf("File.Delete(enrollmentTokenPath);", enroll, StringComparison.Ordinal);
         Assert.True(saveState >= 0);
         Assert.True(deleteToken > saveState);
+        // Rejected enrollment: the rejection marker is written before the dead token is deleted.
+        var reject = worker.IndexOf("internal static async Task RecordEnrollmentRejectionAsync(", StringComparison.Ordinal);
+        Assert.True(reject >= 0 && reject < enroll);
+        var marker = worker.IndexOf("File.Move(temporary, marker, overwrite: true);", reject, StringComparison.Ordinal);
+        var deleteRejected = worker.IndexOf("File.Delete(enrollmentTokenPath);", reject, StringComparison.Ordinal);
+        Assert.True(marker > reject && deleteRejected > marker && deleteRejected < enroll);
         Assert.DoesNotContain("File.Delete(tokenPath);", worker, StringComparison.Ordinal);
     }
 

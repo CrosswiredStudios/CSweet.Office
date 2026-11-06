@@ -13,7 +13,11 @@ param(
     [string] $ControlPlaneUrl,
     [string] $EnrollmentTokenInputPath,
     [string] $ProgressPath,
-    [guid] $ProgressJobId = [guid]::Empty
+    [guid] $ProgressJobId = [guid]::Empty,
+    # Ignore a reusable host certification and boot the certification VMs again.
+    [switch] $Recertify,
+    # vCPUs for a source guest-image build, normally the selected Office capacity. Capped at 4.
+    [ValidateRange(0, 64)][int] $BuildCpuCount = 0
 )
 
 Set-StrictMode -Version Latest
@@ -85,6 +89,8 @@ if (-not (Test-Administrator)) {
     if ($DevelopmentTools) { $arguments += "-DevelopmentTools" }
     if ($PublicInternetIpv4Only) { $arguments += "-PublicInternetIpv4Only" }
     if ($RebuildGuest) { $arguments += '-RebuildGuest' }
+    if ($Recertify) { $arguments += '-Recertify' }
+    if ($BuildCpuCount -gt 0) { $arguments += @('-BuildCpuCount', [string]$BuildCpuCount) }
     if ($SkipInstall) { $arguments += '-SkipInstall' }
     if ($WorkingRoot) { $arguments += @('-WorkingRoot', (Quote-ProcessArgument $WorkingRoot)) }
     if ($PayloadResultPath) { $arguments += @('-PayloadResultPath', (Quote-ProcessArgument $PayloadResultPath)) }
@@ -139,9 +145,9 @@ $feature = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -Er
 if ($feature.State -eq 'EnablePending') {
     Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
         -State restart-required -PhaseKey windows-restart -PhaseDisplayName 'Restart Windows to continue' `
-        -Message 'Hyper-V enablement is waiting for a Windows restart. Reopen C-Sweet afterward to resume.' `
+        -Message 'Hyper-V enablement is waiting for a Windows restart. After restarting, open C-Sweet and choose Continue setup.' `
         -PercentComplete 5 -RequiresRestart
-    Write-Host 'Hyper-V enablement is pending. Save your work, restart Windows, then run this same command again.' -ForegroundColor Yellow
+    Write-Host 'Hyper-V enablement is pending. Save your work, restart Windows, then choose Continue setup in C-Sweet (or run this command again).' -ForegroundColor Yellow
     return
 }
 if ($feature.State -ne 'Enabled') {
@@ -153,9 +159,9 @@ if ($feature.State -ne 'Enabled') {
     $result = Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All -NoRestart -ErrorAction Stop
     Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
         -State restart-required -PhaseKey windows-restart -PhaseDisplayName 'Restart Windows to continue' `
-        -Message 'Hyper-V is enabled and needs a Windows restart. Reopen C-Sweet afterward to resume.' `
+        -Message 'Hyper-V is enabled and needs a Windows restart. After restarting, open C-Sweet and choose Continue setup.' `
         -PercentComplete 5 -RequiresRestart
-    Write-Host 'Hyper-V is enabled. Save your work, restart Windows, then run this same command again.' -ForegroundColor Yellow
+    Write-Host 'Hyper-V is enabled. Save your work, restart Windows, then choose Continue setup in C-Sweet (or run this command again).' -ForegroundColor Yellow
     if ($result.RestartNeeded) { exit 0 }
 }
 
@@ -219,7 +225,8 @@ if ($PrebuiltRoot) {
             $guestReadyMarker = "$guestImage.ready"
         }
         & (Join-Path $PSScriptRoot 'New-CSweetHyperVTestGuest.ps1') -SwitchName $SwitchName -OutputPath $guestImage `
-            -DevelopmentTools:$DevelopmentTools -ProgressPath $ProgressPath -ProgressJobId $ProgressJobId
+            -DevelopmentTools:$DevelopmentTools -ProgressPath $ProgressPath -ProgressJobId $ProgressJobId `
+            -BuildCpuCount $BuildCpuCount
         if ($LASTEXITCODE -ne 0) { throw 'The C-Sweet test guest image build failed.' }
         [IO.File]::WriteAllText($guestReadyMarker, $guestFingerprint, [Text.UTF8Encoding]::new($false))
     } else {
@@ -271,12 +278,39 @@ foreach ($required in @($helper, $probe, $smoke)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "A certification executable is missing: $required" }
 }
 
+. (Join-Path $PSScriptRoot 'CSweet.CertificationCache.ps1')
+Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
+    -State running -PhaseKey verify-guest -PhaseDisplayName 'Checking the secure guest image' `
+    -Message 'C-Sweet is fingerprinting the guest image and certification tools on this machine.' -PercentComplete 68 `
+    -EstimatedRemainingMinimumSeconds 240 -EstimatedRemainingMaximumSeconds 960
+# One pass over the multi-GB image serves the certification cache key and the development signature.
+$guestImageSha256 = Get-CSweetSha256Hex $guestImage
+$certificationProfile = "development=$([bool]$DevelopmentTools);ipv4only=$([bool]$PublicInternetIpv4Only)"
+$certificationCacheRoot = Join-Path $env:ProgramData 'CSweet\Setup\certification-cache'
+Initialize-CSweetCertificationCacheRoot -CacheRoot $certificationCacheRoot
+$certificationKey = Get-CSweetCertificationCacheKey -GuestImageSha256 $guestImageSha256 `
+    -ComponentPaths @($helper, $probe, $smoke) -CertificationProfile $certificationProfile
+$reusableEvidence = if ($Recertify) { $null } else {
+    Get-CSweetReusableCertification -CacheRoot $certificationCacheRoot -Key $certificationKey -Now ([DateTimeOffset]::UtcNow)
+}
+$certificationLog = Join-Path $runRoot 'certification.log'
+if ($null -ne $reusableEvidence) {
+    Write-Host "Reusing this host's certification of the identical guest image and tools: $reusableEvidence"
+    Copy-Item -LiteralPath $reusableEvidence -Destination $evidencePath -Force
+    "Reused host certification $certificationKey from $reusableEvidence." | Set-Content -LiteralPath $certificationLog -Encoding UTF8
+    Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
+        -State running -PhaseKey certify-runtime -PhaseDisplayName 'Reusing this computer''s recent certification' `
+        -Message 'This computer certified the identical guest image and tools within the last day, so the certification VMs are skipped.' `
+        -PercentComplete 80 -EstimatedRemainingMinimumSeconds 60 -EstimatedRemainingMaximumSeconds 300
+    $certificationLines = @()
+    $certificationExitCode = 0
+} else {
 Write-Host 'Starting real no-network Hyper-V guests and running the runtime and builder certification probes...'
 Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $progressWorkflow `
     -State running -PhaseKey certify-runtime -PhaseDisplayName 'Certifying agent isolation and builds' `
     -Message 'Disposable no-network VMs are testing runtime isolation and a real agent build.' -PercentComplete 70 `
     -EstimatedRemainingMinimumSeconds 180 -EstimatedRemainingMaximumSeconds 900
-$certificationLog = Join-Path $runRoot 'certification.log'
+$guestImageBeforeCertification = Get-Item -LiteralPath $guestImage
 $previousErrorActionPreference = $ErrorActionPreference
 $certificationHeartbeat = Start-CertificationHeartbeat
 try {
@@ -292,8 +326,17 @@ try {
     Stop-Job -Job $certificationHeartbeat -ErrorAction SilentlyContinue
     Remove-Job -Job $certificationHeartbeat -Force -ErrorAction SilentlyContinue
 }
+$guestImageAfterCertification = Get-Item -LiteralPath $guestImage
+if ($guestImageAfterCertification.Length -ne $guestImageBeforeCertification.Length -or
+    $guestImageAfterCertification.LastWriteTimeUtc -ne $guestImageBeforeCertification.LastWriteTimeUtc) {
+    # Never sign or cache a digest computed before the bytes changed.
+    $guestImageSha256 = Get-CSweetSha256Hex $guestImage
+    $certificationKey = Get-CSweetCertificationCacheKey -GuestImageSha256 $guestImageSha256 `
+        -ComponentPaths @($helper, $probe, $smoke) -CertificationProfile $certificationProfile
+}
 $certificationLines = @($certificationOutput | ForEach-Object { $_.ToString() })
 $certificationLines | Set-Content -LiteralPath $certificationLog -Encoding UTF8
+}
 if ($certificationExitCode -ne 0 -or -not (Test-Path -LiteralPath $evidencePath -PathType Leaf)) {
     $certificationDetail = $certificationLines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
     if ([string]::IsNullOrWhiteSpace($certificationDetail)) {
@@ -308,6 +351,10 @@ if (-not $evidence.checks -or @($evidence.checks.PSObject.Properties | Where-Obj
         $evidence.certificationSuiteVersion -ceq 'csweet-hardware-vm-smoke-v16-ipv4' -and $_.Name -ceq 'publicInternetIpv6')
 }).Count -ne 0) {
     throw 'Certification evidence contains a failed isolation check.'
+}
+if ($null -eq $reusableEvidence) {
+    Save-CSweetReusableCertification -CacheRoot $certificationCacheRoot -Key $certificationKey `
+        -EvidencePath $evidencePath -Now ([DateTimeOffset]::UtcNow)
 }
 
 $certificateSubject = 'CN=C-Sweet Windows Hyper-V Development Guest Image Signer'
@@ -327,7 +374,7 @@ if ($null -eq $certificate) {
 $certificatePath = Join-Path $runRoot 'guest-image-signing.cer'
 $signaturePath = "$guestImage.sig"
 Export-Certificate -Cert $certificate -FilePath $certificatePath -Type CERT -Force | Out-Null
-$imageHash = (Get-FileHash -LiteralPath $guestImage -Algorithm SHA256).Hash
+$imageHash = $guestImageSha256
 $hashBytes = [byte[]]::new(32)
 for ($index = 0; $index -lt $hashBytes.Length; $index++) {
     $hashBytes[$index] = [Convert]::ToByte($imageHash.Substring($index * 2, 2), 16)

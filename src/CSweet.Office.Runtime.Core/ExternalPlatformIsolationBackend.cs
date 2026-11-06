@@ -79,14 +79,17 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
             return Unavailable("Guest image and certification evidence must use immutable SHA-256 digests.");
         if (_options.CertifiedAt is null || string.IsNullOrWhiteSpace(_options.CertificationSuiteVersion))
             return Unavailable("No certification evidence is configured for this provider build.");
-        if (!await VerifyFileDigestAsync(guestImage, _options.GuestImageDigest, cancellationToken))
+        // Hash the multi-GB guest image once per probe and verify both its pinned digest and its
+        // detached signature against that same pass. Two passes doubled the Office's first-claim delay.
+        var guestImageHash = await HashFileAsync(guestImage, cancellationToken);
+        if (guestImageHash is null || !DigestMatches(guestImageHash, _options.GuestImageDigest))
             return Unavailable("The installed guest image does not match its configured digest.");
         if (!await VerifyFileDigestAsync(certificationEvidence, _options.CertificationEvidenceDigest, cancellationToken))
             return Unavailable("The installed certification evidence does not match its configured digest.");
         if (!await VerifyCertificationEvidenceAsync(certificationEvidence, cancellationToken))
             return Unavailable("The certification evidence is malformed or is not bound to this exact provider, image, protocol, and certification window.");
         if (!await VerifyGuestImageSignatureAsync(
-                guestImage, guestSignature, signingCertificate,
+                guestImageHash, guestSignature, signingCertificate,
                 _options.GuestImageSigningCertificateThumbprint, cancellationToken))
             return Unavailable("The guest image signature or pinned signing certificate is invalid.");
 
@@ -333,8 +336,26 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
         }
     }
 
+    private static async Task<byte[]?> HashFileAsync(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            return await SHA256.HashDataAsync(stream, cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    internal static bool DigestMatches(byte[] sha256, string expectedDigest) =>
+        sha256.Length == 32 && CryptographicOperations.FixedTimeEquals(
+            Encoding.ASCII.GetBytes($"sha256:{Convert.ToHexStringLower(sha256)}"), Encoding.ASCII.GetBytes(expectedDigest));
+
     private static async Task<bool> VerifyGuestImageSignatureAsync(
-        string imagePath,
+        byte[] imageHash,
         string signaturePath,
         string certificatePath,
         string expectedThumbprint,
@@ -352,9 +373,6 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
                     Encoding.ASCII.GetBytes(normalizedActual), Encoding.ASCII.GetBytes(normalizedExpected)) ||
                 now < certificate.NotBefore || now > certificate.NotAfter)
                 return false;
-            await using var image = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.Read,
-                1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-            var imageHash = await SHA256.HashDataAsync(image, cancellationToken);
             var signature = await File.ReadAllBytesAsync(signaturePath, cancellationToken);
             using var rsa = certificate.GetRSAPublicKey();
             if (rsa is not null)

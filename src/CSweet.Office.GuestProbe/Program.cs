@@ -135,6 +135,7 @@ static async Task<bool> DependencyFixtureAsync()
     if (!await CommandAsync(directory, "node", "--version") || !await CommandAsync(directory, "npm", "--version") ||
         !await CommandAsync(directory, "npx", "--version") || !await CommandAsync(directory, "python3.12", "--version") ||
         !await CommandAsync(directory, "git", "--version") || !await CommandAsync(directory, "curl", "--version")) return false;
+    if (!await SemanticSearchFixtureAsync()) return false;
     if (!await CommandAsync(directory, "npm", "install", "--no-audit", "--no-fund") ||
         !File.Exists(Path.Combine(directory, "package-lock.json")) ||
         !await CommandAsync(directory, "npm", "ci", "--no-audit", "--no-fund") ||
@@ -144,13 +145,59 @@ static async Task<bool> DependencyFixtureAsync()
         await CommandAsync(directory, "esbuild", "--version");
 }
 
-static async Task<bool> CommandAsync(string directory, string executable, params string[] args)
+static async Task<bool> SemanticSearchFixtureAsync()
+{
+    // The image bakes sgrep's models and parsers read-only; HF_HUB_OFFLINE proves the search
+    // needs no download. Only the index lives in writable workload scratch.
+    const string directory = "/run/csweet/workload/sgrep-fixture";
+    Directory.CreateDirectory(directory);
+    // Above sgrep's 2048-character chunk size, so the C# tree-sitter parser must load from the image.
+    await File.WriteAllTextAsync(Path.Combine(directory, "Retry.cs"), "namespace Fixture;\npublic static class Retry\n{\n" +
+        string.Concat(Enumerable.Range(1, 48).Select(index => $"    public static int Backoff{index}(int attempt) => attempt * {index};\n")) + "}\n");
+    var environment = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["HF_HUB_OFFLINE"] = "1",
+        ["HF_HUB_CACHE"] = "/usr/lib/csweet/toolchains/sgrep/hf-cache",
+        ["TREE_SITTER_LANGUAGE_PACK_CACHE_DIR"] = "/usr/lib/csweet/toolchains/sgrep/parsers",
+        ["SGREP_CACHE_DIR"] = "/run/csweet/workload/cache/sgrep"
+    };
+    if (!await CommandAsync(directory, "sgrep", "--version")) return false;
+    // One result keeps the JSON inside the retained 4 KiB output tail.
+    var search = await CommandResultAsync(directory, environment, "sgrep", "--json", "-n", "1", "--model", "code",
+        "retry with exponential backoff", ".");
+    if (search is not { ExitCode: 0, TimedOut: false }) return false;
+    if (IsSearchResultJson(search.Output)) return true;
+    Console.Error.WriteLine($"Dependency fixture: sgrep returned unexpected JSON: {search.Output}");
+    return false;
+}
+
+static bool IsSearchResultJson(string output)
+{
+    try
+    {
+        using var document = JsonDocument.Parse(output);
+        return document.RootElement is { ValueKind: JsonValueKind.Array } results && results.GetArrayLength() > 0 &&
+            results.EnumerateArray().All(result => result.ValueKind == JsonValueKind.Object &&
+                result.TryGetProperty("path", out var path) && path.ValueKind == JsonValueKind.String &&
+                result.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String &&
+                result.TryGetProperty("start", out var start) && start.TryGetInt32(out var first) && first >= 1 &&
+                result.TryGetProperty("end", out var end) && end.TryGetInt32(out var last) && last >= first);
+    }
+    catch (JsonException) { return false; }
+}
+
+static async Task<bool> CommandAsync(string directory, string executable, params string[] args) =>
+    await CommandResultAsync(directory, null, executable, args) is { ExitCode: 0, TimedOut: false };
+
+static async Task<CertificationCommandResult?> CommandResultAsync(string directory,
+    IReadOnlyDictionary<string, string>? environment, string executable, params string[] args)
 {
     var start = new ProcessStartInfo(executable) { WorkingDirectory = directory, UseShellExecute = false,
         RedirectStandardOutput = true, RedirectStandardError = true };
     foreach (var arg in args) start.ArgumentList.Add(arg);
     start.Environment["npm_config_cache"] = "/run/csweet/workload/cache/npm";
     start.Environment["npm_config_loglevel"] = "verbose";
+    foreach (var (key, value) in environment ?? new Dictionary<string, string>()) start.Environment[key] = value;
     try
     {
         Console.Error.WriteLine($"Dependency fixture: starting {executable} {string.Join(' ', args)}");
@@ -159,12 +206,12 @@ static async Task<bool> CommandAsync(string directory, string executable, params
             Console.Error.WriteLine($"Dependency fixture: {executable} {string.Join(' ', args)} " +
                 $"{(result.TimedOut ? "timed out after 60 seconds" : $"exited {result.ExitCode}")}. " +
                 $"stdout: {result.Output} stderr: {result.Error}");
-        return result.ExitCode == 0 && !result.TimedOut;
+        return result;
     }
     catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception or OperationCanceledException)
     {
         Console.Error.WriteLine($"Dependency fixture: {executable} {string.Join(' ', args)} failed ({e.GetType().Name}): {e.Message}");
-        return false;
+        return null;
     }
 }
 

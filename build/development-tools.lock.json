@@ -5,6 +5,14 @@
   "dotnetSdkVersion": "10.0.401",
   "tun2socksVersion": "2.7.0",
   "ubuntuSnapshot": "20261012T000000Z",
+  "sgrep": {
+    "version": "0.3.0",
+    "repository": "https://github.com/context-dot-dev/sgrep",
+    "revision": "dde0c13c8d6081f9c6d6d1d33580eebf1034aecf",
+    "sourceUrl": "https://codeload.github.com/context-dot-dev/sgrep/tar.gz/dde0c13c8d6081f9c6d6d1d33580eebf1034aecf",
+    "sourceSha256": "0ea0c1cd85f104e215ab71001006995b8303c34aa120682a400921f0a0e18d12",
+    "rustVersion": "1.90.0"
+  },
   "architectures": {
     "x64": {
       "nodeUrl": "https://nodejs.org/dist/v24.15.0/node-v24.15.0-linux-x64.tar.xz",
@@ -13,7 +21,10 @@
       "dotnetSha512": "51c8b999af9e8dd9998c9edc5944e19a90788862068acd38694e098889054ce8c23d4f0c5cccfa16bf187d044562359e5ee69a9f8ad0bbe913ba90311fbce25b",
       "tunUrl": "https://github.com/xjasonlyu/tun2socks/releases/download/v2.7.0/tun2socks-linux-amd64.zip",
       "tunSha256": "a612baa287a3b6de6221f74fd02b442a50888508227ecf51e1288a5ccbb77381",
-      "tunEntry": "tun2socks-linux-amd64"
+      "tunEntry": "tun2socks-linux-amd64",
+      "rustTarget": "x86_64-unknown-linux-gnu",
+      "rustUrl": "https://static.rust-lang.org/dist/rust-1.90.0-x86_64-unknown-linux-gnu.tar.xz",
+      "rustSha256": "bff8974f2d3ee6c0e6ac926b533f65bbdd3697d2c2b925bdae5f45b9eed10a67"
     },
     "arm64": {
       "nodeUrl": "https://nodejs.org/dist/v24.15.0/node-v24.15.0-linux-arm64.tar.xz",
@@ -22,7 +33,10 @@
       "dotnetSha512": "58ace73ced6b4360754689a686bdfb8a317f4da6cb8bb416dbc7d0ba9f47e43e3c09f5eb1f1a1cfaacbd10df9558da4882bf2a5e195d6ab56a02c1f9f76102ed",
       "tunUrl": "https://github.com/xjasonlyu/tun2socks/releases/download/v2.7.0/tun2socks-linux-arm64.zip",
       "tunSha256": "3931476c9cfa8fa236d23aeaf36767df0eb27cc11ecaab699faba57744450f49",
-      "tunEntry": "tun2socks-linux-arm64"
+      "tunEntry": "tun2socks-linux-arm64",
+      "rustTarget": "aarch64-unknown-linux-gnu",
+      "rustUrl": "https://static.rust-lang.org/dist/rust-1.90.0-aarch64-unknown-linux-gnu.tar.xz",
+      "rustSha256": "59f1883fcdd2d7243d2fd1ed19f22e05219251227abacfa3d656aebfbcc5e838"
     }
   }
 }
