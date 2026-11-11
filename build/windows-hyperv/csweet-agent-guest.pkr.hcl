@@ -47,10 +47,20 @@ variable "vm_name" {
   type = string
 }
 
+# Supplied through PKR_VAR_build_cpus from the setup capacity profile.
+variable "build_cpus" {
+  type    = number
+  default = 2
+  validation {
+    condition     = var.build_cpus >= 1 && var.build_cpus <= 4
+    error_message = "The image build CPU budget must be between 1 and 4."
+  }
+}
+
 source "hyperv-iso" "csweet_agent_guest" {
   vm_name                          = var.vm_name
   generation                       = 2
-  cpus                             = 2
+  cpus                             = var.build_cpus
   memory                           = 4096
   disk_size                        = 16384
   disk_block_size                  = 1
