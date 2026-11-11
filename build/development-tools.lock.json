@@ -4,6 +4,7 @@
   "npmVersion": "11.12.1",
   "dotnetSdkVersion": "10.0.401",
   "tun2socksVersion": "2.7.0",
+  "micromambaVersion": "2.10.0-0",
   "ubuntuSnapshot": "20261012T000000Z",
   "architectures": {
     "x64": {
@@ -13,7 +14,9 @@
       "dotnetSha512": "51c8b999af9e8dd9998c9edc5944e19a90788862068acd38694e098889054ce8c23d4f0c5cccfa16bf187d044562359e5ee69a9f8ad0bbe913ba90311fbce25b",
       "tunUrl": "https://github.com/xjasonlyu/tun2socks/releases/download/v2.7.0/tun2socks-linux-amd64.zip",
       "tunSha256": "a612baa287a3b6de6221f74fd02b442a50888508227ecf51e1288a5ccbb77381",
-      "tunEntry": "tun2socks-linux-amd64"
+      "tunEntry": "tun2socks-linux-amd64",
+      "micromambaUrl": "https://github.com/mamba-org/micromamba-releases/releases/download/2.10.0-0/micromamba-linux-64",
+      "micromambaSha256": "701f39c06f8e6a670a0e186c8479b9e5c0502a2f0cda6cef65d83bdd2875e8bd"
     },
     "arm64": {
       "nodeUrl": "https://nodejs.org/dist/v24.15.0/node-v24.15.0-linux-arm64.tar.xz",
@@ -22,7 +25,9 @@
       "dotnetSha512": "58ace73ced6b4360754689a686bdfb8a317f4da6cb8bb416dbc7d0ba9f47e43e3c09f5eb1f1a1cfaacbd10df9558da4882bf2a5e195d6ab56a02c1f9f76102ed",
       "tunUrl": "https://github.com/xjasonlyu/tun2socks/releases/download/v2.7.0/tun2socks-linux-arm64.zip",
       "tunSha256": "3931476c9cfa8fa236d23aeaf36767df0eb27cc11ecaab699faba57744450f49",
-      "tunEntry": "tun2socks-linux-arm64"
+      "tunEntry": "tun2socks-linux-arm64",
+      "micromambaUrl": "https://github.com/mamba-org/micromamba-releases/releases/download/2.10.0-0/micromamba-linux-aarch64",
+      "micromambaSha256": "3bb56786e21b9b24024f599fe9185b4a59dc3f9f59937a42311ee583adbbb23c"
     }
   }
 }

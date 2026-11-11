@@ -13,7 +13,9 @@ No host listener, private-network route or hypervisor NIC is added. `GuestIntern
 TUN and SOCKS5 bridge only for the approved boot policy. End-to-end TLS remains in the workload application.
 
 `Prepare-CSweetDevelopmentPayload.ps1` and `provision-development.sh` verify the immutable artifacts in
-`development-tools.lock.json`. Node/npm, .NET, Python and distro tools are measured as part of the guest image.
+`development-tools.lock.json`. Node/npm, .NET, Python, micromamba and distro tools are measured as part of the guest image.
+micromamba is a rootless package manager: `/usr/local/bin/micromamba` defaults `MAMBA_ROOT_PREFIX` to
+`$CSWEET_WORKLOAD_TOOLS/micromamba`, so its installs stay on the workload's disposable scratch disk.
 Tools/home/cache directories belong to the unprivileged workload. Native system changes require rebuilding
 the image; the internet permission does not give administrator access. SEC-INV-07, SEC-INV-08, SEC-INV-10,
 SEC-INV-20 and SEC-INV-23 continue to apply.

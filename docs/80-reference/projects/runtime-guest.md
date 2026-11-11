@@ -30,7 +30,7 @@ no runtime or provider library reaches the image.
 | `GuestBootConfigurationReader` | static class | Reads exactly one `BootConfiguration` envelope from the host. |
 | `GuestBrokerSession` | class | The session state machine: hello/challenge/proof/lease, start command, proxy forwarding, health, exit, and shutdown. |
 | `GuestArtifactMaterializer` | class | Mounts the artifact DVD read-only, verifies the bundle digest, and expands it beneath a fixed disposable root. |
-| `GuestLocalBrokerProxy` | class | A hand-written HTTP/1.1 server on a guest-local Unix socket that accepts only `POST /mcp`, `/build/fetch`, `/build/artifact`, and `/build/progress`. |
+| `GuestLocalBrokerProxy` | class | A hand-written HTTP/1.1 server on a guest-local Unix socket that accepts only `POST /mcp`, `/build/fetch`, `/build/artifact`, `/build/progress`, and the four fixed Git routes under `/git/workspaces/` (`GET` for a ref advertisement, `POST` for an exchange). |
 | `GuestLocalBrokerRequest` / `GuestLocalBrokerResponse` | records | Method, path, headers, bounded body. |
 | `IGuestWorkloadSupervisor` / `GuestWorkloadSupervisor` | interface / class | Starts the workload through `setpriv`, drains bounded logs, reports a diagnostic tail, and stops the process tree. |
 | `GuestUnixFilePermissions` | static class (internal) | Applies the `csweet-workload` group to the broker socket, workload token, and artifact tree. |
@@ -57,10 +57,11 @@ requiring the range 1024-65535; anything else throws). It then:
   `Challenge`, answers with `Proof`, requires an accepted `Lease` matching the boot-bound expiry, then serves
   the host's commands. A lease deadline cancels the whole session
   ([SEC-INV-23](../../20-security/11-security-invariants.md)).
-- **The local broker endpoint is an allow-list by workload kind.** `PurposeFor(kind, path)` maps `(1, "/mcp")`
+- **The local broker endpoint is an allow-list by workload kind.** `PurposeFor(kind, method, path)` maps `(1, "/mcp")`
   and `(2, "/mcp")` to `mcp.runtime`; `(0|2, "/build/fetch"|"/build/artifact"|"/build/progress")` to
-  `build.fetch`, `build.artifact`, `build.progress`. Anything else throws `UnauthorizedAccessException`, and a
-  builder workload cannot reach `mcp.runtime`.
+  `build.fetch`, `build.artifact`, `build.progress`; and, for kind 1 only, the Git routes accepted by
+  `GuestLocalBrokerProxy.IsGitEndpoint` to `git.runtime`. Anything else throws `UnauthorizedAccessException`,
+  a builder workload cannot reach `mcp.runtime`, and neither build kind can reach `git.runtime`.
 - **The proxy is a hand-rolled HTTP/1.1 parser with tight limits.** 32 KiB of headers, 1 MiB of body,
   `Content-Length` or `Transfer-Encoding: chunked` but never both, duplicate headers rejected, hop-by-hop
   headers stripped, and always `Connection: close`. `GET` and unknown paths are rejected before any forwarding.

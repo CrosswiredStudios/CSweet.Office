@@ -109,6 +109,27 @@ public sealed class GuestLocalBrokerProxy(
         }
     }
 
+    // The Git smart HTTP routes headquarters serves to a runtime. The path keeps its query
+    // string because headquarters matches the whole request target. Anything else under
+    // /git is refused here, before it reaches the broker channel.
+    private static readonly System.Text.RegularExpressions.Regex GitAdvertisement = new(
+        @"\A/git/workspaces/[0-9a-fA-F-]{36}/[1-9][0-9]{0,18}/info/refs\?service=git-(upload|receive)-pack\z",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    private static readonly System.Text.RegularExpressions.Regex GitExchange = new(
+        @"\A/git/workspaces/[0-9a-fA-F-]{36}/[1-9][0-9]{0,18}/git-(upload|receive)-pack\z",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    internal static bool IsGitEndpoint(string method, string path) => method switch
+    {
+        "GET" => GitAdvertisement.IsMatch(path),
+        "POST" => GitExchange.IsMatch(path),
+        _ => false
+    };
+
+    private static bool IsSupportedEndpoint(string method, string path) =>
+        (method == "POST" && path is ("/mcp" or "/build/fetch" or "/build/artifact" or "/build/progress")) ||
+        IsGitEndpoint(method, path);
+
     internal static async Task<GuestLocalBrokerRequest> ReadRequestAsync(Stream stream, CancellationToken cancellationToken)
     {
         using var header = new MemoryStream();
@@ -133,10 +154,10 @@ public sealed class GuestLocalBrokerProxy(
         if (terminatorState != 4) throw new InvalidDataException("The local broker headers exceed their limit.");
         var lines = Encoding.ASCII.GetString(header.ToArray()).Split("\r\n", StringSplitOptions.None);
         var requestLine = lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (requestLine.Length != 3 || requestLine[0] != "POST" ||
-            requestLine[1] is not ("/mcp" or "/build/fetch" or "/build/artifact" or "/build/progress") ||
+        if (requestLine.Length != 3 || !IsSupportedEndpoint(requestLine[0], requestLine[1]) ||
             !requestLine[2].StartsWith("HTTP/1.", StringComparison.Ordinal))
             throw new InvalidDataException("The local broker endpoint is not supported.");
+        var get = requestLine[0] == "GET";
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var line in lines.Skip(1).Where(line => line.Length > 0))
         {
@@ -149,10 +170,18 @@ public sealed class GuestLocalBrokerProxy(
         var hasLength = headers.TryGetValue("Content-Length", out var lengthValue);
         var chunked = headers.TryGetValue("Transfer-Encoding", out var transferEncoding) &&
             string.Equals(transferEncoding, "chunked", StringComparison.OrdinalIgnoreCase);
-        if (hasLength == chunked)
+        if (!get && hasLength == chunked)
             throw new InvalidDataException("The local broker request must use one bounded HTTP body framing mode.");
         byte[] body;
-        if (hasLength)
+        if (get)
+        {
+            // A Git ref advertisement carries no body. Refuse one instead of forwarding bytes
+            // headquarters would ignore.
+            if (chunked || hasLength && lengthValue != "0")
+                throw new InvalidDataException("A local broker GET request must not carry a body.");
+            body = Array.Empty<byte>();
+        }
+        else if (hasLength)
         {
             if (!long.TryParse(lengthValue, out var declaredLength) || declaredLength < 0)
                 throw new InvalidDataException("The local broker content length is invalid.");
@@ -168,7 +197,7 @@ public sealed class GuestLocalBrokerProxy(
         headers.Remove("Connection");
         headers.Remove("Content-Length");
         headers.Remove("Transfer-Encoding");
-        return new GuestLocalBrokerRequest("POST", requestLine[1], headers, body);
+        return new GuestLocalBrokerRequest(requestLine[0], requestLine[1], headers, body);
     }
 
     private static async Task<byte[]> ReadChunkedBodyAsync(Stream stream, CancellationToken cancellationToken)

@@ -14,7 +14,8 @@ $artifacts = $lock.architectures.$Architecture
 foreach ($download in @(
     @{ Name = 'node.tar.xz'; Url = $artifacts.nodeUrl; Hash = $artifacts.nodeSha256; Algorithm = 'SHA256' },
     @{ Name = 'dotnet.tar.gz'; Url = $artifacts.dotnetUrl; Hash = $artifacts.dotnetSha512; Algorithm = 'SHA512' },
-    @{ Name = 'tun2socks.zip'; Url = $artifacts.tunUrl; Hash = $artifacts.tunSha256; Algorithm = 'SHA256' }
+    @{ Name = 'tun2socks.zip'; Url = $artifacts.tunUrl; Hash = $artifacts.tunSha256; Algorithm = 'SHA256' },
+    @{ Name = 'micromamba'; Url = $artifacts.micromambaUrl; Hash = $artifacts.micromambaSha256; Algorithm = 'SHA256' }
 )) {
     $target = Join-Path $payload $download.Name
     if (-not (Test-Path -LiteralPath $target)) {

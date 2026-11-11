@@ -365,6 +365,7 @@ refused with `UnauthorizedAccessException("The local broker endpoint is not avai
 
 | Workload kind | Path | Purpose |
 |---|---|---|
+| 1 Runtime | `GET /git/workspaces/{id}/{revision}/info/refs?service=git-upload-pack\|git-receive-pack`, `POST /git/workspaces/{id}/{revision}/git-upload-pack\|git-receive-pack` | `git.runtime` |
 | 1 Runtime, 2 ToolchainBuild | `/mcp` | `mcp.runtime` |
 | 2 ToolchainBuild, 0 Builder | `/build/fetch` | `build.fetch` |
 | 2 ToolchainBuild, 0 Builder | `/build/artifact` | `build.artifact` |

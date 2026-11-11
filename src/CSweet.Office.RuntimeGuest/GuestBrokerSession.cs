@@ -162,7 +162,7 @@ public sealed class GuestBrokerSession(
         if (!_pending.TryAdd(requestId, completion)) throw new InvalidOperationException("A broker request identifier collided.");
         try
         {
-            var purpose = PurposeFor(options.WorkloadKind, request.Path);
+            var purpose = PurposeFor(options.WorkloadKind, request.Method, request.Path);
             var proxy = new ProxyRequest
             {
                 RequestId = requestId,
@@ -195,8 +195,11 @@ public sealed class GuestBrokerSession(
         }
     }
 
-    internal static string PurposeFor(int workloadKind, string path) => (workloadKind, path) switch
+    internal static string PurposeFor(int workloadKind, string method, string path) => (workloadKind, path) switch
     {
+        // Only an agent runtime (kind 1) reaches Git; build workloads never do.
+        (1, _) when GuestLocalBrokerProxy.IsGitEndpoint(method, path) => "git.runtime",
+        (_, _) when method != "POST" => throw new UnauthorizedAccessException("The local broker endpoint is not available to this workload."),
         (1, "/mcp") => "mcp.runtime",
         (2, "/mcp") => "mcp.runtime",
         (2, "/build/fetch") => "build.fetch",

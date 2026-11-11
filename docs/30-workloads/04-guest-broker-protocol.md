@@ -120,13 +120,29 @@ The guest maps each local HTTP request to a purpose. Anything not listed raises
 
 | Kind | Path | Purpose |
 |---|---|---|
+| `1` | the four Git routes below | `git.runtime` |
 | `1` or `2` | `/mcp` | `mcp.runtime` |
 | `0` or `2` | `/build/fetch` | `build.fetch` |
 | `0` or `2` | `/build/artifact` | `build.artifact` |
 | `0` or `2` | `/build/progress` | `build.progress` |
 | anything else | — | `UnauthorizedAccessException` |
 
-Note the asymmetry: kind 0 gets the `build.*` purposes but **not** `/mcp`, and kind 1 gets `/mcp` only.
+Note the asymmetry: kind 0 gets the `build.*` purposes but **not** `/mcp`, and kind 1 gets `/mcp` and Git only.
+Kinds 0 and 2 never get `git.runtime`. A method other than `POST` is refused for every path that is not a Git
+ref advertisement.
+
+The Git routes are fixed shapes, matched on the whole request target including the query string:
+
+| Method | Path |
+|---|---|
+| `GET` | `/git/workspaces/{workspace id}/{assignment revision}/info/refs?service=git-upload-pack` |
+| `GET` | `/git/workspaces/{workspace id}/{assignment revision}/info/refs?service=git-receive-pack` |
+| `POST` | `/git/workspaces/{workspace id}/{assignment revision}/git-upload-pack` |
+| `POST` | `/git/workspaces/{workspace id}/{assignment revision}/git-receive-pack` |
+
+The workspace id is 36 hexadecimal-or-hyphen characters and the revision is a positive decimal number of at
+most 19 digits. The guest checks only the shape. Headquarters decides whether this runtime may read or
+push that workspace; the guest holds no Git credential and the Office Node relays the frame unchanged.
 
 ## The local broker proxy
 
@@ -136,11 +152,11 @@ Note the asymmetry: kind 0 gets the `build.*` purposes but **not** `/mcp`, and k
 |---|---|
 | Transport | Unix socket only. On Windows it raises `PlatformNotSupportedException`. |
 | Socket | Mode `0660`, group `csweet-workload`, backlog 16. |
-| Method | `POST` only. |
-| Paths | `/mcp`, `/build/fetch`, `/build/artifact`, `/build/progress`. |
+| Method | `POST`, plus `GET` for a Git ref advertisement only. |
+| Paths | `/mcp`, `/build/fetch`, `/build/artifact`, `/build/progress`, and the four Git routes under [Proxy purposes](#proxy-purposes). Anything else, including any other path under `/git`, is `400`. |
 | Protocol | HTTP/1.1. |
 | Headers | At most 32 KiB. |
-| Body | At most 16 MiB minus 64 KiB reserved for headers and the protobuf envelope, with **exactly one** framing mode: `Content-Length` xor `Transfer-Encoding: chunked`, with bounded trailers. |
+| Body | At most 16 MiB minus 64 KiB reserved for headers and the protobuf envelope, with **exactly one** framing mode: `Content-Length` xor `Transfer-Encoding: chunked`, with bounded trailers. A `GET` carries no body: chunked framing or a non-zero `Content-Length` is `400`. |
 | Forwarding | Strips `Host`, `Connection`, `Content-Length`, and `Transfer-Encoding` from requests; strips hop-by-hop headers and `Content-Length` from responses. |
 | Responses | Always `Connection: close`. |
 | Oversized input | HTTP 413 with a JSON-RPC error and the byte limit; no forwarding. Smaller configured frame ceilings are checked before sending the envelope. |
@@ -164,4 +180,4 @@ guest cannot do so.
 `src/CSweet.Office.WindowsSmokeTest/CertificationBrokerHost.cs`,
 `tests/CSweet.Office.Tests/GuestLocalBrokerProxyTests.cs`.
 
-Verified: 2026-10-13.
+Verified: 2026-11-10.

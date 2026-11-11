@@ -32,7 +32,7 @@ DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Check-Valid-Until=false -o Ac
 python3.12 - "$payload" "$arch" <<'PYTHON'
 import hashlib,json,pathlib,sys
 root=pathlib.Path(sys.argv[1]); lock=json.loads((root/'development-tools.lock.json').read_text()); a=lock['architectures'][sys.argv[2]]
-for name,algorithm,key in [('node.tar.xz','sha256','nodeSha256'),('dotnet.tar.gz','sha512','dotnetSha512'),('tun2socks.zip','sha256','tunSha256')]:
+for name,algorithm,key in [('node.tar.xz','sha256','nodeSha256'),('dotnet.tar.gz','sha512','dotnetSha512'),('tun2socks.zip','sha256','tunSha256'),('micromamba','sha256','micromambaSha256')]:
  h=hashlib.new(algorithm)
  with (root/name).open('rb') as f:
   for chunk in iter(lambda:f.read(1024*1024),b''): h.update(chunk)
@@ -47,11 +47,22 @@ ln -sfn /usr/share/dotnet/dotnet /usr/bin/dotnet
 ln -sfn /usr/bin/dotnet /usr/local/bin/dotnet
 unzip -p "$payload/tun2socks.zip" "$tun_entry" >/usr/lib/csweet/tun2socks
 chmod 0755 /usr/lib/csweet/tun2socks
+# Rootless package manager for the unprivileged workload. The launcher keeps installs under the
+# workload-owned tools directory on the scratch disk; the guest home is memory-backed.
+install -m 0755 "$payload/micromamba" /usr/lib/csweet/micromamba
+cat >/usr/local/bin/micromamba <<'LAUNCHER'
+#!/bin/sh
+: "${MAMBA_ROOT_PREFIX:=${CSWEET_WORKLOAD_TOOLS:-/run/csweet/workload/tools}/micromamba}"
+export MAMBA_ROOT_PREFIX
+exec /usr/lib/csweet/micromamba "$@"
+LAUNCHER
+chmod 0755 /usr/local/bin/micromamba
 test "$(node --version)" = 'v24.15.0'
 test "$(npm --version)" = '11.12.1'
 /usr/bin/dotnet --list-sdks | grep -q '^10.0.401 '
 python3.12 --version
 git --version
+/usr/lib/csweet/micromamba --version >/dev/null
 curl --version >/dev/null
 cp "$payload/development-tools.lock.json" /usr/lib/csweet/development-tools.lock.json
 bash "$payload/provision-node-toolchain.sh" "$payload/node-toolchain"

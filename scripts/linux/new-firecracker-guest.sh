@@ -78,7 +78,7 @@ dotnet publish "$repository_root/src/CSweet.Office.GuestProbe/CSweet.Office.Gues
 
 echo "Creating the minimal Ubuntu $ubuntu_suite root filesystem..."
 debootstrap --arch="$architecture" --variant=minbase --components=main,universe \
-  --include=systemd-sysv,udev,e2fsprogs,util-linux,kmod,ca-certificates,libicu74,libssl3t64,zlib1g,initramfs-tools,linux-image-virtual \
+  --include=systemd-sysv,udev,e2fsprogs,util-linux,kmod,ca-certificates,libicu74,libssl3t64,zlib1g,initramfs-tools,linux-image-virtual,git \
   "$ubuntu_suite" "$rootfs" "$ubuntu_mirror"
 
 # Provision in a complete chroot, then unmount before measuring or copying its tree.
@@ -107,6 +107,11 @@ fi
 chroot "$rootfs" /bin/bash /tmp/provision-csweet-guest.sh
 chroot "$rootfs" /usr/bin/dotnet --list-sdks | grep -Eq '^10\.' || {
   echo "The copied development SDK does not contain .NET 10." >&2; exit 2;
+}
+# git is part of the base image, so a guest has it with or without the optional development
+# payload. Fail the image build here rather than at a workload's first git command.
+chroot "$rootfs" /usr/bin/git --version >/dev/null || {
+  echo "The guest root filesystem does not contain git." >&2; exit 2;
 }
 
 kernel=$(find "$rootfs/boot" -maxdepth 1 -type f -name 'vmlinuz-*' | sort -V | tail -n 1)

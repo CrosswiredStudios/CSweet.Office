@@ -97,7 +97,8 @@ operations.
 Provider ids: `hyperv-gen2`, `firecracker-kvm`, `apple-virtualization`.
 
 **Local broker proxy** — The guest-local HTTP/1.1 endpoint (`GuestLocalBrokerProxy`) on a Unix socket. It is
-what the agent SDK talks to. Accepts `POST` to `/mcp`, `/build/fetch`, `/build/artifact`, `/build/progress`.
+what the agent SDK talks to. Accepts `POST` to `/mcp`, `/build/fetch`, `/build/artifact`, `/build/progress`, and the fixed Git routes
+under `/git/workspaces/` (`GET` ref advertisement, `POST` exchange) for an agent runtime.
 
 **Maintenance service** — `CSweet.Office.Maintenance`, running `CSweet.Office.Configurator.exe
 --maintenance-service`. Receives authorized repair requests over an outbound connection. No inbound listener.
