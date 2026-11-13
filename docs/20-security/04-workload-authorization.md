@@ -171,7 +171,7 @@ Two different clocks are in play. Do not conflate them:
 
 | Mechanism | Cadence | Effect |
 |---|---|---|
-| `AssignmentLeaseRenewal` | every 20 seconds, `RequestedExpiry = now + 60 seconds` | Tells Headquarters the assignment is still running. It **does not** extend the signed authorization. |
+| `AssignmentLeaseRenewal` | every 20 seconds from the moment the Node holds the assignment (through slot wait, artifact fetch, VM creation and guest channel, then while running), `RequestedExpiry = now + 60 seconds` | Tells Headquarters the Node still holds the assignment. It **does not** extend the signed authorization. Headquarters grants 60 seconds at assignment, so renewing only after `Running` lets a boot longer than about 40 seconds lose its lease (fixed in 0.15.1). |
 | Signed authorization window | fixed at issuance | Hard-bounded at ≤ 10 minutes by both the Node and the gate. |
 | `BrokerLease.ExpiresAt` | set by Headquarters in the boot configuration | Enforced by the guest session with `CancelAfter`. |
 | `ResourceLimits.MaximumDurationSeconds` | set per workload | **Nothing in Office or the helpers enforces it.** |

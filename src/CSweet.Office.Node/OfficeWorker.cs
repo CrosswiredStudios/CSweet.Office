@@ -28,6 +28,12 @@ public sealed partial class OfficeWorker(
     private readonly SemaphoreSlim _workloadSlots = new(Math.Max(1, options.MaximumConcurrentWorkloads));
     private readonly AssignmentStopJournal _stopJournal = new(options);
 
+    /// <summary>
+    /// How often a held assignment's lease is renewed. Headquarters grants 60 seconds from assignment and
+    /// renewals keep it alive, so renewal must cover the whole time the Office holds the assignment.
+    /// </summary>
+    internal TimeSpan LeaseRenewalInterval { get; init; } = TimeSpan.FromSeconds(20);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         stateStore.InitializeMaintenanceSession();
@@ -543,6 +549,12 @@ public sealed partial class OfficeWorker(
         CancellationTokenSource? tunnelLifetime = null;
         Task? tunnelTask = null;
         var enteredSlot = false;
+        // Renew from the moment this Office holds the assignment, not from Running. Waiting for a slot,
+        // fetching a new artifact, creating the VM and opening the guest channel can together take longer
+        // than the 60-second lease; renewals that started only at Running let such slow boots expire
+        // (Super Awesome Games, 2026-11-13: four runtimes that booted in 44-52 s died at exactly 60 s).
+        using var renewalLifetime = CancellationTokenSource.CreateLinkedTokenSource(assignmentCancellation.Token);
+        var renewalTask = RenewAssignmentLeaseAsync(writer, writerLock, state, assignment, renewalLifetime.Token);
         try
         {
             await _workloadSlots.WaitAsync(assignmentCancellation.Token);
@@ -587,20 +599,9 @@ public sealed partial class OfficeWorker(
             await SendStatusAsync(writer, writerLock, state, assignment,
                 "Running", null, null, handle, null, assignmentCancellation.Token);
 
-            var nextRenewal = DateTimeOffset.UtcNow.AddSeconds(20);
             while (!assignmentCancellation.IsCancellationRequested)
             {
                 if (tunnelTask.IsFaulted) await tunnelTask;
-                if (DateTimeOffset.UtcNow >= nextRenewal)
-                {
-                    await SendAsync(writer, writerLock, Envelope(state, new AssignmentLeaseRenewal
-                    {
-                        AssignmentId = assignment.AssignmentId,
-                        FencingEpoch = assignment.FencingEpoch,
-                        RequestedExpiryUnixSeconds = DateTimeOffset.UtcNow.AddSeconds(60).ToUnixTimeSeconds()
-                    }), assignmentCancellation.Token);
-                    nextRenewal = DateTimeOffset.UtcNow.AddSeconds(20);
-                }
                 var status = await provider.InspectAsync(handle, assignmentCancellation.Token);
                 if (status is null || status.State is IsolationWorkloadState.Destroyed or
                     IsolationWorkloadState.Failed or IsolationWorkloadState.Stopped)
@@ -650,6 +651,8 @@ public sealed partial class OfficeWorker(
         }
         finally
         {
+            await renewalLifetime.CancelAsync();
+            await renewalTask;
             if (tunnelLifetime is not null)
             {
                 await tunnelLifetime.CancelAsync();
@@ -682,6 +685,43 @@ public sealed partial class OfficeWorker(
             assignmentCancellation.Dispose();
             finished.TrySetResult();
         }
+    }
+
+    private async Task RenewAssignmentLeaseAsync(
+        IClientStreamWriter<OfficeControlMessage> writer,
+        SemaphoreSlim writerLock,
+        OfficeState state,
+        WorkloadAssignment assignment,
+        CancellationToken cancellationToken)
+    {
+        // Renewal only reports that this Office still holds the assignment; it never extends the signed
+        // authorization window. Headquarters re-checks fencing, node health and grants on every renewal
+        // and answers a rejected one with a Fence, which cancels the assignment.
+        using var timer = new PeriodicTimer(LeaseRenewalInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                try
+                {
+                    await SendAsync(writer, writerLock, Envelope(state, new AssignmentLeaseRenewal
+                    {
+                        AssignmentId = assignment.AssignmentId,
+                        FencingEpoch = assignment.FencingEpoch,
+                        RequestedExpiryUnixSeconds = DateTimeOffset.UtcNow.AddSeconds(60).ToUnixTimeSeconds()
+                    }), cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return; }
+                catch (Exception exception)
+                {
+                    // A lost renewal lets the lease lapse at Headquarters, which then fences the assignment.
+                    // Keep trying: the control stream may reconnect before the lease runs out.
+                    logger.LogWarning(exception, "Could not renew the lease for assignment {AssignmentId} epoch {FencingEpoch}.",
+                        assignment.AssignmentId, assignment.FencingEpoch);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
     }
 
     private static async Task RelayGuestChannelAsync(

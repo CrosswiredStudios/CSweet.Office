@@ -83,6 +83,48 @@ public sealed class OfficeControlReconnectTests
     }
 
     [Fact]
+    public async Task A_slow_boot_keeps_renewing_its_assignment_lease_before_the_workload_is_running()
+    {
+        // Super Awesome Games, 2026-11-13: renewals started only after Running, 20 s later, while Headquarters
+        // grants 60 s from assignment. Runtimes that took 44-52 s to boot lost their lease at exactly 60 s.
+        var root = Path.Combine(Path.GetTempPath(), "office-slow-boot", Guid.NewGuid().ToString("N"));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var process = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var options = new OfficeOptions { StateDirectory = root, MaximumConcurrentWorkloads = 1 };
+        var store = new OfficeStateStore(options);
+        var cache = new OfficeArtifactCache(options);
+        var provider = new TestProvider { CreateGate = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var state = new OfficeState(Guid.NewGuid(), "unused", 42, "unused", "test-key",
+            Convert.ToBase64String(key.ExportSubjectPublicKeyInfo()));
+        var assignment = Assignment(key, state, options, provider.Descriptor.ProviderId);
+        var invoker = new TestGateway(state, [assignment]);
+        var worker = new OfficeWorker(options, store, new RuntimeHostInventory([]), cache, [provider],
+            null!, null!, NullLogger<OfficeWorker>.Instance) { LeaseRenewalInterval = TimeSpan.FromMilliseconds(50) };
+        var running = worker.RunControlConnectionsAsync(state, new OfficeGateway.OfficeGatewayClient(invoker), process.Token);
+        int Renewals() => invoker.First.Messages.Count(x => x.BodyCase == OfficeControlMessage.BodyOneofCase.LeaseRenewal &&
+            x.LeaseRenewal.AssignmentId == assignment.AssignmentId && x.LeaseRenewal.FencingEpoch == assignment.FencingEpoch);
+        bool IsRunning() => invoker.First.Messages.Any(x => x.AssignmentStatus?.Status == "Running");
+        try
+        {
+            while (Renewals() < 3) await Task.Delay(20, timeout.Token);
+            Assert.False(IsRunning()); // still booting, yet the lease is being renewed
+            provider.CreateGate.SetResult();
+            while (!IsRunning()) await Task.Delay(20, timeout.Token);
+            var atRunning = Renewals();
+            while (Renewals() < atRunning + 2) await Task.Delay(20, timeout.Token); // and it keeps renewing while running
+        }
+        finally
+        {
+            await process.CancelAsync();
+            try { await running; }
+            catch (OperationCanceledException) { }
+            await provider.FirstDestroyed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PendingRenewalUsesReplacementWriterAndDoesNotBlockOtherWork()
     {
         var writer = new ReconnectingControlWriter(TimeSpan.FromSeconds(2));
@@ -157,9 +199,13 @@ public sealed class OfficeControlReconnectTests
         public ConcurrentBag<Guid> Destroyed { get; } = [];
         public TaskCompletionSource FirstDestroyed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource AllDestroyed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource? CreateGate { get; init; }
         public Task PinHeadquartersTrustAsync(PinnedHeadquartersTrust trust, CancellationToken ct = default) => Task.CompletedTask;
         public async Task<IsolationWorkloadHandle> CreateAuthorizedAsync(WorkloadSpecification spec, SignedWorkloadAuthorization auth, CancellationToken ct = default)
-        { var handle = await inner.CreateAsync(spec, ct); Created.Add(handle); return handle; }
+        {
+            if (CreateGate is not null) await CreateGate.Task.WaitAsync(ct);
+            var handle = await inner.CreateAsync(spec, ct); Created.Add(handle); return handle;
+        }
         public Task<IsolationWorkloadHandle> CreateAsync(WorkloadSpecification spec, CancellationToken ct = default) => throw new InvalidOperationException("Authorization required");
         public Task<IsolationProviderProbeResult> ProbeAsync(CancellationToken ct = default) => inner.ProbeAsync(ct);
         public Task StartAsync(IsolationWorkloadHandle handle, CancellationToken ct = default) => inner.StartAsync(handle, ct);
