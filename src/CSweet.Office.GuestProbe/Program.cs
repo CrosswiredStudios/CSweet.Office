@@ -130,8 +130,8 @@ static async Task<bool> DependencyFixtureAsync()
 {
     const string directory = "/run/csweet/workload/dependency-fixture";
     Directory.CreateDirectory(directory);
-    await File.WriteAllTextAsync(Path.Combine(directory, "package.json"), """{"name":"csweet-runtime-check","version":"1.0.0","private":true,"dependencies":{"phaser":"4.0.0"},"scripts":{"test":"node test.js","build":"node --check test.js"}}""");
-    await File.WriteAllTextAsync(Path.Combine(directory, "test.js"), "const assert=require('node:assert/strict');const p=require('phaser/package.json');assert.equal(p.version,'4.0.0');assert.ok(require.resolve('phaser'));\n");
+    await File.WriteAllTextAsync(Path.Combine(directory, "package.json"), """{"name":"csweet-runtime-check","version":"1.0.0","private":true,"dependencies":{"is-number":"7.0.0"},"scripts":{"test":"node test.js","build":"node --check test.js"}}""");
+    await File.WriteAllTextAsync(Path.Combine(directory, "test.js"), "const assert=require('node:assert/strict');const p=require('is-number/package.json');assert.equal(p.version,'7.0.0');assert.ok(require('is-number')(42));\n");
     if (!await CommandAsync(directory, "node", "--version") || !await CommandAsync(directory, "npm", "--version") ||
         !await CommandAsync(directory, "npx", "--version") || !await CommandAsync(directory, "python3.12", "--version") ||
         !await CommandAsync(directory, "git", "--version") || !await CommandAsync(directory, "curl", "--version")) return false;

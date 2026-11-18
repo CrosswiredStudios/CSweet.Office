@@ -10,18 +10,21 @@ export npm_config_cache="$cache"
 export PLAYWRIGHT_BROWSERS_PATH="$browsers"
 test "$(node --version)" = v24.15.0
 test "$(npm --version)" = 11.12.1
-for recipe in phaser babylon; do
-  (cd "$fixtures/$recipe" && npm ci --ignore-scripts --no-audit --fund=false)
+shopt -s nullglob
+locks=("$fixtures"/*/package-lock.json)
+(( ${#locks[@]} > 0 ))
+browser_fixture=""
+while IFS= read -r spec; do
+  [ -z "$spec" ] || npm cache add --ignore-scripts --no-audit --fund=false "$spec"
+done < "$fixtures/cache-packages.txt"
+for lock in "${locks[@]}"; do
+  fixture=${lock%/*}
+  (cd "$fixture" && npm ci --ignore-scripts --no-audit --fund=false && npm ci --offline --ignore-scripts --no-audit --fund=false)
+  if [ -f "$fixture/node_modules/playwright/cli.js" ]; then browser_fixture="$fixture"; fi
 done
-# This pin is already used by the retained PRISM BREAK source lockfile.
-npm cache add --ignore-scripts --no-audit --fund=false phaser@3.90.0 eventemitter3@5.0.4
-# Browser revision and download origin come from the integrity-pinned Playwright package.
-node "$fixtures/phaser/node_modules/playwright/cli.js" install chromium
-# Prove the exact locks can restore with no registry access before publishing an image.
-for recipe in phaser babylon; do
-  (cd "$fixtures/$recipe" && npm ci --offline --ignore-scripts --no-audit --fund=false)
-done
-node --input-type=module - "$fixtures/phaser" <<'NODE'
+test -n "$browser_fixture"
+node "$browser_fixture/node_modules/playwright/cli.js" install chromium
+node --input-type=module - "$browser_fixture" <<'NODE'
 import {createRequire} from 'node:module';
 const require=createRequire(process.argv[2]+'/package.json');
 const {chromium}=require('playwright');
