@@ -72,17 +72,18 @@ the services; Headquarters verifies the selected version, a new authenticated he
 capacity before restoring the previous work setting and recovering interrupted durable work. An Office
 that was already paused stays paused.
 
-The helper and `CSweet.OfficeRelease.ps1` are installed from the Office release payload, not downloaded
-as executable code from Headquarters. Existing remote installations below 0.12.0 require the current
-installer once to obtain this capability. The configured Headquarters development machine can use its
-existing server launcher. Published-update requests do not silently fall back to building local source.
+The installed Maintenance service handles requests for enrolled Windows Offices. Automatic signed
+updates require an Office at 0.16.0 or newer with a pinned publisher. Before drain, the installed
+helper verifies the signed release metadata, the MSI and its cabinets, the executable version,
+and the reconstructed guest image. It checks that the certification evidence matches the selected
+Windows backend, image, protocol and validity dates. A failed check leaves the current jobs running.
 
 Sources: `src/CSweet.Office.Configurator/Program.cs`,
 `scripts/windows/{Start-CSweetOfficeAutomaticUpdate.ps1,CSweet.OfficeRelease.ps1,Install-CSweetOfficeRuntimeHost.ps1}`,
 `releases/0.12.0.md`; Headquarters `ExecutionFleetService.Updates` and
 `scripts/tests/Test-AutomaticOfficeUpdatePreparation.ps1` (including installed-helper parity).
 
-Verified: 2026-10-24.
+Verified: 2026-11-20.
 
 ## The recovery probe
 

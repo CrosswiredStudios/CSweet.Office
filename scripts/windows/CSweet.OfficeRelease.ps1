@@ -145,6 +145,32 @@ function Assert-CSweetMsiUpdateManifest($Manifest, [string]$Version) {
     if ($total -gt 32GB) { throw 'Windows update exceeds the release size limit.' }
 }
 
+function Assert-CSweetWindowsUpdateCertification($Manifest, [string]$PayloadRoot, [string]$Version) {
+    if ($Manifest.officeVersion -cne $Version -or $Manifest.certificationEvidence -cne 'certification/windows-hyperv.json' -or
+        $Manifest.certificationEvidenceDigest -cnotmatch '^sha256:[a-f0-9]{64}$') {
+        throw 'The prepared Office certification does not match the selected Windows update.'
+    }
+    $file = Get-Item -LiteralPath (Join-Path $PayloadRoot $Manifest.certificationEvidence)
+    if ($file.Length -lt 2 -or $file.Length -gt 1MB -or
+        (Get-FileHash -LiteralPath $file.FullName).Hash -ine $Manifest.certificationEvidenceDigest.Substring(7)) {
+        throw 'The prepared Office certification evidence failed its digest check.'
+    }
+    $evidence = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
+    if ($evidence.providerId -cne 'hyperv-gen2' -or $evidence.hostOperatingSystem -cne 'windows' -or
+        $evidence.hostArchitecture -cne 'x64' -or $evidence.guestImageDigest -cne $Manifest.guestImageDigest -or
+        $evidence.brokerProtocolVersion -cne $Manifest.brokerProtocolVersion -or
+        $evidence.certificationSuiteVersion -cne $Manifest.certificationSuiteVersion -or
+        [DateTimeOffset]$evidence.certifiedAt -ne [DateTimeOffset]$Manifest.certifiedAt -or
+        [DateTimeOffset]$evidence.certifiedAt -gt [DateTimeOffset]::UtcNow) {
+        throw 'The prepared Windows certification belongs to a different guest, backend or protocol.'
+    }
+    if ([bool]$evidence.certificationExpiresAt -ne [bool]$Manifest.certificationExpiresAt -or
+        ($evidence.certificationExpiresAt -and ([DateTimeOffset]$evidence.certificationExpiresAt -ne [DateTimeOffset]$Manifest.certificationExpiresAt -or
+            [DateTimeOffset]$evidence.certificationExpiresAt -le [DateTimeOffset]::UtcNow))) {
+        throw 'The prepared Windows certification has expired or its validity window does not match.'
+    }
+}
+
 function Receive-CSweetMsiUpdate($Release, [string]$Destination) {
     Assert-CSweetMsiUpdateManifest $Release.MsiManifest $Release.Version
     if (Test-Path -LiteralPath $Destination) { throw 'Windows update staging requires a new directory.' }
@@ -169,6 +195,7 @@ function Receive-CSweetMsiUpdate($Release, [string]$Destination) {
     if ($manifest.guestImage -cne 'images/csweet-agent-guest.vhdx' -or $manifest.guestImageDigest -cnotmatch '^sha256:[0-9a-f]{64}$') {
         throw 'Invalid guest image in the verified Office package.'
     }
+    Assert-CSweetWindowsUpdateCertification $manifest $payload $Release.Version
     $guest = Join-Path $payload $manifest.guestImage
     if (-not [IO.File]::Exists($guest)) {
         . (Join-Path $office 'CSweet.OfficeImageParts.ps1')
