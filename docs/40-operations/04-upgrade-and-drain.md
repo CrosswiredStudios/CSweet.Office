@@ -87,7 +87,7 @@ Sources: `src/CSweet.Office.Configurator/Program.cs`, `src/CSweet.Office.Configu
 `tests/CSweet.Office.Tests/OfficeCertificateTlsTests.cs`,
 `scripts/windows/{Start-CSweetOfficeAutomaticUpdate.ps1,CSweet.OfficeRelease.ps1,Install-CSweetOfficeRuntimeHost.ps1}`,
 `releases/0.12.0.md`; Headquarters `ExecutionFleetService.Updates` and
-`scripts/tests/Test-AutomaticOfficeUpdatePreparation.ps1` (including installed-helper parity).
+`scripts/tests/Test-AutomaticOfficeUpdatePreparation.ps1` (development and installed update paths).
 
 Verified: 2026-11-20.
 
