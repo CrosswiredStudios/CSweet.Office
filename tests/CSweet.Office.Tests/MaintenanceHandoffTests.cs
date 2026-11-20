@@ -3,6 +3,35 @@ namespace CSweet.Office.Tests;
 public sealed class MaintenanceHandoffTests
 {
     [Theory]
+    [InlineData("", false, true)]
+    [InlineData("", true, false)]
+    [InlineData("&operation=repair", false, false)]
+    [InlineData("&office=146548c3-ad6c-4a93-9451-456f68990abb&operation=upgrade", true, false)]
+    [InlineData("&office=146548c3-ad6c-4a93-9451-456f68990abb&operation=repair", true, false)]
+    [InlineData("&automatic=true", false, false)]
+    [InlineData("&localSource=true", false, false)]
+    [InlineData("&office=146548c3-ad6c-4a93-9451-456f68990abb&operation=remove", true, true)]
+    public void SavedMaintenanceLinksNeverRequestInteractiveElevation(string extra, bool installed, bool allowed)
+    {
+        var input = Arguments.Uri([$"csweet-office://enroll/v1?session={Guid.NewGuid():D}&origin=https%3A%2F%2Fhq.test{extra}#handoff=opaque"]);
+        Assert.NotNull(input);
+        Assert.True(Arguments.TryReadHandoff(input, out var query, out _, out _, out _));
+        Assert.Equal(allowed, Arguments.AllowInteractiveLaunch(query, () => installed));
+    }
+
+    [Theory]
+    [InlineData("origin=http%3A%2F%2Fhq.test#handoff=valid")]
+    [InlineData("origin=https%3A%2F%2Fhq.test&origin=https%3A%2F%2Fother.test#handoff=valid")]
+    [InlineData("origin=https%3A%2F%2Fhq.test#other=valid")]
+    [InlineData("origin=https%3A%2F%2Fhq.test#handoff=invalid%20token")]
+    public void MalformedProtocolLinksAreRejectedBeforeElevation(string query)
+    {
+        var input = Arguments.Uri([$"csweet-office://enroll/v1?session={Guid.NewGuid():D}&{query}"]);
+        Assert.NotNull(input);
+        Assert.False(Arguments.TryReadHandoff(input, out _, out _, out _, out _));
+    }
+
+    [Theory]
     [InlineData("repair", true)]
     [InlineData("upgrade", true)]
     [InlineData("remove", false)]

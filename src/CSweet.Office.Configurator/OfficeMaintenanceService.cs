@@ -107,25 +107,14 @@ internal sealed class MaintenanceWorker(MaintenanceSettings settings, ILogger<Ma
 
     internal static bool ValidHandoff(string value, Guid officeId, Uri origin, string? installedCertificate = null)
     {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != "csweet-office" || uri.Host != "enroll" ||
-            uri.UserInfo.Length != 0 || !uri.IsDefaultPort || uri.AbsolutePath != "/v1") return false;
-        try
-        {
-            var query = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
-                .Select(x => x.Split('=', 2)).ToDictionary(x => Uri.UnescapeDataString(x[0]), x => Uri.UnescapeDataString(x[1]));
-            return query.GetValueOrDefault("office") == officeId.ToString("D") &&
-                query.GetValueOrDefault("operation") is "repair" or "upgrade" &&
-                (!query.ContainsKey("localSource") || query["localSource"] == "false") &&
-                string.Equals(query.GetValueOrDefault("certificate") ?? "", installedCertificate ?? "", StringComparison.OrdinalIgnoreCase) &&
-                Uri.TryCreate(query.GetValueOrDefault("origin"), UriKind.Absolute, out var requested) &&
-                requested.UserInfo.Length == 0 && requested.Query.Length == 0 && requested.Fragment.Length == 0 &&
-                requested.Scheme == "https" && requested.GetLeftPart(UriPartial.Authority) == origin.GetLeftPart(UriPartial.Authority) &&
-                requested.AbsolutePath.TrimEnd('/') == origin.AbsolutePath.TrimEnd('/') &&
-                Guid.TryParse(query.GetValueOrDefault("session"), out _) && uri.Fragment.StartsWith("#handoff=", StringComparison.Ordinal) &&
-                uri.Fragment.Length is > 9 and <= 265 &&
-                uri.Fragment.AsSpan(9).IndexOfAnyExcept("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") < 0;
-        }
-        catch (Exception exception) when (exception is ArgumentException or IndexOutOfRangeException or UriFormatException) { return false; }
+        var uri = Arguments.Uri([value]);
+        if (uri is null || !Arguments.TryReadHandoff(uri, out var query, out var requested, out _, out _)) return false;
+        return query.GetValueOrDefault("office") == officeId.ToString("D") &&
+            query.GetValueOrDefault("operation") is "repair" or "upgrade" &&
+            (!query.ContainsKey("localSource") || query["localSource"] == "false") &&
+            string.Equals(query.GetValueOrDefault("certificate") ?? "", installedCertificate ?? "", StringComparison.OrdinalIgnoreCase) &&
+            requested.GetLeftPart(UriPartial.Authority) == origin.GetLeftPart(UriPartial.Authority) &&
+            requested.AbsolutePath.TrimEnd('/') == origin.AbsolutePath.TrimEnd('/');
     }
     private sealed record MaintenanceHandoff(string LaunchUri);
 }

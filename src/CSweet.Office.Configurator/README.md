@@ -18,7 +18,7 @@ Part of the C-Sweet Office execution plane. Full documentation: [`docs/80-refere
 
 - Headquarters cannot pass a command line: the worker launches only the installer-written `ConfiguratorPath` with a fixed argument (SEC-INV-19).
 - Enrollment tokens are files with write-through and explicit ACLs, passed as paths and deleted in a `finally`; never move them onto a command line.
-- `MaintenanceWorker.ValidHandoff` accepts only `repair` and `upgrade`; do not widen the operation set.
+- `MaintenanceWorker.ValidHandoff` accepts `repair` and `upgrade`. An unelevated browser link for either action returns exit code 4. First enrollment and explicit operator removal have interactive launch paths.
 - Exit codes are meaningful: 2 usage or platform, 3 failed elevation, 4 rejected preflight or redeem, 5 failed install, 6 failed removal.
 - On a non-Windows host the process exits `2` immediately.
 

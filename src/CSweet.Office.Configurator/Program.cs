@@ -16,10 +16,14 @@ if (args.Contains("--maintenance-service", StringComparer.Ordinal))
 }
 var input = Arguments.Uri(args);
 if (input is null) return 2;
+if (!Arguments.TryReadHandoff(input, out var query, out var origin, out var sessionId, out var handoff)) return 2;
 if (!IsAdministrator())
 {
     try
     {
+        // A saved browser link cannot start privileged repair or upgrade. Enrolled
+        // Offices receive those requests through the authenticated Maintenance claim.
+        if (!Arguments.AllowInteractiveLaunch(query, HasInstalledOffice)) return 4;
         var elevated = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true, Verb = "runas" };
         elevated.ArgumentList.Add("--uri");
         elevated.ArgumentList.Add(input.AbsoluteUri);
@@ -31,14 +35,6 @@ if (!IsAdministrator())
     catch { return 3; }
 }
 
-var fragment = input.Fragment.TrimStart('#');
-if (!fragment.StartsWith("handoff=", StringComparison.Ordinal)) return 2;
-var handoff = Uri.UnescapeDataString(fragment["handoff=".Length..]);
-var query = Arguments.Query(input);
-if (!query.TryGetValue("session", out var sessionText) || !Guid.TryParse(sessionText, out var sessionId) ||
-    !query.TryGetValue("origin", out var originText) ||
-    !Uri.TryCreate(originText, UriKind.Absolute, out var origin) || origin.Scheme != Uri.UriSchemeHttps)
-    return 2;
 query.TryGetValue("certificate", out var expectedCertificate);
 
 var handler = new HttpClientHandler { AllowAutoRedirect = false };
@@ -81,10 +77,7 @@ if (maintenance && query.GetValueOrDefault("operation") == "upgrade" && query.Ge
 
 if (targeted)
 {
-    var statePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "CSweet", "Office", "node", "node-state.json");
-    if (installedStorage is not null) statePath = Path.Combine(installedStorage.DataRoot, "node", "node-state.json");
-    using var identity = JsonDocument.Parse(await File.ReadAllTextAsync(statePath));
-    if (identity.RootElement.GetProperty("OfficeId").GetGuid() != Guid.Parse(targetText!)) return 4;
+    if (!await MatchesInstalledOffice(installedStorage, Guid.Parse(targetText!))) return 4;
 }
 
 using var preflightResponse = await client.PostAsJsonAsync("api/offices/local-sessions/preflight",
@@ -122,9 +115,7 @@ try
     if (maintenance)
     {
         if (redemption.ExistingInstallationAction != query["operation"]) return 4;
-        var statePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "CSweet", "Office", "node", "node-state.json");
-        using var identity = JsonDocument.Parse(await File.ReadAllTextAsync(statePath));
-        if (identity.RootElement.GetProperty("OfficeId").GetGuid() != Guid.Parse(targetText!)) return 4;
+        if (!await MatchesInstalledOffice(installedStorage, Guid.Parse(targetText!))) return 4;
         var preparation = Path.Combine(installRoot, "Enter-CSweetOfficeMaintenance.ps1");
         if (!File.Exists(preparation)) throw new InvalidDataException("The recovery app needs to be updated.");
         if (Run(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
@@ -194,6 +185,26 @@ catch (Exception exception) when (exception is IOException or InvalidOperationEx
 finally
 {
     try { File.Delete(tokenPath); } catch { }
+}
+
+static async Task<bool> MatchesInstalledOffice(OfficeInstallationLocation? storage, Guid officeId)
+{
+    var root = storage?.DataRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "CSweet", "Office");
+    using var identity = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, "node", "node-state.json")));
+    return identity.RootElement.GetProperty("OfficeId").GetGuid() == officeId;
+}
+
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
+static bool HasInstalledOffice()
+{
+    using var services = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services")
+        ?? throw new IOException("Windows service registration is unavailable.");
+    foreach (var name in new[] { "CSweet.Office.Node", "CSweet.Office.RuntimeHost", "CSweet.Office.Maintenance" })
+    {
+        using var service = services.OpenSubKey(name);
+        if (service is not null) return true;
+    }
+    return false;
 }
 
 static OfficeInstallationLocation? ReadInstalledStorage(string installRoot)
@@ -319,12 +330,35 @@ static class Arguments
     {
         var value = args.Length == 1 ? args[0] : args.Length == 2 && args[0] == "--uri" ? args[1] : null;
         return System.Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-            uri.Scheme == "csweet-office" && uri.Host == "enroll" && uri.AbsolutePath == "/v1" ? uri : null;
+            uri.Scheme == "csweet-office" && uri.Host == "enroll" && uri.IsDefaultPort &&
+            uri.UserInfo.Length == 0 && uri.AbsolutePath == "/v1" ? uri : null;
     }
 
-    public static Dictionary<string, string> Query(Uri uri) => uri.Query.TrimStart('?')
-        .Split('&', StringSplitOptions.RemoveEmptyEntries).Select(part => part.Split('=', 2))
-        .Where(part => part.Length == 2)
-        .ToDictionary(part => System.Uri.UnescapeDataString(part[0]), part => System.Uri.UnescapeDataString(part[1]),
-            StringComparer.OrdinalIgnoreCase);
+    public static bool TryReadHandoff(Uri uri, out Dictionary<string, string> query, out Uri origin, out Guid sessionId, out string handoff)
+    {
+        query = new(StringComparer.OrdinalIgnoreCase);
+        origin = null!;
+        sessionId = default;
+        handoff = "";
+        if (!uri.Fragment.StartsWith("#handoff=", StringComparison.Ordinal) || uri.Fragment.Length is <= 9 or > 265) return false;
+        handoff = uri.Fragment[9..];
+        if (handoff.AsSpan().IndexOfAnyExcept("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") >= 0) return false;
+        foreach (var part in uri.Query.TrimStart('?').Split('&'))
+        {
+            var pair = part.Split('=', 2);
+            if (pair.Length != 2 || !query.TryAdd(System.Uri.UnescapeDataString(pair[0]), System.Uri.UnescapeDataString(pair[1]))) return false;
+        }
+        if (!Guid.TryParse(query.GetValueOrDefault("session"), out sessionId) || sessionId == Guid.Empty ||
+            !System.Uri.TryCreate(query.GetValueOrDefault("origin"), UriKind.Absolute, out var parsed) ||
+            parsed.Scheme != "https" || parsed.UserInfo.Length != 0 || parsed.Query.Length != 0 || parsed.Fragment.Length != 0) return false;
+        origin = parsed;
+        return true;
+    }
+
+    public static bool AllowInteractiveLaunch(Dictionary<string, string> query, Func<bool> installed)
+    {
+        if (query.ContainsKey("office") || query.ContainsKey("operation"))
+            return query.GetValueOrDefault("operation") == "remove" && Guid.TryParse(query.GetValueOrDefault("office"), out var id) && id != Guid.Empty;
+        return !query.ContainsKey("automatic") && !query.ContainsKey("localSource") && !installed();
+    }
 }

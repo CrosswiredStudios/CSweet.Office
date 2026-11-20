@@ -36,11 +36,11 @@ references and shares nothing with the runtime libraries.
 
 1. Not Windows → exit code 2.
 2. `--maintenance-service` present → `OfficeMaintenanceService.RunAsync(args)` and exit.
-3. Parse the URI; if it is missing or malformed → exit 2.
-4. If the process is not elevated: re-launch `Environment.ProcessPath` with `--uri <uri>` and `runas`, wait for
-   it, and return its exit code. A cancelled elevation is exit code 3.
-5. Read the handoff out of the fragment (`#handoff=…`), and require `session` (a GUID) and `origin`
-   (absolute HTTPS) from the query; optionally read `certificate`, a SHA-256 fingerprint that pins the
+3. Validate the URI, handoff fragment, session GUID and HTTPS origin. A malformed or duplicate parameter returns exit code 2.
+4. An unelevated browser launch can request UAC for first enrollment when all three Office services are absent,
+   or for an explicitly targeted removal. Repair and upgrade links return exit code 4 before requesting UAC.
+   The installed Maintenance service claims those operations. Cancelling an eligible UAC request returns exit code 3.
+5. Read the optional `certificate` SHA-256 fingerprint that pins the
    control-plane TLS certificate by comparing `SHA256.HashData(certificate.Export(X509ContentType.Cert))`.
 6. The install root is `AppContext.BaseDirectory\..\..`, with one special case: a directory literally named
    `recovery` is skipped one level.
@@ -124,4 +124,4 @@ workload service to be running or its operational certificate to be valid.
 `src/CSweet.Office.Configurator/{Program.cs,OfficeMaintenanceService.cs}`,
 `tests/CSweet.Office.Tests/{MaintenanceHandoffTests,OfficeMaintenanceStateTests,WindowsHyperVOnboardingTests}.cs`.
 
-Verified: 2026-09-15.
+Verified: 2026-11-20.
