@@ -114,6 +114,7 @@ internal sealed class MaintenanceWorker(MaintenanceSettings settings, ILogger<Ma
                 .Select(x => x.Split('=', 2)).ToDictionary(x => Uri.UnescapeDataString(x[0]), x => Uri.UnescapeDataString(x[1]));
             return query.GetValueOrDefault("office") == officeId.ToString("D") &&
                 query.GetValueOrDefault("operation") is "repair" or "upgrade" &&
+                (!query.ContainsKey("localSource") || query["localSource"] == "false") &&
                 Uri.TryCreate(query.GetValueOrDefault("origin"), UriKind.Absolute, out var requested) &&
                 requested.Scheme == "https" && requested.GetLeftPart(UriPartial.Authority) == origin.GetLeftPart(UriPartial.Authority) &&
                 requested.AbsolutePath.TrimEnd('/') == origin.AbsolutePath.TrimEnd('/') &&

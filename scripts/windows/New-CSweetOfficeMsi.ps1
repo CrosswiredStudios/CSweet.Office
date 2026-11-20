@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory = $true)] [string] $OutputPath,
     [Parameter(Mandatory = $true)] [string] $Version,
     [Parameter(Mandatory = $true)] [string] $CertificateThumbprint,
+    [string] $LocalTestSignatureVerifier,
     [string] $TimestampUrl = 'http://timestamp.digicert.com',
     [guid] $UpgradeCode = '8917027b-53f1-4c36-946f-1a704349352e'
 )
@@ -29,7 +30,7 @@ $reparsePoint = Get-ChildItem -LiteralPath $PayloadRoot -Recurse -Force |
     Select-Object -First 1
 if ($null -ne $reparsePoint) { throw "Payload may not contain reparse points: $($reparsePoint.FullName)" }
 
-$scriptFiles = @('CSweet.OfficeStorage.ps1', 'Install-CSweetOffice.ps1', 'Install-CSweetOfficeRuntimeHost.ps1',
+$scriptFiles = @('Initialize-CSweetCombinedOffice.ps1', 'CSweet.OfficeImageParts.ps1', 'CSweet.OfficeStorage.ps1', 'Install-CSweetOffice.ps1', 'Install-CSweetOfficeRuntimeHost.ps1',
     'CSweet.WindowsSetupProgress.ps1', 'Get-CSweetOfficeRecoveryState.ps1', 'Enter-CSweetOfficeMaintenance.ps1',
     'Remove-CSweetOfficeForRecovery.ps1', 'Uninstall-CSweetOffice.ps1',
     'Start-CSweetOfficeAutomaticUpdate.ps1', 'CSweet.OfficeRelease.ps1')
@@ -49,10 +50,27 @@ $stageRoot = Join-Path $buildRoot 'stage'
 $wxsPath = Join-Path $buildRoot 'csweet-office.wxs'
 try {
     New-Item -ItemType Directory -Path $stageRoot, (Split-Path -Parent $OutputPath) -Force | Out-Null
+    $publisher = Get-Item -LiteralPath "Cert:\CurrentUser\My\$CertificateThumbprint"
+    [IO.File]::WriteAllBytes((Join-Path $stageRoot 'office-release-signer.cer'), $publisher.RawData)
     foreach ($file in $scriptFiles) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $stageRoot $file)
     }
     Copy-Item -LiteralPath $PayloadRoot -Destination (Join-Path $stageRoot 'payload') -Recurse
+
+    $manifest = Get-Content -Raw -LiteralPath (Join-Path $stageRoot 'payload\runtime-manifest.json') | ConvertFrom-Json
+    if ($manifest.guestImage -cne 'images/csweet-agent-guest.vhdx') { throw 'Unexpected Hyper-V guest image path.' }
+    $guestImage = Join-Path $stageRoot 'payload\images\csweet-agent-guest.vhdx'
+    $splitImage = (Get-Item -LiteralPath $guestImage).Length -gt 1GB
+    if ($splitImage) {
+        . (Join-Path $PSScriptRoot 'CSweet.OfficeImageParts.ps1')
+        $parts = Split-CSweetOfficeGuestImage -ImagePath $guestImage
+        Write-Host "Packaging the guest image in $parts parts."
+        Remove-Item -LiteralPath $guestImage
+    }
+    $cabPrefix = "csweet-office-$Version-"
+    if ($splitImage -and (Get-ChildItem -LiteralPath (Split-Path -Parent $OutputPath) -Filter "$cabPrefix*.cab")) {
+        throw 'Build the Office MSI in a fresh output directory.'
+    }
 
     function XmlEscape([string] $Value) {
         return [Security.SecurityElement]::Escape($Value)
@@ -77,6 +95,9 @@ try {
             $fileId = StableId 'fil' $relativeFile
             $componentIds.Add($componentId)
             AddLine $Indent "<Component Id=`"$componentId`" Guid=`"*`">"
+            if ($splitImage -and $relativeFile -ieq 'payload\images\csweet-agent-guest.vhdx.part0000') {
+                AddLine ($Indent + 1) '<RemoveFile Id="RemoveExpandedGuestImage" Name="csweet-agent-guest.vhdx" On="uninstall" />'
+            }
             AddLine ($Indent + 1) "<File Id=`"$fileId`" Source=`"$(XmlEscape $file.FullName)`" Name=`"$(XmlEscape $file.Name)`" KeyPath=`"yes`" />"
             AddLine $Indent '</Component>'
         }
@@ -93,12 +114,19 @@ try {
     AddLine 0 '<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">'
     AddLine 1 "<Package Name=`"C-Sweet Office`" Manufacturer=`"C-Sweet`" Version=`"$Version`" UpgradeCode=`"{$($UpgradeCode.ToString().ToUpperInvariant())}`" Scope=`"perMachine`" InstallerVersion=`"500`">"
     AddLine 2 '<MajorUpgrade DowngradeErrorMessage="A newer C-Sweet Office package is already installed." />'
-    AddLine 2 '<MediaTemplate EmbedCab="yes" />'
+    if ($splitImage) {
+        AddLine 2 "<MediaTemplate CabinetTemplate=`"${cabPrefix}{0}.cab`" MaximumUncompressedMediaSize=`"640`" EmbedCab=`"no`" />"
+    } else {
+        AddLine 2 '<MediaTemplate EmbedCab="yes" />'
+    }
     AddLine 2 '<Property Id="CSWEET_FORCE_REMOVE" Secure="yes" />'
+    AddLine 2 '<Property Id="CSWEET_COMBINED_INSTALL" Secure="yes" />'
+    AddLine 2 '<CustomAction Id="InitializeCombinedOffice" Directory="System64Folder" Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -File &quot;[ProgramFiles64Folder]CSweet\Office\Initialize-CSweetCombinedOffice.ps1&quot;" />'
     AddLine 2 '<Property Id="INSTALLFOLDER" Secure="yes"><RegistrySearch Id="OfficeInstallLocation" Root="HKLM" Key="Software\CSweet\Office\Storage" Name="InstallRoot" Type="raw" /></Property>'
     AddLine 2 '<CustomAction Id="RemoveExecutionFleet" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" ExeCommand="&quot;[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]Uninstall-CSweetOffice.ps1&quot; -Elevated" />'
     AddLine 2 '<CustomAction Id="ForceRemoveExecutionFleet" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" ExeCommand="&quot;[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]Uninstall-CSweetOffice.ps1&quot; -Force -Elevated" />'
     AddLine 2 '<InstallExecuteSequence>'
+    AddLine 3 '<Custom Action="InitializeCombinedOffice" After="InstallFiles" Condition="CSWEET_COMBINED_INSTALL=&quot;1&quot; AND NOT Installed AND NOT WIX_UPGRADE_DETECTED" />'
     AddLine 3 '<Custom Action="RemoveExecutionFleet" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND CSWEET_FORCE_REMOVE&lt;&gt;&quot;1&quot;" />'
     AddLine 3 '<Custom Action="ForceRemoveExecutionFleet" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND CSWEET_FORCE_REMOVE=&quot;1&quot;" />'
     AddLine 2 '</InstallExecuteSequence>'
@@ -132,15 +160,40 @@ try {
 
     & $wixCommand.Source build -arch x64 -o $OutputPath $wxsPath
     if ($LASTEXITCODE -ne 0) { throw 'WiX failed to build the MSI.' }
-    & $signTool.Source sign /sha1 $CertificateThumbprint /fd SHA256 /tr $TimestampUrl /td SHA256 $OutputPath
-    if ($LASTEXITCODE -ne 0) { throw 'signtool failed to sign the MSI.' }
-    & $signTool.Source verify /pa /all $OutputPath
-    if ($LASTEXITCODE -ne 0) { throw 'The MSI Authenticode signature could not be verified.' }
-    $signature = Get-AuthenticodeSignature -LiteralPath $OutputPath
-    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-        throw "The MSI signature is not valid: $($signature.StatusMessage)"
+    $signArgs = @('sign', '/sha1', $CertificateThumbprint, '/fd', 'SHA256')
+    if ($LocalTestSignatureVerifier) {
+        $cert = Get-Item -LiteralPath "Cert:\CurrentUser\My\$CertificateThumbprint"
+        if ($cert.Subject -ne $cert.Issuer) { throw 'Local test signing requires a self-signed test certificate.' }
+        $pem = Join-Path $buildRoot 'test-signer.pem'
+        $encoded = [Convert]::ToBase64String($cert.RawData, [Base64FormattingOptions]::InsertLineBreaks)
+        [IO.File]::WriteAllText($pem, "-----BEGIN CERTIFICATE-----`n$encoded`n-----END CERTIFICATE-----`n")
+    } else { $signArgs += @('/tr', $TimestampUrl, '/td', 'SHA256') }
+    function Sign-OfficeFile([string] $Path) {
+        & $signTool.Source @signArgs $Path
+        if ($LASTEXITCODE -ne 0) { throw "Could not sign $Path" }
+        if ($LocalTestSignatureVerifier) {
+            $sha256 = [Security.Cryptography.SHA256]::Create()
+            try { $pin = [BitConverter]::ToString($sha256.ComputeHash($cert.RawData)).Replace('-', '') }
+            finally { $sha256.Dispose() }
+            & $LocalTestSignatureVerifier verify -CAfile $pem -require-leaf-hash "sha256:$pin" -in $Path
+        } else { & $signTool.Source verify /pa /all $Path }
+        if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed for $Path" }
     }
+    if ($splitImage) {
+        $cabs = @(Get-ChildItem -LiteralPath (Split-Path -Parent $OutputPath) -Filter "$cabPrefix*.cab" -File)
+        if ($cabs.Count -eq 0) { throw 'WiX did not produce the Office cabinets.' }
+        foreach ($cab in $cabs) { Sign-OfficeFile $cab.FullName }
+        $inscribed = Join-Path $buildRoot 'inscribed.msi'
+        & $wixCommand.Source msi inscribe $OutputPath -out $inscribed
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to bind the signed cabinets to the Office MSI.' }
+        Copy-Item -LiteralPath $inscribed -Destination $OutputPath -Force
+    }
+    Sign-OfficeFile $OutputPath
     Write-Host "Created signed Windows installer at $OutputPath"
 } finally {
-    if (Test-Path -LiteralPath $buildRoot) { Remove-Item -LiteralPath $buildRoot -Recurse -Force }
+    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($buildRoot)) -eq $tempRoot -and
+        [IO.Path]::GetFileName($buildRoot) -match '^csweet-msi-[a-f0-9]{32}$' -and (Test-Path -LiteralPath $buildRoot)) {
+        Remove-Item -LiteralPath $buildRoot -Recurse -Force
+    }
 }

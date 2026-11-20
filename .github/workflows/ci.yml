@@ -34,3 +34,7 @@ jobs:
       - name: Test hosted release manifest and archive layout
         shell: pwsh
         run: ./scripts/tests/Test-HostedManifest.ps1
+      - name: Test signed update manifests and large guest image integrity
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/tests/Test-CombinedOfficeIntegrity.ps1

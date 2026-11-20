@@ -15,6 +15,7 @@ public sealed class MaintenanceHandoffTests
         Assert.False(MaintenanceWorker.ValidHandoff(value, Guid.NewGuid(), new Uri("https://hq.test")));
         Assert.False(MaintenanceWorker.ValidHandoff(value, id, new Uri("https://other.test")));
         Assert.False(MaintenanceWorker.ValidHandoff(value.Replace("https%3A", "http%3A"), id, new Uri("https://hq.test")));
+        Assert.False(MaintenanceWorker.ValidHandoff(value.Replace("#handoff=", "&localSource=true#handoff="), id, new Uri("https://hq.test")));
     }
 
     [Theory]

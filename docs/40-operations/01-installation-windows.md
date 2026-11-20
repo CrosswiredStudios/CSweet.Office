@@ -39,11 +39,23 @@ Hyper-V enablement is a separate, guided step. Office's provisioner runs `dism.e
 | **Developer bootstrap** | `.\scripts\windows\Install-CSweetOffice.ps1 -PayloadRoot <payload> -ControlPlaneUrl 'https://…'` | The payload is a locally built certification payload under `artifacts\windows-test\certification-*\payload`. C-Sweet reaches this path through `CSWEET_WINDOWS_ISOLATION_BOOTSTRAP` pointing at `Initialize-CSweetWindowsIsolationTest.ps1`. |
 | **Packaged installer** | C-Sweet resolves `<C-Sweet base>\windows-runtime\Install-CSweetOfficeRuntimeHost.ps1` (or the `CSWEET_WINDOWS_RUNTIME_INSTALLER` override) beside a `payload` directory, and launches it elevated with `-PayloadRoot <script dir>\payload`, `-ControlPlaneUserSid`, `-ProgressPath`, and `-ProgressJobId`. | The same script the developer path uses, with the payload and progress wiring supplied by C-Sweet. When the session carries enrollment material, it also passes `-ControlPlaneUrl` and `-EnrollmentTokenInputPath` for a protected token file. |
 
-The signed MSI (`scripts/windows/New-CSweetOfficeMsi.ps1`) packages the same seven installer scripts plus the
+The signed MSI (`scripts/windows/New-CSweetOfficeMsi.ps1`) packages the installer scripts plus the
 payload into `%ProgramFiles%\CSweet\Office` (scripts at the root, payload under `payload\`), registers the
 `csweet-office` URI protocol against `payload\configurator\CSweet.Office.Configurator.exe`, and records the
 product code under `HKLM\Software\CSweet\Office`. Building it requires WiX Toolset v4 (`wix`), Windows SDK
 `signtool`, and a signing certificate; `MajorUpgrade` blocks a downgrade.
+
+Guest images above 1 GiB are split into MSI files. Ship the signed cabinets beside the
+MSI. The installer streams the parts back into the guest image, verifies the manifest's
+SHA-256 and atomically publishes the verified image. In a combined first install,
+`Initialize-CSweetCombinedOffice.ps1` consumes the local Headquarters enrollment and
+explicit Office allocations from protected machine storage under the existing installer
+elevation. The packaged publisher certificate pins signed automatic update manifests.
+Production builds use Windows publisher trust and timestamping. Local test builds can
+verify against a specifically selected self-signed certificate with
+`-LocalTestSignatureVerifier`. Verified: 2026-11-20. Sources:
+`scripts/windows/New-CSweetOfficeMsi.ps1`, `scripts/windows/CSweet.OfficeImageParts.ps1`,
+`scripts/windows/Initialize-CSweetCombinedOffice.ps1`, `scripts/windows/CSweet.OfficeRelease.ps1`.
 
 > **Out of repo:** release signing belongs to the hardened platform workflows. Do not build or sign a
 > distributable MSI from an ordinary development runner.

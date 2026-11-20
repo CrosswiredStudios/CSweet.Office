@@ -408,6 +408,11 @@ if ($manifest.schemaVersion -ne 1 -or $manifest.packageVersion -notmatch '^[0-9A
     throw 'The RuntimeHost payload manifest schema or package version is invalid.'
 }
 Assert-Sha256 $manifest.guestImageDigest 'guestImageDigest'
+$packagedImage = Resolve-SafeChildPath $PayloadRoot ([string]$manifest.guestImage)
+if (-not [IO.File]::Exists($packagedImage) -and [IO.File]::Exists("$packagedImage.part0000")) {
+    . (Join-Path $PSScriptRoot 'CSweet.OfficeImageParts.ps1')
+    Expand-CSweetOfficeGuestImage -ImagePath $packagedImage -Sha256 $manifest.guestImageDigest.Substring(7)
+}
 Assert-Sha256 $manifest.certificationEvidenceDigest 'certificationEvidenceDigest'
 if ($null -eq $manifest.files -or @($manifest.files).Count -lt 1 -or @($manifest.files).Count -gt 1000) {
     throw 'The RuntimeHost payload file manifest is invalid.'
@@ -972,6 +977,15 @@ foreach ($scriptName in @('Install-CSweetOffice.ps1', 'Install-CSweetOfficeRunti
     }
 }
 $maintenanceServiceName = 'CSweet.Office.Maintenance'
+$sourcePublisher = Join-Path $PSScriptRoot 'office-release-signer.cer'
+$installedPublisher = Join-Path $InstallRoot 'office-release-signer.cer'
+if ([IO.File]::Exists($sourcePublisher) -and [IO.Path]::GetFullPath($sourcePublisher) -ine [IO.Path]::GetFullPath($installedPublisher)) {
+    if ([IO.File]::Exists($installedPublisher)) {
+        if ((Get-FileHash -LiteralPath $sourcePublisher).Hash -ne (Get-FileHash -LiteralPath $installedPublisher).Hash) {
+            throw 'Changing the approved Office update publisher requires an explicit machine installation.'
+        }
+    } else { [IO.File]::Copy($sourcePublisher, $installedPublisher, $false) }
+}
 $maintenanceService = Get-Service -Name $maintenanceServiceName -ErrorAction SilentlyContinue
 if ($null -ne $maintenanceService -and $maintenanceService.Status -ne 'Stopped') {
     Stop-Service -Name $maintenanceServiceName -ErrorAction Stop

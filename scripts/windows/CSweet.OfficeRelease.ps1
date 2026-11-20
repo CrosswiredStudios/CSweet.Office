@@ -106,7 +106,27 @@ function Assert-CSweetOfficeAsset([object] $Asset, [string] $Version, [string] $
     if ($total -ne $Asset.size) { throw 'Office multipart sizes do not match the complete archive.' }
 }
 
-function Resolve-CSweetOfficeRelease([string] $Architecture, [string] $TargetVersion) {
+function Read-CSweetSignedReleaseManifest([string] $Envelope, [string] $PublisherCertificate) {
+    Add-Type -AssemblyName System.Security
+    $cms = [Security.Cryptography.Pkcs.SignedCms]::new()
+    $cms.Decode([Convert]::FromBase64String($Envelope))
+    if ($cms.Detached -or $cms.SignerInfos.Count -ne 1 -or $cms.ContentInfo.ContentType.Value -ne '1.2.840.113549.1.7.1') {
+        throw 'Invalid Office release signature envelope.'
+    }
+    $signer = $cms.SignerInfos[0]
+    $cert = $signer.Certificate
+    if ($null -eq $cert -or $signer.DigestAlgorithm.Value -ne '2.16.840.1.101.3.4.2.1' -or
+        [Convert]::ToBase64String($cert.RawData) -cne [Convert]::ToBase64String([IO.File]::ReadAllBytes($PublisherCertificate)) -or
+        [DateTime]::UtcNow -lt $cert.NotBefore.ToUniversalTime() -or [DateTime]::UtcNow -gt $cert.NotAfter.ToUniversalTime()) {
+        throw 'The Office release does not carry the current install-approved publisher signature.'
+    }
+    # The signed MSI pins the exact public certificate in its protected install tree.
+    $cms.CheckSignature($true)
+    $encoding = [Text.UTF8Encoding]::new($false, $true)
+    return ($encoding.GetString($cms.ContentInfo.Content).TrimStart([char]0xFEFF) | ConvertFrom-Json)
+}
+
+function Resolve-CSweetOfficeRelease([string] $Architecture, [string] $TargetVersion, [switch] $RequirePublisherSignature) {
     if ($Architecture -cne 'x64') { return $null }
     if ($TargetVersion -and $TargetVersion -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Invalid target Office version.' }
     $releases = Get-CSweetReleaseJson "https://api.github.com/repos/$script:OfficeReleaseRepository/releases?per_page=20"
@@ -118,7 +138,14 @@ function Resolve-CSweetOfficeRelease([string] $Architecture, [string] $TargetVer
         if (@($release.assets | Where-Object name -CEQ 'office-bootstrap.json').Count -ne 1) { continue }
         $version = $release.tag_name.Substring(1)
         $base = "https://github.com/$script:OfficeReleaseRepository/releases/download/v$version"
-        $manifest = Get-CSweetReleaseJson "$base/office-bootstrap.json"
+        if ($RequirePublisherSignature) {
+            $pinPath = Join-Path $PSScriptRoot 'office-release-signer.cer'
+            if (-not [IO.File]::Exists($pinPath)) { throw 'Office maintenance has no install-approved update publisher.' }
+            $signed = Invoke-CSweetReleaseDownload -Uri "$base/office-bootstrap.p7m.b64" -MaximumBytes 2MB -TimeoutSeconds 15
+            $manifest = Read-CSweetSignedReleaseManifest $signed $pinPath
+        } else {
+            $manifest = Get-CSweetReleaseJson "$base/office-bootstrap.json"
+        }
         if ($null -eq $manifest) { return $null }
         if ($manifest.schemaVersion -notin @(1,2) -or $manifest.officeVersion -cne $version -or
             $manifest.protocolVersion -cne '1.0' -or $manifest.signing -cne 'development' -or

@@ -305,8 +305,8 @@ public sealed class WindowsHyperVOnboardingTests
         Assert.Contains("Software\\Classes\\csweet-office", msi, StringComparison.Ordinal);
         Assert.Contains("URL Protocol", msi, StringComparison.Ordinal);
         Assert.Contains("CSweet.Office.Configurator.exe", msi, StringComparison.Ordinal);
-        Assert.Contains("signtool failed to sign the MSI", msi, StringComparison.Ordinal);
-        Assert.Contains("signature could not be verified", msi, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Sign-OfficeFile $OutputPath", msi, StringComparison.Ordinal);
+        Assert.Contains("verify /pa /all $Path", msi, StringComparison.Ordinal);
         Assert.Contains("Verb = \"runas\"", configurator, StringComparison.Ordinal);
         Assert.Contains("CreateNoWindow = true", configurator, StringComparison.Ordinal);
         Assert.Contains("local-sessions/redeem", configurator, StringComparison.Ordinal);

@@ -1,0 +1,45 @@
+[CmdletBinding()]
+param()
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+# The per-machine MSI invokes this installed file once, after InstallFiles. All
+# paths are fixed under Program Files. The enrollment secret never enters MSI
+# properties, process arguments, output, or the distributed installation media.
+$vendor = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'CSweet'
+$installed = Join-Path $vendor 'Office'
+$provisioning = Join-Path $vendor 'Provisioning'
+if ($PSScriptRoot -ine $installed) { throw 'Combined enrollment requires the machine-installed Office package.' }
+foreach ($path in @($vendor, $installed, $provisioning)) {
+    $entry = Get-Item -LiteralPath $path
+    if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'A machine provisioning directory is redirected.' }
+}
+$settingsPath = Join-Path $provisioning 'office.json'
+$tokenPath = Join-Path $provisioning 'office-enrollment.secret'
+foreach ($path in @($settingsPath, $tokenPath)) {
+    if ((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'A provisioning file is redirected.' }
+}
+$settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+$origin = [uri]$settings.controlPlaneUrl
+if (-not $origin.IsAbsoluteUri -or $origin.Scheme -ne 'https' -or $origin.UserInfo -or
+    $origin.Query -or $origin.Fragment -or $settings.controlPlaneCertificateSha256 -cnotmatch '^[0-9a-f]{64}$') {
+    throw 'Combined enrollment requires the HTTPS gateway and its certificate SHA-256 fingerprint.'
+}
+if ((Get-Item -LiteralPath $tokenPath).Length -gt 1024) { throw 'Invalid Office enrollment input.' }
+$allowedSids = @('S-1-5-18', 'S-1-5-32-544')
+foreach ($entry in @((Get-Acl -LiteralPath $tokenPath).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))) {
+    if ($entry.AccessControlType -eq 'Allow' -and $entry.IdentityReference.Value -notin $allowedSids) {
+        throw 'Restrict the Office enrollment file to SYSTEM and local Administrators.'
+    }
+}
+foreach ($name in @('allocatableCpuCount', 'allocatableMemoryMb', 'allocatableDiskMb', 'maximumConcurrentWorkloads')) {
+    $value = $settings.$name
+    if (($value -isnot [int] -and $value -isnot [long]) -or $value -le 0 -or $value -gt [int]::MaxValue) {
+        throw "An explicit positive Office allocation is required for $name."
+    }
+}
+& (Join-Path $installed 'Install-CSweetOffice.ps1') -NonInteractive -Elevated `
+    -PayloadRoot (Join-Path $installed 'payload') -ControlPlaneUrl $origin.AbsoluteUri `
+    -ControlPlaneCertificateSha256 $settings.controlPlaneCertificateSha256 -EnrollmentTokenInputPath $tokenPath `
+    -AllocatableCpuCount $settings.allocatableCpuCount -AllocatableMemoryMb $settings.allocatableMemoryMb `
+    -AllocatableDiskMb $settings.allocatableDiskMb -MaximumConcurrentWorkloads $settings.maximumConcurrentWorkloads

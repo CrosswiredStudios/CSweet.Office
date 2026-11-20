@@ -143,6 +143,7 @@ try {
     if ($automaticUpdate) {
         if ($targetVersion -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'The Office update has no valid target version.' }
         $UseLocalSource = (Get-QueryValue $uri 'localSource') -ceq 'true'
+        if ($UseLocalSource) { throw 'Office maintenance requires a publisher-signed release.' }
     }
     $handoffCertificateSha256 = Get-QueryValue $uri 'certificate'
     $fragment = $uri.Fragment.TrimStart('#')
@@ -169,7 +170,9 @@ try {
         "*$($identity.User.Value):(OI)(CI)R" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'The Office download directory could not be protected.' }
     . (Join-Path $PSScriptRoot 'CSweet.OfficeRelease.ps1')
-    if (-not $UseLocalSource) { $release = Resolve-CSweetOfficeRelease -Architecture $architecture -TargetVersion $(if ($automaticUpdate) { $targetVersion } else { $null }) }
+    if (-not $UseLocalSource) {
+        $release = Resolve-CSweetOfficeRelease -Architecture $architecture -TargetVersion $(if ($automaticUpdate) { $targetVersion } else { $null }) -RequirePublisherSignature:$automaticUpdate
+    }
     if ($null -ne $release) {
         # This small support asset supplies the preflight scripts. The large image is fetched only AFTER
         # redemption, so a slow image download cannot consume the five-minute one-use handoff lifetime.
