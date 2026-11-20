@@ -491,11 +491,15 @@ static async Task<Stream> ConnectGuestAsync(
 
 static void RegisterHyperVSocket(Guid serviceId)
 {
+    var serviceKey = WindowsHyperVSocketServiceRegistration.ServiceKeyPath(serviceId);
+    using var installed = Registry.LocalMachine.OpenSubKey(serviceKey, writable: false);
+    if (installed is not null) return;
+
     Registry.LocalMachine.DeleteSubKeyTree(
         WindowsHyperVSocketServiceRegistration.LegacyBracedServiceKeyPath(serviceId),
         throwOnMissingSubKey: false);
     using var key = Registry.LocalMachine.CreateSubKey(
-        WindowsHyperVSocketServiceRegistration.ServiceKeyPath(serviceId),
+        serviceKey,
         writable: true) ?? throw new InvalidOperationException("The Hyper-V socket registry key could not be created.");
     key.SetValue("ElementName", "C-Sweet Windows isolation certification", RegistryValueKind.String);
 }
