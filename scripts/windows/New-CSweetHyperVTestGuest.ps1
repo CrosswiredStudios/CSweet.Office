@@ -7,7 +7,8 @@ param(
     [string] $IsolationRoot = "$PSScriptRoot\..\..\..\CSweet.Isolation",
     [switch] $DevelopmentTools,
     [string] $ProgressPath,
-    [guid] $ProgressJobId = [guid]::Empty
+    [guid] $ProgressJobId = [guid]::Empty,
+    [string] $ArtifactDirectory = (Join-Path $IsolationRoot 'artifacts\linux-images')
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -71,7 +72,7 @@ $prepare = {
 try {
     $result = New-CSweetLinuxHyperVImage -ProfileDirectory (Join-Path $repositoryRoot 'build\windows-hyperv') `
         -PreparePayload $prepare -GuestServiceName 'csweet-agent-guest.service' `
-        -ArtifactDirectory (Join-Path $IsolationRoot 'artifacts\linux-images') -OutputPath $OutputPath `
+        -ArtifactDirectory $ArtifactDirectory -OutputPath $OutputPath `
         -SwitchName $SwitchName -UbuntuVersion $UbuntuVersion -PackerVersion $PackerVersion -ReportProgress $report
     Write-Output $result.ImagePath
 } finally {

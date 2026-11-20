@@ -465,6 +465,32 @@ try {
     if ($isUpgrade -and $operation -eq 'repair') {
         $maintenanceScript = Join-Path $officeScriptRoot 'Enter-CSweetOfficeMaintenance.ps1'
         & $maintenanceScript -OfficeId $expectedOfficeId | Out-Null
+        # Connection metadata can change while Office identity and its certified runtime remain valid.
+        # Existing installers preserve Node configuration when no new enrollment is requested.
+        # Reconcile a changed, verified server pin before doing another full runtime installation.
+        # This has already been resolved against the protected installed-volume registration.
+        # Older Headquarters receipts omit storage even though the local installation has it.
+        $connectionStorage = $storage
+        if ($null -ne $connectionStorage) {
+            . (Join-Path $PSScriptRoot 'Sync-CSweetOfficeConnection.ps1')
+            $reconciled = Sync-CSweetOfficeConnection -OfficeId $expectedOfficeId `
+                -InstallRoot ([string]$connectionStorage.installRoot) -DataRoot ([string]$connectionStorage.dataRoot) `
+                -ControlPlaneUrl ([string]$redemption.controlPlaneUrl) -ExpectedSha256 $controlPlaneCertificateSha256
+            if ($reconciled) {
+                $connectionResult = @{
+                    assistedSetupSessionId = $sessionId; setupReceipt = [string]$redemption.setupReceipt
+                    resultCode = 'office_upgrade_completed'; machineName = [Environment]::MachineName
+                    operatingSystem = 'windows'; architecture = $architecture
+                } | ConvertTo-Json -Compress
+                Invoke-CSweetPinnedRestMethod -Method Post `
+                    -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/result') -Body $connectionResult | Out-Null
+                Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
+                    -State completed -PhaseKey connection-reconciled -PhaseDisplayName 'Verified connection restored' `
+                    -Message 'The verified server connection was refreshed. Office identity and runtime were retained; Headquarters will verify the new heartbeat.' `
+                    -PercentComplete 100
+                return
+            }
+        }
     }
 
     $installerAction = if ($isUpgrade) { 'upgrade' } else { [string]$redemption.existingInstallationAction }
@@ -516,21 +542,7 @@ try {
         }
         Assert-DevelopmentOfficePayload (Get-Content -LiteralPath (Join-Path $payloadRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json)
         } else { $payloadRoot = $preparedPayloadRoot }
-        # Reuse this setup session's UAC approval and progress channel. Image preparation
-        # is an application step, never a command the user has to run.
-        # Compute has its own on-demand preparation in Install-ComputeLocalProvider.ps1.
-        # Preserve eager preparation for first source installs. An existing Office
-        # update must not depend on rebuilding a separate application-test image;
-        # Compute prepares that image on demand through its own setup workflow.
-        if (-not $prebuiltRoot -and -not $isUpgrade) {
-            $headquartersRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-            $computePreparation = Join-Path $headquartersRoot 'scripts\Ensure-ComputeLinuxImage.ps1'
-            if (-not (Test-Path -LiteralPath $computePreparation -PathType Leaf)) {
-                throw 'This C-Sweet build is missing its Linux preparation component. Update C-Sweet and retry setup.'
-            }
-            & $computePreparation -ProgressPath $progressPath -ProgressJobId $sessionId `
-                -ProgressHelperPath $progressHelper | Out-Host
-        }
+        # Compute owns its separate Linux image and prepares it on demand using its own storage selection.
         $officeInstaller = Join-Path $officeScriptRoot 'Install-CSweetOfficeRuntimeHost.ps1'
         if (-not (Test-Path -LiteralPath $officeInstaller -PathType Leaf)) {
             throw 'The C-Sweet Office installer is unavailable.'

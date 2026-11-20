@@ -218,7 +218,9 @@ if ($PrebuiltRoot) {
             $guestImage = Join-Path $guestImageRoot "csweet-agent-guest-$guestFingerprint-$([guid]::NewGuid().ToString('N')).vhdx"
             $guestReadyMarker = "$guestImage.ready"
         }
-        & (Join-Path $PSScriptRoot 'New-CSweetHyperVTestGuest.ps1') -SwitchName $SwitchName -OutputPath $guestImage `
+        $buildStorage = @{}
+        if ($WorkingRoot) { $buildStorage.ArtifactDirectory = Join-Path $WorkingRoot 'build' }
+        & (Join-Path $PSScriptRoot 'New-CSweetHyperVTestGuest.ps1') @buildStorage -SwitchName $SwitchName -OutputPath $guestImage `
             -DevelopmentTools:$DevelopmentTools -ProgressPath $ProgressPath -ProgressJobId $ProgressJobId
         if ($LASTEXITCODE -ne 0) { throw 'The C-Sweet test guest image build failed.' }
         [IO.File]::WriteAllText($guestReadyMarker, $guestFingerprint, [Text.UTF8Encoding]::new($false))

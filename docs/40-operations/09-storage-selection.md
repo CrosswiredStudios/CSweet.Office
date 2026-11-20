@@ -30,6 +30,11 @@ silently switch to another disk when a selection becomes unavailable.
 
 ## Maintenance and removal
 
+For Windows source installs, `Initialize-CSweetWindowsIsolationTest.ps1` passes its selected
+working root to `New-CSweetHyperVTestGuest.ps1`. Ubuntu ISO downloads, Packer caches and
+intermediate Hyper-V exports use the `build` subdirectory there. Existing checkout artifacts
+remain available. Prebuilt bundles use the guest image supplied in the bundle.
+
 The location record is administrator-owned: `HKLM\SOFTWARE\CSweet\Office\Storage` on Windows,
 `/etc/csweet/office-storage` on Linux, and
 `/Library/Preferences/com.csweet.office.storage` on macOS. Unix records contain data, not sourced
