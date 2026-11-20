@@ -38,7 +38,11 @@ foreach ($name in @('allocatableCpuCount', 'allocatableMemoryMb', 'allocatableDi
         throw "An explicit positive Office allocation is required for $name."
     }
 }
-& (Join-Path $installed 'Install-CSweetOffice.ps1') -NonInteractive -Elevated `
+$storage = @{}
+if ($settings.PSObject.Properties['storageVolumeId'] -and $settings.storageVolumeId) {
+    $storage.StorageVolumeId = [string]$settings.storageVolumeId
+}
+& (Join-Path $installed 'Install-CSweetOffice.ps1') @storage -NonInteractive -Elevated `
     -PayloadRoot (Join-Path $installed 'payload') -ControlPlaneUrl $origin.AbsoluteUri `
     -ControlPlaneCertificateSha256 $settings.controlPlaneCertificateSha256 -EnrollmentTokenInputPath $tokenPath `
     -AllocatableCpuCount $settings.allocatableCpuCount -AllocatableMemoryMb $settings.allocatableMemoryMb `

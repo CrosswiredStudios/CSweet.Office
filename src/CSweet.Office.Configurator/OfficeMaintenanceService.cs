@@ -93,7 +93,7 @@ internal sealed class MaintenanceWorker(MaintenanceSettings settings, ILogger<Ma
         if (claim.StatusCode == HttpStatusCode.NoContent) return;
         claim.EnsureSuccessStatusCode();
         var handoff = await claim.Content.ReadFromJsonAsync<MaintenanceHandoff>(cancellationToken);
-        if (handoff is null || !ValidHandoff(handoff.LaunchUri, officeId, new Uri(settings.ControlPlaneUrl)))
+        if (handoff is null || !ValidHandoff(handoff.LaunchUri, officeId, new Uri(settings.ControlPlaneUrl), settings.CertificateSha256))
             throw new InvalidDataException("The maintenance handoff targeted another Office or server.");
         // The executable path is written by the elevated installer in its protected configuration.
         // Headquarters can request only the predefined repair/upgrade flow, never a command line.
@@ -105,9 +105,10 @@ internal sealed class MaintenanceWorker(MaintenanceSettings settings, ILogger<Ma
         logger.LogInformation("Office maintenance request finished with exit code {ExitCode}.", process.ExitCode);
     }
 
-    internal static bool ValidHandoff(string value, Guid officeId, Uri origin)
+    internal static bool ValidHandoff(string value, Guid officeId, Uri origin, string? installedCertificate = null)
     {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != "csweet-office" || uri.Host != "enroll" || uri.AbsolutePath != "/v1") return false;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != "csweet-office" || uri.Host != "enroll" ||
+            uri.UserInfo.Length != 0 || !uri.IsDefaultPort || uri.AbsolutePath != "/v1") return false;
         try
         {
             var query = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
@@ -115,10 +116,14 @@ internal sealed class MaintenanceWorker(MaintenanceSettings settings, ILogger<Ma
             return query.GetValueOrDefault("office") == officeId.ToString("D") &&
                 query.GetValueOrDefault("operation") is "repair" or "upgrade" &&
                 (!query.ContainsKey("localSource") || query["localSource"] == "false") &&
+                string.Equals(query.GetValueOrDefault("certificate") ?? "", installedCertificate ?? "", StringComparison.OrdinalIgnoreCase) &&
                 Uri.TryCreate(query.GetValueOrDefault("origin"), UriKind.Absolute, out var requested) &&
+                requested.UserInfo.Length == 0 && requested.Query.Length == 0 && requested.Fragment.Length == 0 &&
                 requested.Scheme == "https" && requested.GetLeftPart(UriPartial.Authority) == origin.GetLeftPart(UriPartial.Authority) &&
                 requested.AbsolutePath.TrimEnd('/') == origin.AbsolutePath.TrimEnd('/') &&
-                Guid.TryParse(query.GetValueOrDefault("session"), out _) && uri.Fragment.StartsWith("#handoff=", StringComparison.Ordinal);
+                Guid.TryParse(query.GetValueOrDefault("session"), out _) && uri.Fragment.StartsWith("#handoff=", StringComparison.Ordinal) &&
+                uri.Fragment.Length is > 9 and <= 265 &&
+                uri.Fragment.AsSpan(9).IndexOfAnyExcept("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") < 0;
         }
         catch (Exception exception) when (exception is ArgumentException or IndexOutOfRangeException or UriFormatException) { return false; }
     }

@@ -26,6 +26,17 @@ try {
     Expand-CSweetOfficeGuestImage $source $expected
     if ((Get-FileHash -LiteralPath $source).Hash -ine $expected) { throw 'Restored image differs.' }
 
+    $media = @{schemaVersion=1; platform='windows-x64'; officeVersion='0.16.0'; assets=@(
+        @{name='csweet-office-0.16.0-windows-x64.msi';size=100;sha256=$expected},
+        @{name='csweet-office-0.16.0-1.cab';size=200;sha256=$expected})}
+    Assert-CSweetMsiUpdateManifest $media '0.16.0'
+    Expect-Failure { Assert-CSweetMsiUpdateManifest $media '0.17.0' }
+    $media.assets[1].name = '../csweet-office-0.16.0-1.cab'
+    Expect-Failure { Assert-CSweetMsiUpdateManifest $media '0.16.0' }
+    $media.assets[1].name = 'csweet-office-0.16.0-1.cab'
+    $media.assets[1].size = 3GB
+    Expect-Failure { Assert-CSweetMsiUpdateManifest $media '0.16.0' }
+
     $key = [Security.Cryptography.RSA]::Create(2048)
     try {
         $request = [Security.Cryptography.X509Certificates.CertificateRequest]::new(

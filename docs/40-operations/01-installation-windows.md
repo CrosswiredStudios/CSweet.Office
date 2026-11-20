@@ -14,6 +14,14 @@ immutable package, pins Headquarters assignment trust over the verified TLS conn
 service, and drives enrollment. Installation is refused on a domain controller (`SEC-INV-17`), and it never
 migrates a legacy identity (`SEC-INV-18`).
 
+Office Maintenance can also consume the independently signed Windows MSI and cabinets
+on a release. The hardened Windows packager signs their names, lengths and hashes in
+`office-windows-update.p7m.b64`. Maintenance verifies the publisher and stages a
+Windows Installer administrative image before requesting a workload drain. Its TLS
+pin for the Headquarters handoff must match the installed connection settings.
+Verified 2026-11-20 in `scripts/release/New-OfficeWindowsUpdateManifest.ps1`,
+`scripts/windows/CSweet.OfficeRelease.ps1` and `MaintenanceWorker.ValidHandoff`.
+
 ## Prerequisites
 
 | Requirement | Evidence and failure mode |

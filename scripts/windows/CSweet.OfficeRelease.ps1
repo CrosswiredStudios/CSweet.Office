@@ -126,6 +126,58 @@ function Read-CSweetSignedReleaseManifest([string] $Envelope, [string] $Publishe
     return ($encoding.GetString($cms.ContentInfo.Content).TrimStart([char]0xFEFF) | ConvertFrom-Json)
 }
 
+function Assert-CSweetMsiUpdateManifest($Manifest, [string]$Version) {
+    if ($Version -cnotmatch '^\d+\.\d+\.\d+$' -or $Manifest.schemaVersion -ne 1 -or
+        $Manifest.platform -cne 'windows-x64' -or $Manifest.officeVersion -cne $Version -or
+        $Manifest.assets -isnot [array] -or $Manifest.assets.Count -lt 1 -or $Manifest.assets.Count -gt 65) {
+        throw 'Invalid signed Windows update manifest.'
+    }
+    $total = 0L
+    for ($i=0; $i -lt $Manifest.assets.Count; $i++) {
+        $asset = $Manifest.assets[$i]
+        $name = if ($i -eq 0) { "csweet-office-$Version-windows-x64.msi" } else { "csweet-office-$Version-$i.cab" }
+        if ($asset.name -cne $name -or $asset.sha256 -cnotmatch '^[a-f0-9]{64}$' -or
+            ($asset.size -isnot [int] -and $asset.size -isnot [long]) -or $asset.size -lt 1 -or $asset.size -gt 2GB) {
+            throw 'Invalid signed Windows update asset.'
+        }
+        $total += $asset.size
+    }
+    if ($total -gt 32GB) { throw 'Windows update exceeds the release size limit.' }
+}
+
+function Receive-CSweetMsiUpdate($Release, [string]$Destination) {
+    Assert-CSweetMsiUpdateManifest $Release.MsiManifest $Release.Version
+    if (Test-Path -LiteralPath $Destination) { throw 'Windows update staging requires a new directory.' }
+    $null = New-Item -ItemType Directory -Path $Destination
+    $pin = [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot 'office-release-signer.cer'))
+    foreach ($asset in $Release.MsiManifest.assets) {
+        $path = Join-Path $Destination $asset.name
+        Invoke-CSweetReleaseDownload -Uri "$($Release.BaseUri)/$($asset.name)" -OutputPath $path -MaximumBytes $asset.size -TimeoutSeconds 1800
+        $signature = Get-AuthenticodeSignature -LiteralPath $path
+        if ((Get-Item -LiteralPath $path).Length -ne $asset.size -or (Get-FileHash -LiteralPath $path).Hash -ine $asset.sha256 -or
+            $signature.Status -ne 'Valid' -or [Convert]::ToBase64String($signature.SignerCertificate.RawData) -cne [Convert]::ToBase64String($pin)) {
+            throw 'A Windows update asset failed verification.'
+        }
+    }
+    $image = Join-Path $Destination 'extract'
+    $msi = Join-Path $Destination $Release.MsiManifest.assets[0].name
+    $process = Start-Process -FilePath (Join-Path ([Environment]::SystemDirectory) 'msiexec.exe') -WindowStyle Hidden -Wait -PassThru -ArgumentList @('/a', ('"' + $msi + '"'), ('TARGETDIR="' + $image + '"'), '/qn', '/norestart')
+    if ($process.ExitCode -ne 0) { throw "Windows Installer could not extract the verified Office package ($($process.ExitCode))." }
+    $office = Join-Path $image 'PFiles64\CSweet\Office'
+    $payload = Join-Path $office 'payload'
+    $manifest = Get-Content -LiteralPath (Join-Path $payload 'runtime-manifest.json') -Raw | ConvertFrom-Json
+    if ($manifest.guestImage -cne 'images/csweet-agent-guest.vhdx' -or $manifest.guestImageDigest -cnotmatch '^sha256:[0-9a-f]{64}$') {
+        throw 'Invalid guest image in the verified Office package.'
+    }
+    $guest = Join-Path $payload $manifest.guestImage
+    if (-not [IO.File]::Exists($guest)) {
+        . (Join-Path $office 'CSweet.OfficeImageParts.ps1')
+        Expand-CSweetOfficeGuestImage -ImagePath $guest -Sha256 $manifest.guestImageDigest.Substring(7)
+    }
+    if ((Get-FileHash -LiteralPath $guest).Hash -ine $manifest.guestImageDigest.Substring(7)) { throw 'Unexpected Office guest image digest.' }
+    return $office
+}
+
 function Resolve-CSweetOfficeRelease([string] $Architecture, [string] $TargetVersion, [switch] $RequirePublisherSignature) {
     if ($Architecture -cne 'x64') { return $null }
     if ($TargetVersion -and $TargetVersion -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Invalid target Office version.' }
@@ -135,9 +187,15 @@ function Resolve-CSweetOfficeRelease([string] $Architecture, [string] $TargetVer
         Sort-Object { [version]$_.tag_name.Substring(1) } -Descending)
     foreach ($release in $candidates) {
         if ($TargetVersion -and $release.tag_name -cne "v$TargetVersion") { continue }
-        if (@($release.assets | Where-Object name -CEQ 'office-bootstrap.json').Count -ne 1) { continue }
         $version = $release.tag_name.Substring(1)
         $base = "https://github.com/$script:OfficeReleaseRepository/releases/download/v$version"
+        if ($RequirePublisherSignature -and @($release.assets | Where-Object name -CEQ 'office-windows-update.p7m.b64').Count -eq 1) {
+            $signed = Invoke-CSweetReleaseDownload -Uri "$base/office-windows-update.p7m.b64" -MaximumBytes 2MB -TimeoutSeconds 15
+            $manifest = Read-CSweetSignedReleaseManifest $signed (Join-Path $PSScriptRoot 'office-release-signer.cer')
+            Assert-CSweetMsiUpdateManifest $manifest $version
+            return [pscustomobject]@{ Version=$version; MsiManifest=$manifest; BaseUri=$base }
+        }
+        if (@($release.assets | Where-Object name -CEQ 'office-bootstrap.json').Count -ne 1) { continue }
         if ($RequirePublisherSignature) {
             $pinPath = Join-Path $PSScriptRoot 'office-release-signer.cer'
             if (-not [IO.File]::Exists($pinPath)) { throw 'Office maintenance has no install-approved update publisher.' }

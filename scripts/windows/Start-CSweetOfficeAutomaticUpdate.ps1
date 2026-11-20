@@ -128,6 +128,7 @@ $prebuiltRoot = $null
 $automaticUpdate = $false
 $preparationReceipt = $null
 $preparedPayloadRoot = $null
+$msiStaging = $null
 $preparationControlPlaneUrl = $null
 try {
     $handoff = [IO.File]::ReadAllText($HandoffInputPath, [Text.Encoding]::UTF8).Trim()
@@ -173,7 +174,10 @@ try {
     if (-not $UseLocalSource) {
         $release = Resolve-CSweetOfficeRelease -Architecture $architecture -TargetVersion $(if ($automaticUpdate) { $targetVersion } else { $null }) -RequirePublisherSignature:$automaticUpdate
     }
-    if ($null -ne $release) {
+    $msiUpdate = $null -ne $release -and $null -ne $release.PSObject.Properties['MsiManifest']
+    if ($msiUpdate) {
+        $officeScriptRoot = $PSScriptRoot
+    } elseif ($null -ne $release) {
         # This small support asset supplies the preflight scripts. The large image is fetched only AFTER
         # redemption, so a slow image download cannot consume the five-minute one-use handoff lifetime.
         $supportRoot = Receive-CSweetOfficeAsset -Asset $release.Support -TimeoutSeconds 60 `
@@ -240,29 +244,36 @@ try {
         Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
             -State running -PhaseKey prepare-update -PhaseDisplayName 'Preparing your update' `
             -Message 'Downloading and verifying the update. Current jobs are still running.' -PercentComplete 0
-        if ($null -ne $release) {
-            $prebuiltRoot = Receive-CSweetOfficeAsset -Asset $release.Bundle `
-                -Destination (Join-Path $payloadSetupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
-            $officeScriptRoot = Join-Path $prebuiltRoot 'scripts\windows'
-            $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
+        if ($msiUpdate) {
+            $msiStagingParent = [IO.Path]::GetFullPath($payloadSetupRoot)
+            $msiStaging = Join-Path $msiStagingParent ("msi-" + [guid]::NewGuid().ToString('N'))
+            $officeScriptRoot = Receive-CSweetMsiUpdate $release $msiStaging
+            $preparedPayloadRoot = Join-Path $officeScriptRoot 'payload'
+        } else {
+            if ($null -ne $release) {
+                $prebuiltRoot = Receive-CSweetOfficeAsset -Asset $release.Bundle `
+                    -Destination (Join-Path $payloadSetupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
+                $officeScriptRoot = Join-Path $prebuiltRoot 'scripts\windows'
+                $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
+            }
+            $officeRepositoryRoot = [IO.Path]::GetFullPath((Join-Path $officeScriptRoot '..\..'))
+            $certificationRoot = if ($null -ne $storage) { Join-Path $storage.DataRoot 'setup\certification' } else { Join-Path $officeRepositoryRoot 'artifacts\windows-test' }
+            $payloadResultPath = Join-Path $setupRoot "office-payload-$($sessionId.ToString('N')).txt"
+            Remove-TransientFile $payloadResultPath
+            $bootstrapArguments = @{ DevelopmentTools = $true; PublicInternetIpv4Only = $true }
+            if ($null -ne $storage) { $bootstrapArguments.WorkingRoot = $certificationRoot }
+            if ($prebuiltRoot) { $bootstrapArguments.PrebuiltRoot = $prebuiltRoot }
+            & $OfficeBootstrapScript @bootstrapArguments -ControlPlaneUserSid $identity.User.Value `
+                -ControlPlaneUrl $preparationControlPlaneUrl -ProgressPath $progressPath -ProgressJobId $sessionId `
+                -NoElevation -SkipInstall -PayloadResultPath $payloadResultPath
+            if ($LASTEXITCODE -ne 0) { throw 'Office update preparation failed. Current jobs were not stopped.' }
+            if (-not (Test-Path -LiteralPath $payloadResultPath -PathType Leaf)) { throw 'Update preparation did not produce a payload.' }
+            $preparedPayloadRoot = [IO.Path]::GetFullPath([IO.File]::ReadAllText($payloadResultPath).Trim())
+            $allowedRoot = [IO.Path]::GetFullPath($certificationRoot).TrimEnd('\') + '\'
+            if (-not $preparedPayloadRoot.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'The prepared update path is invalid.' }
         }
-        $officeRepositoryRoot = [IO.Path]::GetFullPath((Join-Path $officeScriptRoot '..\..'))
-        $certificationRoot = if ($null -ne $storage) { Join-Path $storage.DataRoot 'setup\certification' } else { Join-Path $officeRepositoryRoot 'artifacts\windows-test' }
-        $payloadResultPath = Join-Path $setupRoot "office-payload-$($sessionId.ToString('N')).txt"
-        Remove-TransientFile $payloadResultPath
-        $bootstrapArguments = @{ DevelopmentTools = $true; PublicInternetIpv4Only = $true }
-        if ($null -ne $storage) { $bootstrapArguments.WorkingRoot = $certificationRoot }
-        if ($prebuiltRoot) { $bootstrapArguments.PrebuiltRoot = $prebuiltRoot }
-        & $OfficeBootstrapScript @bootstrapArguments -ControlPlaneUserSid $identity.User.Value `
-            -ControlPlaneUrl $preparationControlPlaneUrl -ProgressPath $progressPath -ProgressJobId $sessionId `
-            -NoElevation -SkipInstall -PayloadResultPath $payloadResultPath
-        if ($LASTEXITCODE -ne 0) { throw 'Office update preparation failed. Current jobs were not stopped.' }
-        if (-not (Test-Path -LiteralPath $payloadResultPath -PathType Leaf)) { throw 'Update preparation did not produce a payload.' }
-        $preparedPayloadRoot = [IO.Path]::GetFullPath([IO.File]::ReadAllText($payloadResultPath).Trim())
-        $allowedRoot = [IO.Path]::GetFullPath($certificationRoot).TrimEnd('\') + '\'
-        if (-not $preparedPayloadRoot.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'The prepared update path is invalid.' }
         $preparedManifest = Get-Content -LiteralPath (Join-Path $preparedPayloadRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json
-        Assert-DevelopmentOfficePayload $preparedManifest
+        if (-not $msiUpdate) { Assert-DevelopmentOfficePayload $preparedManifest }
         $preparedExe = [IO.Path]::GetFullPath((Join-Path $preparedPayloadRoot ([string]$preparedManifest.officeExecutable)))
         if (-not $preparedExe.StartsWith($preparedPayloadRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or
             ([version](Get-Item -LiteralPath $preparedExe).VersionInfo.FileVersion).ToString(3) -cne $targetVersion) {
@@ -683,4 +694,11 @@ catch {
 finally {
     Remove-TransientFile $HandoffInputPath
     Remove-TransientFile $tokenPath
+    if ($msiStaging -and [IO.Directory]::Exists($msiStaging)) {
+        $directory = Get-Item -LiteralPath $msiStaging
+        if ($directory.Parent.FullName -ieq $msiStagingParent -and $directory.Name -cmatch '^msi-[0-9a-f]{32}$' -and
+            -not ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            Remove-Item -LiteralPath $directory.FullName -Recurse -Force
+        }
+    }
 }

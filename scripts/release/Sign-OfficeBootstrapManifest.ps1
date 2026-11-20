@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $ManifestPath,
-    [Parameter(Mandatory)] [ValidatePattern('^[0-9A-Fa-f]{40}$')] [string] $CertificateThumbprint
+    [Parameter(Mandatory)] [ValidatePattern('^[0-9A-Fa-f]{40}$')] [string] $CertificateThumbprint,
+    [ValidateSet('office-bootstrap.p7m.b64', 'office-windows-update.p7m.b64')] [string] $OutputName = 'office-bootstrap.p7m.b64'
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Security
@@ -18,5 +19,5 @@ $signer.DigestAlgorithm = [Security.Cryptography.Oid]::new('2.16.840.1.101.3.4.2
 $signer.IncludeOption = [Security.Cryptography.X509Certificates.X509IncludeOption]::EndCertOnly
 $cms.ComputeSignature($signer)
 $cms.CheckSignature($true)
-$output = Join-Path ([IO.Path]::GetDirectoryName($path)) 'office-bootstrap.p7m.b64'
+$output = Join-Path ([IO.Path]::GetDirectoryName($path)) $OutputName
 [IO.File]::WriteAllText($output, [Convert]::ToBase64String($cms.Encode()), [Text.Encoding]::ASCII)

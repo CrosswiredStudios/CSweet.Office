@@ -19,6 +19,19 @@ public sealed class MaintenanceHandoffTests
     }
 
     [Theory]
+    [InlineData(null, false)]
+    [InlineData("b", false)]
+    [InlineData("a", true)]
+    public void ConfiguratorCanOnlyUseTheInstalledTlsPin(string? suffix, bool valid)
+    {
+        var office = Guid.NewGuid();
+        var pin = new string('a', 64);
+        var parameter = suffix is null ? "" : "&certificate=" + new string(suffix[0], 64);
+        var uri = $"csweet-office://enroll/v1?office={office:D}&operation=repair&origin=https%3A%2F%2Fhq.test&session={Guid.NewGuid():D}{parameter}#handoff=secret";
+        Assert.Equal(valid, MaintenanceWorker.ValidHandoff(uri, office, new Uri("https://hq.test"), pin));
+    }
+
+    [Theory]
     [InlineData("csweet-office://enroll/v1?broken#handoff=x")]
     [InlineData("csweet-office://enroll/v1?office=x&office=y#handoff=x")]
     [InlineData("https://hq.test")]

@@ -42,6 +42,7 @@ switch ($OperatingSystem) {
         & (Join-Path $root 'scripts\windows\New-CSweetOfficeMsi.ps1') -PayloadRoot $payload `
             -OutputPath (Join-Path $output "csweet-office-$version-windows-x64.msi") -Version $version `
             -CertificateThumbprint $env:CSWEET_WINDOWS_SIGNING_THUMBPRINT
+        & (Join-Path $root 'scripts\release\New-OfficeWindowsUpdateManifest.ps1') -Directory $output -Version $version -CertificateThumbprint $env:CSWEET_WINDOWS_SIGNING_THUMBPRINT
     }
     'linux' {
         & (Join-Path $root 'scripts\release\Invoke-LinuxRelease.ps1') -Architecture $Architecture -Version $version -Output $output

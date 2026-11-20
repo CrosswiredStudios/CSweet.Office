@@ -90,7 +90,7 @@ jobs:
           $tag = '${{ needs.resolve.outputs.tag }}'
           if ('${{ github.ref_type }}' -eq 'tag') { $tag = '${{ github.ref_name }}' }
           $notes = if (Test-Path "releases/$('${{ needs.resolve.outputs.version }}').md") { "--notes-file releases/$('${{ needs.resolve.outputs.version }}').md" } else { "--notes `"Office $('${{ needs.resolve.outputs.version }}') signed release.`"" }
-          $assets = @(Get-ChildItem artifacts/release -File | Where-Object { $_.Extension -in @('.msi','.cab','.deb','.pkg','.img','.sig','.json','.zip') -or $_.Name -eq 'SHA256SUMS' } | ForEach-Object FullName)
+          $assets = @(Get-ChildItem artifacts/release -File | Where-Object { $_.Extension -in @('.msi','.cab','.deb','.pkg','.img','.sig','.json','.zip') -or $_.Name -in @('SHA256SUMS','office-windows-update.p7m.b64') } | ForEach-Object FullName)
           if (gh release view $tag --repo '${{ github.repository }}' 2>$null) {
             gh release upload $tag @assets --clobber --repo '${{ github.repository }}'
           } else {
