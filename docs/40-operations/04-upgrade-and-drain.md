@@ -78,7 +78,13 @@ helper verifies the signed release metadata, the MSI and its cabinets, the execu
 and the reconstructed guest image. It checks that the certification evidence matches the selected
 Windows backend, image, protocol and validity dates. A failed check leaves the current jobs running.
 
-Sources: `src/CSweet.Office.Configurator/Program.cs`,
+Maintenance proves possession of the enrolled identity and presents the recovered leaf
+certificate when it claims a handoff. On Windows it opens a temporary named key for
+Schannel under the service account. A loopback TLS test starts with an expired leaf and
+checks the thumbprint the claim endpoint actually receives.
+
+Sources: `src/CSweet.Office.Configurator/Program.cs`, `src/CSweet.Office.Configurator/OfficeMaintenanceService.cs`,
+`tests/CSweet.Office.Tests/OfficeCertificateTlsTests.cs`,
 `scripts/windows/{Start-CSweetOfficeAutomaticUpdate.ps1,CSweet.OfficeRelease.ps1,Install-CSweetOfficeRuntimeHost.ps1}`,
 `releases/0.12.0.md`; Headquarters `ExecutionFleetService.Updates` and
 `scripts/tests/Test-AutomaticOfficeUpdatePreparation.ps1` (including installed-helper parity).

@@ -4,6 +4,7 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\..\src\CSweet.Office.WindowsSmokeTest\CSweet.Office.WindowsSmokeTest.csproj" />
     <ProjectReference Include="..\..\src\CSweet.Office.GuestProbe\CSweet.Office.GuestProbe.csproj" />
     <ProjectReference Include="..\..\src\CSweet.Office.ToolchainGuest\CSweet.Office.ToolchainGuest.csproj" />

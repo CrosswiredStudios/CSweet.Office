@@ -58,14 +58,16 @@ internal sealed class MaintenanceWorker(MaintenanceSettings settings, ILogger<Ma
         return new HttpClient(handler) { BaseAddress = new Uri(settings.ControlPlaneUrl), Timeout = TimeSpan.FromSeconds(20) };
     }
 
-    private async Task CheckAsync(CancellationToken cancellationToken)
+    internal async Task CheckAsync(CancellationToken cancellationToken)
     {
         // This component has its own process and server-authenticated channel. It does not
         // require the workload service to be running or its operational certificate to be valid.
         using var state = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(settings.StateDirectory, "node-state.json"), cancellationToken));
         var officeId = state.RootElement.GetProperty("OfficeId").GetGuid();
+        // Schannel needs a named key when it presents the recovered certificate. Without
+        // PersistKeySet the imported key is temporary and released with this certificate.
         using var identity = X509CertificateLoader.LoadPkcs12FromFile(Path.Combine(settings.StateDirectory, "node-identity.pfx"), null,
-            X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable);
+            OperatingSystem.IsWindows() ? X509KeyStorageFlags.UserKeySet : X509KeyStorageFlags.EphemeralKeySet);
         using var recovery = CreateClient();
         using var challengeResponse = await recovery.PostAsync($"api/offices/{officeId:D}/certificate/challenge", null, cancellationToken);
         challengeResponse.EnsureSuccessStatusCode();
