@@ -3,6 +3,30 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Windows Installer otherwise records only error 1722 for a deferred executable.
+# Keep a diagnostic through rollback, without writing arguments, tokens or raw exceptions.
+trap {
+    $failure = $_
+    $location = [IO.Path]::GetFileName([string]$failure.InvocationInfo.ScriptName)
+    if ($location -notin @('Initialize-CSweetCombinedOffice.ps1', 'Install-CSweetOffice.ps1',
+        'Install-CSweetOfficeRuntimeHost.ps1', 'CSweet.OfficeStorage.ps1', 'CSweet.OfficeImageParts.ps1',
+        'CSweet.WindowsSetupProgress.ps1')) { $location = 'Office installer' }
+    $reason = 'Check the Office setup progress and gateway availability.'
+    if ($failure.Exception.Message -match '^Insufficient free space for Office\. Setup requires (\d+) GiB free') {
+        $reason = "Office needs $($Matches[1]) GiB free on one eligible local volume."
+    } elseif ($location -eq 'CSweet.OfficeStorage.ps1') {
+        $reason = 'Check the selected local volume, its free space and its registered location.'
+    } elseif ($location -eq 'Initialize-CSweetCombinedOffice.ps1') {
+        $reason = 'Check the protected Office provisioning profile and one-use enrollment file.'
+    }
+    try {
+        [Diagnostics.EventLog]::WriteEntry('CSweet.Office.Setup',
+            "Combined Office enrollment failed in $location (line $($failure.InvocationInfo.ScriptLineNumber)). $reason",
+            [Diagnostics.EventLogEntryType]::Error, 1603)
+    } catch { Write-Warning 'The combined Office setup diagnostic could not be recorded.' }
+    throw $failure
+}
+
 # The per-machine MSI invokes this installed file once, after InstallFiles. All
 # paths are fixed under Program Files. The enrollment secret never enters MSI
 # properties, process arguments, output, or the distributed installation media.

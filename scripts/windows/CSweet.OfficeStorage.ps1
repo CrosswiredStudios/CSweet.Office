@@ -64,6 +64,10 @@ function Resolve-CSweetOfficeStorage {
     $requiredBytes = if ($null -ne $existing) { 20480L * 1MB } else { ([long][Math]::Max(32768, $RequiredDiskMb) + 20480) * 1MB }
     $eligible = @($volumes | Where-Object { $_.IsEligible -and $_.FreeBytes -ge $requiredBytes })
     if (-not $VolumeId) {
+        if ($eligible.Count -eq 0 -and @($volumes | Where-Object IsEligible).Count -gt 0) {
+            $requiredGiB = [Math]::Ceiling($requiredBytes / 1GB)
+            throw "Insufficient free space for Office. Setup requires $requiredGiB GiB free on one eligible local volume."
+        }
         $default = @($eligible | Where-Object IsSystemVolume | Select-Object -First 1)
         if ($Interactive) {
             for ($i = 0; $i -lt $eligible.Count; $i++) {

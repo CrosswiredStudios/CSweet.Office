@@ -19,6 +19,9 @@ Assert-Equal (Resolve-CSweetOfficeStorage).VolumeId 'system'
 Assert-Equal (Resolve-CSweetOfficeStorage -VolumeId other).DataRoot 'Z:\CSweet\Office\data'
 $system.FreeBytes = 10GB
 Assert-Equal (Resolve-CSweetOfficeStorage).VolumeId 'other'
+$other.FreeBytes = 51GB
+Assert-Rejected { Resolve-CSweetOfficeStorage } '52 GiB free'
+$other.FreeBytes = 400GB
 Assert-Rejected { Resolve-CSweetOfficeStorage -VolumeId system } 'free space'
 Assert-Rejected { Resolve-CSweetOfficeStorage -VolumeId missing } 'unavailable'
 Assert-Rejected { Resolve-CSweetOfficeStorage -VolumeId other -RequiredDiskMb 500000 } 'free space'
@@ -33,4 +36,4 @@ $other.FreeBytes = 1GB
 Assert-Equal (Resolve-CSweetOfficeStorage -SkipSpaceCheck).VolumeId 'other'
 $script:volumes = @($system)
 Assert-Rejected { Resolve-CSweetOfficeStorage -SkipSpaceCheck } 'unavailable'
-Write-Host 'Office storage resolver: 12 behavior checks passed.'
+Write-Host 'Office storage resolver: 13 behavior checks passed.'

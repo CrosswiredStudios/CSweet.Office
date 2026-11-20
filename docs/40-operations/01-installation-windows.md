@@ -183,6 +183,16 @@ The installer then waits up to 30 seconds for each service to reach `Running` an
 from the Event Log; `invalid_enrollment` is reported with the instruction to generate a fresh connection code in
 C-Sweet.
 
+## Combined installer diagnostics
+
+If the combined installer rolls back during Office enrollment, look in the Windows
+Application log for source `CSweet.Office.Setup`, event 1603. The installed enrollment
+script records the failed script and line with a diagnostic that survives MSI rollback.
+The storage check requires at least 52 GiB free on one eligible volume for a fresh install.
+Larger configured disk allocations require the allocation plus 20 GiB. See
+[`Initialize-CSweetCombinedOffice.ps1`](../../scripts/windows/Initialize-CSweetCombinedOffice.ps1)
+and [`Resolve-CSweetOfficeStorage`](../../scripts/windows/CSweet.OfficeStorage.ps1).
+
 ## The progress file
 
 `%ProgramData%\CSweet\Setup\windows-isolation-<jobId:N>.json` is the machine-readable record C-Sweet polls. Its
@@ -203,4 +213,4 @@ directory ACL is reset so only the control-plane user (read), `SYSTEM`, and `Adm
 `src/CSweet.Office.Runtime.HyperV.Helper/HyperVHelperController.cs`, `src/CSweet.Office.Node/OfficeOptions.cs`,
 `README.md`, `docs/20-security/06-host-privilege-model.md`.
 
-Verified: 2026-10-24.
+Verified: 2026-11-20.
