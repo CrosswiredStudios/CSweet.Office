@@ -35,6 +35,9 @@ public sealed partial class RuntimeHostRequestDispatcher(
             case P.RuntimeHostEnvelope.BodyOneofCase.CreateRequest:
                 yield return await CreateSerializedAsync(request, cancellationToken);
                 break;
+            case P.RuntimeHostEnvelope.BodyOneofCase.ObserveCreationRequest:
+                yield return await ObserveCreationAsync(request, cancellationToken);
+                break;
             case P.RuntimeHostEnvelope.BodyOneofCase.ReconcileAttemptRequest:
                 yield return await ReconcileAttemptAsync(request, cancellationToken);
                 break;
@@ -189,6 +192,11 @@ public sealed partial class RuntimeHostRequestDispatcher(
                 "RuntimeHost create request {RuntimeHostRequestId} could not provision workload {WorkloadId} for provider {ProviderId}.",
                 request.RequestId, request.CreateRequest.WorkloadId, request.CreateRequest.ProviderId);
             return ErrorHandle(request, "provider-unavailable", exception.Message);
+        }
+        catch (IOException exception) when (backend is A.IPlatformCreationObserver)
+        {
+            logger?.LogWarning(exception, "RuntimeHost lost the create response for request {RuntimeHostRequestId}.", request.RequestId);
+            return ErrorHandle(request, "creation-unconfirmed", DiagnosticMessage("The provider creation outcome is unknown", request.RequestId));
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or InvalidOperationException)
         {

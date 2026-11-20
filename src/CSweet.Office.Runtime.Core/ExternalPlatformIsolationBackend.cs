@@ -178,6 +178,18 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
             new IsolationWorkloadHandle(Descriptor.ProviderId, workloadId, result.ProviderInstanceId, kind));
     }
 
+    protected async Task<IsolationWorkloadHandle?> InspectWithAttemptAsync(Guid attemptKey, Guid workloadId,
+        WorkloadKind kind, CancellationToken cancellationToken)
+    {
+        var result = await InvokeAsync("inspect", new PlatformHelperRequest
+        { AttemptKey = attemptKey, RecoveryWorkloadId = workloadId, RecoveryWorkloadKind = kind }, cancellationToken);
+        if (result.ErrorCode == "creation-unconfirmed") return null;
+        EnsureSuccess(result);
+        return Guid.TryParseExact(result.ProviderInstanceId, "N", out var id) && id != Guid.Empty
+            ? new IsolationWorkloadHandle(Descriptor.ProviderId, workloadId, id.ToString("N"), kind)
+            : throw new InvalidDataException("The helper did not confirm an exact instance identity.");
+    }
+
     public async Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default)
     {
         ValidateHandle(handle);

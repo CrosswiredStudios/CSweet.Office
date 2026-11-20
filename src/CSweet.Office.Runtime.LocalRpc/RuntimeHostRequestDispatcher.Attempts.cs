@@ -6,6 +6,37 @@ namespace CSweet.Office.Runtime.LocalRpc;
 
 public sealed partial class RuntimeHostRequestDispatcher
 {
+    private async Task<P.RuntimeHostEnvelope> ObserveCreationAsync(P.RuntimeHostEnvelope request, CancellationToken token)
+    {
+        var creation = request.ObserveCreationRequest;
+        if (!Guid.TryParse(creation.WorkloadId, out var id) || !_backends.TryGetValue(creation.ProviderId, out var backend))
+            return ErrorHandle(request, "invalid-workload", "Invalid workload identity or provider.");
+        var gate = _operationLocks[id.GetHashCode() & 63];
+        await gate.WaitAsync(token);
+        try
+        {
+            var attempt = authorizationGate.ObserveCreation(creation);
+            var handle = backend is A.IPlatformCreationObserver observer
+                ? await observer.ObserveCreationAsync(attempt.Key, id, attempt.Kind, token) : attempt.Handle;
+            if (handle is null || handle.WorkloadId != id || handle.Kind != attempt.Kind || handle.ProviderId != attempt.ProviderId ||
+                authorizationGate.IsHandleDestroyed(handle))
+                return ErrorHandle(request, "creation-unconfirmed", "The original creation has no confirmed live instance.");
+            var status = await backend.InspectAsync(handle, token);
+            if (status?.Handle != handle || status.State is not (A.IsolationWorkloadState.Created or A.IsolationWorkloadState.Starting or
+                A.IsolationWorkloadState.Running or A.IsolationWorkloadState.Stopped))
+                return ErrorHandle(request, "creation-unconfirmed", "The provider could not confirm the original instance.");
+            authorizationGate.RegisterObservedHandle(creation, handle);
+            return Response(request, new P.WorkloadHandleResponse { Success = true, Workload = RuntimeHostProtocolMapper.ToProtocol(handle) });
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception exception)
+        {
+            logger?.LogWarning(exception, "Creation observation failed for workload {WorkloadId}.", id);
+            return ErrorHandle(request, "creation-unconfirmed", "The original workload could not be confirmed.");
+        }
+        finally { gate.Release(); }
+    }
+
     private async Task<P.RuntimeHostEnvelope> CreateSerializedAsync(P.RuntimeHostEnvelope request, CancellationToken token)
     {
         if (!Guid.TryParse(request.CreateRequest.WorkloadId, out var id)) return ErrorHandle(request, "invalid-workload", "Invalid workload identity.");

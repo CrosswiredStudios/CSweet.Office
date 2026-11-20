@@ -105,6 +105,12 @@ public interface IPlatformAttemptRecovery
         CancellationToken cancellationToken = default);
 }
 
+public interface IPlatformCreationObserver
+{
+    Task<IsolationWorkloadHandle?> ObserveCreationAsync(Guid attemptKey, Guid workloadId, WorkloadKind kind,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// Provider-owned fail-safe cleanup. This deliberately does not depend on the
 /// control-plane database, which may be unavailable or have been recreated.

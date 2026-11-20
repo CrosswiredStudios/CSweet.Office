@@ -50,6 +50,36 @@ public sealed class HyperVAttemptRecoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task InspectRequiresCompletedMetadataAndTheOriginalIsolatedVmLayout()
+    {
+        var key = Guid.NewGuid();
+        var instance = Guid.NewGuid();
+        var workload = Guid.NewGuid();
+        var attempt = new HyperVAttempt(key, workload, WorkloadKind.Runtime, instance);
+        var request = new PlatformHelperRequest { AttemptKey = key, RecoveryWorkloadId = workload,
+            RecoveryWorkloadKind = WorkloadKind.Runtime };
+        var hyperv = new FakeVm { Instance = instance };
+        var controller = new HyperVHelperController(Paths, hyperv);
+        Assert.False((await controller.ExecuteAsync("inspect", request)).Success);
+        using (var journal = new HyperVAttemptJournal(Paths, key)) journal.Save(attempt);
+        Assert.False((await controller.ExecuteAsync("inspect", request)).Success);
+        var directory = Directory.CreateDirectory(Paths.InstanceDirectory(instance)).FullName;
+        var now = DateTimeOffset.UtcNow;
+        var metadata = new HyperVInstanceMetadata(instance, workload, WorkloadKind.Runtime, attempt.VmName,
+            now, null, null, now.AddMinutes(5));
+        File.WriteAllText(Path.Combine(directory, "instance.json"), System.Text.Json.JsonSerializer.Serialize(metadata));
+        Assert.Equal(instance.ToString("N"), (await controller.ExecuteAsync("inspect", request)).ProviderInstanceId);
+        Assert.Equal(attempt.VmName, hyperv.LastName);
+        hyperv.Instance = Guid.NewGuid();
+        Assert.False((await controller.ExecuteAsync("inspect", request)).Success);
+        hyperv.Instance = instance;
+        using (var journal = new HyperVAttemptJournal(Paths, key)) journal.Save(attempt with { Stopped = true });
+        Assert.False((await controller.ExecuteAsync("inspect", request)).Success);
+        Assert.Equal(0, hyperv.Destroys);
+        Assert.True(Directory.Exists(directory));
+    }
+
+    [Fact]
     public async Task UnconfirmedRemovalAndChangedVmIdentityDoNotProduceReceipts()
     {
         var key = Guid.NewGuid(); var instance = Guid.NewGuid(); var workload = Guid.NewGuid();
@@ -79,5 +109,10 @@ public sealed class HyperVAttemptRecoveryTests : IDisposable
         public Task<Guid?> FindAsync(string vmName)
         { LastName = vmName; return Fail ? Task.FromException<Guid?>(new IOException("Hyper-V unavailable")) : Task.FromResult(Instance); }
         public Task DestroyAsync(string vmName) { Destroys++; if (!Preserve) Instance = null; return Task.CompletedTask; }
+        public Task<bool> MatchesOwnedLayoutAsync(string name, Guid id, string instanceDirectory)
+        {
+            LastName = name;
+            return Task.FromResult(Instance == id && Path.GetFileName(instanceDirectory) == id.ToString("N"));
+        }
     }
 }

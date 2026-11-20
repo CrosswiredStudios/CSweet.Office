@@ -16,6 +16,7 @@ internal sealed partial class HyperVHelperController(HyperVHelperPaths paths, IH
             "probe" => await ProbeAsync(),
             "create" => await CreateAsync(request),
             "start" => await StartAsync(request),
+            "inspect" when request.AttemptKey.HasValue => await InspectAttemptAsync(request),
             "inspect" => await InspectAsync(request),
             "stop" => await StopAsync(request),
             "destroy" => await DestroyAsync(request),

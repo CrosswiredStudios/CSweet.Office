@@ -182,6 +182,21 @@ The gate's job is to refuse to start or operate on work whose epoch is stale.
 
 Related invariant: `SEC-INV-07` (no bypass) and the epoch rules above.
 
+## Recovering a lost creation response
+
+`RuntimeHostProviderClient.CreateAuthorizedAsync` can ask RuntimeHost to observe the original create
+after an I/O failure. The observation carries the signed request. RuntimeHost verifies it again,
+matches its specification digest and current fencing epoch to the on-disk attempt, checks the guest
+lease, and confirms the instance with the provider. Creation admission still rejects duplicate
+epochs. A stopped attempt or destruction receipt prevents recovery. Legacy attempts without a
+stored specification digest cannot supply this receipt.
+
+On Hyper-V, the helper's existing `inspect` operation checks the provider journal, completed
+instance metadata, Windows VM identity, absence of network adapters and both private disk
+paths. An unresolved create remains unconfirmed. Existing teardown reconciliation can still
+retire it. [RuntimeHost authorization and observation](../../src/CSweet.Office.Runtime.LocalRpc/RuntimeHostRequestDispatcher.Attempts.cs)
+and [Hyper-V attempt inspection](../../src/CSweet.Office.Runtime.HyperV.Helper/HyperVHelperController.Attempts.cs).
+
 ## Sources
 
 `src/CSweet.Office.Runtime.Abstractions/IsolationPorts.cs`,
@@ -191,4 +206,4 @@ Related invariant: `SEC-INV-07` (no bypass) and the epoch rules above.
 `tests/CSweet.Office.Tests/{RuntimeHostProtocolMapperTests.cs,RuntimeHostRpcIntegrationTests.cs,OfficeWorkerFailureTests.cs}`,
 `scripts/windows/Install-CSweetOfficeRuntimeHost.ps1` (authorization options).
 
-Verified: 2026-10-07.
+Verified: 2026-11-20 (creation observation). Other sections last verified 2026-10-07.

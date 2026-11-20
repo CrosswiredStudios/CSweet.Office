@@ -7,7 +7,7 @@ namespace CSweet.Office.Runtime.LocalRpc;
 public sealed partial class RuntimeHostAuthorizationGate
 {
     internal sealed record ShutdownAttempt(Guid Key, Guid WorkloadId, W.WorkloadKind Kind,
-        string ProviderId, A.IsolationWorkloadHandle? Handle, bool Stopped);
+        string ProviderId, A.IsolationWorkloadHandle? Handle, bool Stopped, string? SpecificationDigest = null);
 
     private string AttemptPath(Guid officeId, Guid assignmentId, long epoch) => Path.Combine(
         _options.ResolveStateDirectory(), "assignment-attempts", officeId.ToString("N"),

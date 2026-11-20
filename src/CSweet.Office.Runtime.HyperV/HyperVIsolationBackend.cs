@@ -7,7 +7,7 @@ public sealed class HyperVIsolationBackendOptions : PlatformIsolationBackendOpti
 
 public sealed class HyperVIsolationBackend(HyperVIsolationBackendOptions options, TimeProvider timeProvider)
     : ExternalPlatformIsolationBackend(IsolationProviderCatalog.HyperV(), options, timeProvider),
-      IPlatformWorkloadReaper, IPlatformAttemptRecovery
+      IPlatformWorkloadReaper, IPlatformAttemptRecovery, IPlatformCreationObserver
 {
     protected override bool IsHostPlatform(out string unavailableReason)
     {
@@ -25,4 +25,7 @@ public sealed class HyperVIsolationBackend(HyperVIsolationBackendOptions options
 
     public Task<AttemptShutdownResult> DestroyAttemptAsync(Guid attemptKey, Guid workloadId, WorkloadKind kind,
         CancellationToken cancellationToken = default) => DestroyWithAttemptAsync(attemptKey, workloadId, kind, cancellationToken);
+
+    public Task<IsolationWorkloadHandle?> ObserveCreationAsync(Guid attemptKey, Guid workloadId, WorkloadKind kind,
+        CancellationToken cancellationToken = default) => InspectWithAttemptAsync(attemptKey, workloadId, kind, cancellationToken);
 }

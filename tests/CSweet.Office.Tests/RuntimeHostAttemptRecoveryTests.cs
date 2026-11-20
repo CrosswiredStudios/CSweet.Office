@@ -8,6 +8,92 @@ namespace CSweet.Office.Tests;
 
 public sealed partial class RuntimeHostRpcIntegrationTests
 {
+    [Fact]
+    public async Task ClientObservesAfterLostHelperResponseWithoutRepeatingCreation()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var trust = Trust(key, Guid.NewGuid());
+        var gate = NewGate();
+        gate.Pin(trust);
+        var descriptor = Descriptor();
+        var backend = new RecoveryBackend(new InMemoryAgentIsolationProvider(descriptor)) { ThrowAfterCreate = true };
+        var connector = new TestGuestConnector(descriptor.ProviderId);
+        var endpoint = new RuntimeHostEndpointOptions
+        {
+            NamedPipeName = $"csweet-observe-{Guid.NewGuid():N}",
+            UnixSocketPath = Path.Combine(Path.GetTempPath(), $"csweet-observe-{Guid.NewGuid():N}.sock"),
+            ConnectTimeoutSeconds = 5
+        };
+        if (OperatingSystem.IsWindows())
+            endpoint.AllowedClientSid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value;
+        var options = new RuntimeHostAuthenticationOptions
+        {
+            KeyId = "observation-test", SharedKeyBase64 = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+        };
+        var server = new RuntimeHostRpcServer(endpoint, new(options, TimeProvider.System),
+            new([backend], [connector], gate), [connector], gate);
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var running = server.RunAsync(stop.Token);
+        try
+        {
+            var client = new RuntimeHostProviderClient(descriptor, endpoint, new(options, TimeProvider.System));
+            var workload = Runtime();
+            var handle = await client.CreateAuthorizedAsync(workload, Authorization(key, trust, descriptor.ProviderId, workload), stop.Token);
+            Assert.Equal(backend.LastHandle, handle);
+            Assert.Equal(1, backend.Creates);
+            Assert.True(gate.IsHandleAuthorized(handle));
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            try { await running; } catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SignedCreationObservationReturnsTheOriginalHandleAfterReceiverRestart(bool lostHelperResponse)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"observe-create-{Guid.NewGuid():N}");
+        try
+        {
+            using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var trust = Trust(key, Guid.NewGuid());
+            var options = new RuntimeHostAuthorizationOptions { StateDirectory = root };
+            var gate = new RuntimeHostAuthorizationGate(options, TimeProvider.System);
+            gate.Pin(trust);
+            var workload = Runtime();
+            var backend = new RecoveryBackend(new InMemoryAgentIsolationProvider(Descriptor())) { ThrowAfterCreate = lostHelperResponse };
+            var create = RuntimeHostProtocolMapper.ToProtocol(backend.Descriptor.ProviderId, workload);
+            create.Authorization = ToProtocol(Authorization(key, trust, backend.Descriptor.ProviderId, workload));
+            var connector = new TestGuestConnector(backend.Descriptor.ProviderId);
+            var receiver = new RuntimeHostRequestDispatcher([backend], [connector], gate);
+            var sent = await RunAttempt(receiver, new() { CreateRequest = create });
+            Assert.Equal(!lostHelperResponse, sent.CreateResponse.Success);
+            // The caller discarded any response. Reopen the real RuntimeHost journal.
+            var restarted = new RuntimeHostAuthorizationGate(options, TimeProvider.System);
+            receiver = new RuntimeHostRequestDispatcher([backend], [connector], restarted);
+            var observe = new RuntimeHostEnvelope { ObserveCreationRequest = create };
+            var result = (await RunAttempt(receiver, observe)).CreateResponse;
+            Assert.True(result.Success, result.SanitizedError);
+            Assert.Equal(backend.LastHandle!.ProviderInstanceId, result.Workload.ProviderInstanceId);
+            Assert.True(restarted.IsHandleAuthorized(backend.LastHandle));
+            Assert.Equal(1, backend.Creates);
+            Assert.Throws<InvalidDataException>(() => restarted.ValidateAndCommit(create));
+            var altered = create.Clone();
+            altered.Authorization.Signature = Google.Protobuf.ByteString.CopyFrom(new byte[64]);
+            Assert.False((await RunAttempt(receiver, new() { ObserveCreationRequest = altered })).CreateResponse.Success);
+            backend.Confirm = true;
+            var destroyed = await RunAttempt(receiver, new() { DestroyRequest = RuntimeHostProtocolMapper.ToProtocol(backend.LastHandle) });
+            Assert.True(destroyed.OperationResponse.Success);
+            Assert.False((await RunAttempt(receiver, observe)).CreateResponse.Success);
+            Assert.False(restarted.IsHandleAuthorized(backend.LastHandle));
+            Assert.Equal(1, backend.Creates);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -121,10 +207,11 @@ public sealed partial class RuntimeHostRpcIntegrationTests
         Assert.False(gate.IsHandleAuthorized(handles[0], true));
     }
 
-    private sealed class RecoveryBackend(InMemoryAgentIsolationProvider inner) : IPlatformIsolationBackend, IPlatformAttemptRecovery
+    private sealed class RecoveryBackend(InMemoryAgentIsolationProvider inner) : IPlatformIsolationBackend, IPlatformAttemptRecovery, IPlatformCreationObserver
     {
         public bool Confirm { get; set; }
         public bool ThrowAfterCreate { get; set; }
+        public int Creates { get; private set; }
         public IsolationWorkloadHandle? LastHandle { get; private set; }
         private readonly Dictionary<Guid, IsolationWorkloadHandle> _handles = [];
         private readonly HashSet<IsolationWorkloadHandle> _destroyed = [];
@@ -133,11 +220,17 @@ public sealed partial class RuntimeHostRpcIntegrationTests
         {
             await Task.CompletedTask;
             cancellationToken.ThrowIfCancellationRequested();
+            Creates++;
             var handle = new IsolationWorkloadHandle(Descriptor.ProviderId, workload.WorkloadId,
                 $"attempt-{attemptKey:N}", workload.Kind);
             _handles.Add(attemptKey, handle); LastHandle = handle;
             if (ThrowAfterCreate) throw new IOException("Creation response lost.");
             return handle;
+        }
+        public Task<IsolationWorkloadHandle?> ObserveCreationAsync(Guid attemptKey, Guid workloadId, WorkloadKind kind, CancellationToken cancellationToken = default)
+        {
+            var handle = _handles.GetValueOrDefault(attemptKey);
+            return Task.FromResult(handle?.WorkloadId == workloadId && handle.Kind == kind ? handle : null);
         }
         public async Task<AttemptShutdownResult> DestroyAttemptAsync(Guid attemptKey, Guid workloadId, WorkloadKind kind, CancellationToken cancellationToken = default)
         {

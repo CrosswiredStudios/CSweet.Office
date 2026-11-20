@@ -92,12 +92,28 @@ public sealed class RuntimeHostProviderClient(
             IssuedAtUnixSeconds = authorization.IssuedAt.ToUnixTimeSeconds(),
             ExpiresAtUnixSeconds = authorization.ExpiresAt.ToUnixTimeSeconds()
         };
-        var response = await CallAsync(
-            new P.RuntimeHostEnvelope { CreateRequest = create },
-            P.RuntimeHostEnvelope.BodyOneofCase.CreateResponse,
-            cancellationToken);
+        P.RuntimeHostEnvelope response;
+        try
+        {
+            response = await CallAsync(new P.RuntimeHostEnvelope { CreateRequest = create },
+                P.RuntimeHostEnvelope.BodyOneofCase.CreateResponse, cancellationToken);
+        }
+        catch (IOException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return await ObserveCreationAsync(create, cancellationToken);
+        }
+        if (!response.CreateResponse.Success && response.CreateResponse.ErrorCode == "creation-unconfirmed")
+            return await ObserveCreationAsync(create, cancellationToken);
         EnsureSuccess(response.CreateResponse.Success, response.CreateResponse.ErrorCode, response.CreateResponse.SanitizedError);
         return RuntimeHostProtocolMapper.FromProtocol(response.CreateResponse.Workload);
+    }
+
+    private async Task<A.IsolationWorkloadHandle> ObserveCreationAsync(P.CreateWorkloadRequest create, CancellationToken token)
+    {
+        var observed = await CallAsync(new P.RuntimeHostEnvelope { ObserveCreationRequest = create },
+            P.RuntimeHostEnvelope.BodyOneofCase.CreateResponse, token);
+        EnsureSuccess(observed.CreateResponse.Success, observed.CreateResponse.ErrorCode, observed.CreateResponse.SanitizedError);
+        return RuntimeHostProtocolMapper.FromProtocol(observed.CreateResponse.Workload);
     }
 
     public async Task<A.AttemptShutdownResult> ReconcileAttemptShutdownAsync(Guid officeId, Guid assignmentId,

@@ -29,6 +29,7 @@ message RuntimeHostEnvelope {
     OperationResponse pin_headquarters_trust_response = 25;
     ReconcileAttemptRequest reconcile_attempt_request = 26;
     ReconcileAttemptResponse reconcile_attempt_response = 27;
+    CreateWorkloadRequest observe_creation_request = 28;
   }
 }
 

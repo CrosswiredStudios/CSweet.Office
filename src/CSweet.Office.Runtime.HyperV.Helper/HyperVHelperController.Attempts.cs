@@ -1,3 +1,4 @@
+using CSweet.Office.Runtime.Abstractions;
 using CSweet.Office.Runtime.Core;
 
 namespace CSweet.Office.Runtime.HyperV.Helper;
@@ -5,6 +6,7 @@ namespace CSweet.Office.Runtime.HyperV.Helper;
 internal interface IHyperVAttemptOperations
 {
     Task<Guid?> FindAsync(string vmName);
+    Task<bool> MatchesOwnedLayoutAsync(string name, Guid id, string instanceDirectory);
     Task DestroyAsync(string vmName);
 }
 
@@ -18,10 +20,33 @@ internal sealed class HyperVAttemptOperations : IHyperVAttemptOperations
             throw new InvalidDataException("Hyper-V returned an invalid VM identity.");
     }
     public async Task DestroyAsync(string vmName) => await PowerShellHyperV.DestroyAsync(vmName);
+    public async Task<bool> MatchesOwnedLayoutAsync(string name, Guid id, string instanceDirectory) =>
+        await PowerShellHyperV.ObserveOwnedInstanceAsync(name, id, instanceDirectory) == id.ToString("D");
 }
 
 internal sealed partial class HyperVHelperController
 {
+    private async Task<PlatformHelperResponse> InspectAttemptAsync(PlatformHelperRequest request)
+    {
+        if (request.Handle is not null || request.AttemptKey is not { } key || key == Guid.Empty ||
+            request.RecoveryWorkloadId is not { } workload || workload == Guid.Empty ||
+            request.RecoveryWorkloadKind is not { } kind || !Enum.IsDefined(kind))
+            return Failure("invalid-attempt", "Invalid creation observation scope.");
+        using var journal = new HyperVAttemptJournal(paths, key);
+        var entry = journal.Read();
+        if (entry is not { Stopped: false, InstanceId: { } id } || entry.Key != key ||
+            entry.WorkloadId != workload || entry.Kind != kind)
+            return Failure("creation-unconfirmed", "The helper has no matching creation receipt.");
+        var handle = new IsolationWorkloadHandle(IsolationProviderCatalog.HyperV().ProviderId, workload, id.ToString("N"), kind);
+        var loaded = await LoadAsync(handle);
+        if (loaded.Metadata is not { } metadata || metadata.VmName != entry.VmName ||
+            metadata.FinishedAt is not null || metadata.LeaseExpiresAt is null || metadata.LeaseExpiresAt <= DateTimeOffset.UtcNow)
+            return Failure("creation-unconfirmed", "The completed and leased instance could not be verified.");
+        if (!await (attemptOperations ?? new HyperVAttemptOperations()).MatchesOwnedLayoutAsync(entry.VmName, id, loaded.Directory!))
+            return Failure("creation-unconfirmed", "Hyper-V could not confirm the original isolated instance.");
+        return new() { Success = true, ProviderInstanceId = handle.ProviderInstanceId };
+    }
+
     private async Task<PlatformHelperResponse> DestroyAttemptAsync(PlatformHelperRequest request)
     {
         if (request.AttemptKey is not { } key || key == Guid.Empty ||

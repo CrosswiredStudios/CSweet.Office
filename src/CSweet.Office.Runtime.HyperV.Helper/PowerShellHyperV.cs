@@ -105,6 +105,24 @@ internal static class PowerShellHyperV
         return ExecuteAsync(ConfigureScript, environment, TimeSpan.FromMinutes(2));
     }
 
+    public static Task<string> ObserveOwnedInstanceAsync(string name, Guid id, string instanceDirectory) =>
+        ExecuteAsync("""
+            $ErrorActionPreference = 'Stop'
+            Import-Module Hyper-V
+            $vm = Get-VM -Id ([guid]$env:CSWEET_VM_ID) -ErrorAction Stop
+            if ($vm.Name -cne $env:CSWEET_VM_NAME -or @(Get-VMNetworkAdapter -VM $vm).Count) { return }
+            $drives = @(Get-VMHardDiskDrive -VM $vm | Sort-Object ControllerLocation)
+            if ($drives.Count -ne 2) { return }
+            for ($i=0; $i -lt 2; $i++) {
+                $drive = $drives[$i]
+                $leaf = @('os-diff.vhdx','scratch.vhdx')[$i]
+                if ($drive.ControllerType -ne 'SCSI' -or $drive.ControllerNumber -ne 0 -or $drive.ControllerLocation -ne $i -or
+                    $drive.Path -ine (Join-Path $env:CSWEET_INSTANCE_DIRECTORY $leaf)) { return }
+            }
+            $vm.Id.ToString('D')
+            """, new Dictionary<string, string> { ["CSWEET_VM_NAME"] = name, ["CSWEET_VM_ID"] = id.ToString("D"),
+                ["CSWEET_INSTANCE_DIRECTORY"] = instanceDirectory }, TimeSpan.FromSeconds(30));
+
     public static Task<string> StartAsync(string vmName) => ExecuteVmCommandAsync(
         "Import-Module Hyper-V -ErrorAction Stop; Start-VM -Name $env:CSWEET_VM_NAME -ErrorAction Stop | Out-Null",
         vmName, TimeSpan.FromMinutes(1));

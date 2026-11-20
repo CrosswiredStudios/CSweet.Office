@@ -71,7 +71,7 @@ public sealed partial class RuntimeHostAuthorizationGate
         }
     }
 
-    public W.WorkloadSpecification ValidateAndCommit(P.CreateWorkloadRequest request)
+    private W.WorkloadSpecification ValidateSignedCreation(P.CreateWorkloadRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var authorization = request.Authorization ??
@@ -115,7 +115,15 @@ public sealed partial class RuntimeHostAuthorizationGate
         var workload = RuntimeHostProtocolMapper.DeserializeSpecification(authorization.SpecificationJson);
         if (workload.WorkloadId != workloadId)
             throw new InvalidDataException("The signed specification has a different workload identifier.");
+        return workload;
+    }
 
+    public W.WorkloadSpecification ValidateAndCommit(P.CreateWorkloadRequest request)
+    {
+        var workload = ValidateSignedCreation(request);
+        var authorization = request.Authorization;
+        var officeId = Guid.Parse(authorization.OfficeId);
+        var assignmentId = Guid.Parse(authorization.AssignmentId);
         lock (_sync)
         {
             var accepted = ReadReplayState();
@@ -126,12 +134,45 @@ public sealed partial class RuntimeHostAuthorizationGate
                 throw new InvalidDataException("The exact workload attempt was already accepted or retired.");
             Directory.CreateDirectory(Path.GetDirectoryName(attemptPath)!);
             WriteAtomic(attemptPath, JsonSerializer.SerializeToUtf8Bytes(new ShutdownAttempt(
-                Guid.NewGuid(), workloadId, workload.Kind, authorization.ProviderId, null, false)));
+                Guid.NewGuid(), workload.WorkloadId, workload.Kind, authorization.ProviderId, null, false,
+                authorization.SpecificationSha256)));
             accepted[assignmentId] = authorization.FencingEpoch;
             Directory.CreateDirectory(_options.ResolveStateDirectory());
             WriteAtomic(ReplayPath, JsonSerializer.SerializeToUtf8Bytes(accepted));
         }
         return workload;
+    }
+
+    internal ShutdownAttempt ObserveCreation(P.CreateWorkloadRequest request)
+    {
+        var workload = ValidateSignedCreation(request);
+        var auth = request.Authorization;
+        var assignment = Guid.Parse(auth.AssignmentId);
+        lock (_sync)
+        {
+            var attempt = ReadAttempt(AttemptPath(Guid.Parse(auth.OfficeId), assignment, auth.FencingEpoch));
+            if (attempt is not { Stopped: false } || attempt.WorkloadId != workload.WorkloadId ||
+                attempt.SpecificationDigest != auth.SpecificationSha256 || attempt.ProviderId != request.ProviderId ||
+                attempt.Kind != workload.Kind || workload.BrokerLease.ExpiresAt <= _timeProvider.GetUtcNow() ||
+                !ReadReplayState().TryGetValue(assignment, out var highWater) || highWater != auth.FencingEpoch)
+                throw new InvalidDataException("No current signed creation receipt for this workload.");
+            return attempt;
+        }
+    }
+
+    internal void RegisterObservedHandle(P.CreateWorkloadRequest request, A.IsolationWorkloadHandle handle)
+    {
+        lock (_sync)
+        {
+            var attempt = ObserveCreation(request);
+            if ((attempt.Handle is not null && attempt.Handle != handle) || IsHandleDestroyed(handle))
+                throw new InvalidDataException("The original creation no longer owns this handle.");
+            if (ReadHandles().TryGetValue(handle.WorkloadId, out var current) &&
+                (current.AssignmentId != Guid.Parse(request.Authorization.AssignmentId) ||
+                 current.FencingEpoch != request.Authorization.FencingEpoch || current.ProviderInstanceId != handle.ProviderInstanceId))
+                throw new InvalidDataException("Another assignment owns this workload.");
+            RegisterHandle(request, handle);
+        }
     }
 
     public void RegisterHandle(P.CreateWorkloadRequest request, A.IsolationWorkloadHandle handle)
