@@ -90,8 +90,9 @@ identifiers cannot slip through.
 
 ## Verification stage 2 — the privileged boundary
 
-`RuntimeHostAuthorizationGate.ValidateAndCommit` repeats the work at the privileged level and adds checks
-that only make sense next to the request. The order is load-bearing:
+`RuntimeHostAuthorizationGate.ValidateAndCommit` independently verifies the request at the privileged
+boundary. Both creation and observation require a positive fencing epoch. A rejected epoch leaves the
+creation journal available for the first valid delivery.
 
 ```mermaid
 graph LR
@@ -206,4 +207,4 @@ and [Hyper-V attempt inspection](../../src/CSweet.Office.Runtime.HyperV.Helper/H
 `tests/CSweet.Office.Tests/{RuntimeHostProtocolMapperTests.cs,RuntimeHostRpcIntegrationTests.cs,OfficeWorkerFailureTests.cs}`,
 `scripts/windows/Install-CSweetOfficeRuntimeHost.ps1` (authorization options).
 
-Verified: 2026-11-20 (creation observation). Other sections last verified 2026-10-07.
+Verified: 2026-11-20 (creation observation and fencing epochs). Other sections last verified 2026-10-07.

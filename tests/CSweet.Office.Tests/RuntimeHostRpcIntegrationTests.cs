@@ -234,6 +234,18 @@ public sealed partial class RuntimeHostRpcIntegrationTests
         var request = RuntimeHostProtocolMapper.ToProtocol("memory-test", workload);
         request.Authorization = ToProtocol(authorization);
 
+        // A valid signature cannot make a nonpositive fencing epoch eligible for creation.
+        foreach (var epoch in new long[] { 0, -1 })
+        {
+            var invalid = request.Clone();
+            invalid.Authorization.FencingEpoch = epoch;
+            invalid.Authorization.Signature = Google.Protobuf.ByteString.CopyFrom(key.SignData(
+                AssignmentEnvelope.Payload(trust.OfficeId, authorization.AssignmentId, workload.WorkloadId,
+                    epoch, authorization.ProviderId, authorization.SpecificationSha256,
+                    authorization.IssuedAt, authorization.ExpiresAt), HashAlgorithmName.SHA256));
+            Assert.Throws<InvalidDataException>(() => gate.ValidateAndCommit(invalid));
+        }
+
         Assert.Equal(workload.WorkloadId, gate.ValidateAndCommit(request).WorkloadId);
         Assert.Throws<InvalidDataException>(() => gate.ValidateAndCommit(request));
 

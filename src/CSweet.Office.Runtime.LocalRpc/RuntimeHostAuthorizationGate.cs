@@ -80,6 +80,8 @@ public sealed partial class RuntimeHostAuthorizationGate
             throw new InvalidDataException("Headquarters assignment trust has not been pinned.");
         if (authorization.AuthorizationVersion != AssignmentEnvelope.CurrentAuthorizationVersion)
             throw new InvalidDataException("The workload authorization version is unsupported.");
+        if (authorization.FencingEpoch < 1)
+            throw new InvalidDataException("The workload authorization requires a positive fencing epoch.");
         if (!Guid.TryParse(authorization.OfficeId, out var officeId) || officeId != trust.OfficeId ||
             !Guid.TryParse(authorization.AssignmentId, out var assignmentId) || assignmentId == Guid.Empty ||
             !Guid.TryParse(authorization.WorkloadId, out var workloadId) || workloadId == Guid.Empty)
