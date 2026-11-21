@@ -21,12 +21,18 @@ public sealed class OfficeStateStore(OfficeOptions options)
     private string DrainStatePath => Path.Combine(MaintenanceDirectory, "drain-state");
     private string ActiveAssignmentsDirectory => Path.Combine(MaintenanceDirectory, "active-assignments");
 
-    public void InitializeMaintenanceSession()
+    internal void RestoreActiveAssignments(IReadOnlySet<Guid> active)
     {
         Directory.CreateDirectory(ActiveAssignmentsDirectory);
+        foreach (var assignmentId in active)
+            MarkAssignmentActive(assignmentId);
+
+        // Installers read this directory while Node is starting. Publish every retained
+        // attempt before retiring markers left by the previous process.
         foreach (var marker in Directory.EnumerateFiles(
                      ActiveAssignmentsDirectory, "*.active", SearchOption.TopDirectoryOnly))
-            File.Delete(marker);
+            if (Guid.TryParseExact(Path.GetFileNameWithoutExtension(marker), "N", out var id) && !active.Contains(id))
+                File.Delete(marker);
     }
 
     public void SetDraining(bool draining)

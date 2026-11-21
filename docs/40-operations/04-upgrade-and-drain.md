@@ -54,8 +54,12 @@ local authority on that.
 ## Active assignments
 
 `OfficeStateStore.MarkAssignmentActive` writes `maintenance/active-assignments/<assignmentId:N>.active` when an
-assignment is admitted to the active set, and `MarkAssignmentInactive` deletes it in the teardown block. The
-markers are the *only* local record that a workload was running, and every upgrade gate counts them.
+assignment is admitted to the active set. After a Node restart, maintenance continues to see outstanding
+markers while Node recovers its identity. Once the identity and assignment journal are readable,
+`AssignmentStopJournal.RestoreMaintenance` restores a marker for every assignment with an unconfirmed
+attempt before clearing stale markers. Teardown clears an assignment's marker after all its attempts
+are confirmed stopped. See `src/CSweet.Office.Node/OfficeWorker.cs`,
+`src/CSweet.Office.Node/OfficeStateStore.cs` and `src/CSweet.Office.Node/AssignmentStopJournal.cs`.
 
 ## Automatic Windows updates (0.12.0)
 
@@ -181,7 +185,7 @@ VM, and an unrecognized provider record. Run it after touching
 `src/CSweet.Office.Configurator/Program.cs`, `releases/0.5.3.md`,
 `docs/20-security/11-security-invariants.md`, `docs/30-workloads/01-assignment-and-lease-semantics.md`.
 
-Verified: 2026-10-24.
+Verified: 2026-11-20 for assignment marker recovery.
 
 ## Guided local debug builds
 

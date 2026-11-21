@@ -22,7 +22,7 @@ public sealed class OfficeMaintenanceStateTests : IDisposable
     }
 
     [Fact]
-    public void AssignmentMarkersTrackWorkAndAreClearedForANewProcessSession()
+    public void RestoreActivityRetainsOutstandingAssignmentsAndClearsStaleMarkers()
     {
         var store = Store();
         var first = Guid.NewGuid();
@@ -36,7 +36,10 @@ public sealed class OfficeMaintenanceStateTests : IDisposable
         store.MarkAssignmentInactive(first);
         Assert.Single(Directory.GetFiles(active, "*.active"));
 
-        store.InitializeMaintenanceSession();
+        var restarted = Store();
+        restarted.RestoreActiveAssignments(new HashSet<Guid> { second });
+        Assert.True(File.Exists(Path.Combine(active, $"{second:N}.active")));
+        restarted.RestoreActiveAssignments(new HashSet<Guid>());
         Assert.Empty(Directory.GetFiles(active, "*.active"));
     }
 

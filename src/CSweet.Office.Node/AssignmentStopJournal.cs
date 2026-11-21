@@ -152,13 +152,14 @@ internal sealed class AssignmentStopJournal(OfficeOptions options)
     {
         lock (_gate)
         {
-            var directory = Path.Combine(_root, officeId.ToString("N"));
-            if (!Directory.Exists(directory)) return;
-            foreach (var path in Directory.EnumerateFiles(directory, "*.json"))
+            var directory = Directory.CreateDirectory(Path.Combine(_root, officeId.ToString("N")));
+            var active = new HashSet<Guid>();
+            foreach (var path in directory.EnumerateFiles("*.json"))
             {
-                var entry = ReadFile(path);
-                if (entry.Phase != "stopped") stateStore.MarkAssignmentActive(entry.AssignmentId);
+                var entry = ReadFile(path.FullName);
+                if (entry.Phase != "stopped") active.Add(entry.AssignmentId);
             }
+            stateStore.RestoreActiveAssignments(active);
         }
     }
 

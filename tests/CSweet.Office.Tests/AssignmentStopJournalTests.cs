@@ -133,7 +133,6 @@ public sealed class AssignmentStopJournalTests : IDisposable
         await journal.CleanupAsync(journal.Read(_office, _assignment, 3), null, default);
         Assert.True(journal.HasUnconfirmed(_office, _assignment));
         var state = new OfficeStateStore(new OfficeOptions { StateDirectory = _root });
-        state.InitializeMaintenanceSession();
         Open().RestoreMaintenance(_office, state);
         Assert.Single(Directory.GetFiles(Path.Combine(_root, "maintenance", "active-assignments"), "*.active"));
         Assert.False(journal.HasUnconfirmed(Guid.NewGuid(), _assignment));

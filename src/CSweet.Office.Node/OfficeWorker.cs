@@ -36,7 +36,6 @@ public sealed partial class OfficeWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        stateStore.InitializeMaintenanceSession();
         OfficeState? processSession = null;
         while (!stoppingToken.IsCancellationRequested)
         {

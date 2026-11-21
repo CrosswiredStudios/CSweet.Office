@@ -66,6 +66,33 @@ public sealed class OfficeCertificateRecoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task InterruptedEnrollmentKeepsRetainedAssignmentVisibleToMaintenance()
+    {
+        var options = new OfficeOptions { StateDirectory = _root, EnrollmentToken = "test-enrollment" };
+        var assignmentId = Guid.NewGuid();
+        var previous = new OfficeStateStore(options);
+        previous.SetDraining(true);
+        previous.MarkAssignmentActive(assignmentId);
+        var offered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new Handler(request =>
+        {
+            Assert.Equal("/api/offices/claim", request.RequestUri?.AbsolutePath);
+            offered.TrySetResult();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        });
+        using var worker = new OfficeWorker(options, new OfficeStateStore(options), new RuntimeHostInventory([]),
+            null!, [], new Factory(handler), new ControlPlaneServerCertificateValidator(options, TimeProvider.System),
+            NullLogger<OfficeWorker>.Instance);
+        await worker.StartAsync(default);
+        try
+        {
+            await offered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(File.Exists(Path.Combine(_root, "maintenance", "active-assignments", $"{assignmentId:N}.active")));
+        }
+        finally { await worker.StopAsync(default); }
+    }
+
+    [Fact]
     public void RejectedCertificateDoesNotOverwriteDurableIdentity()
     {
         var store = new OfficeStateStore(new OfficeOptions { StateDirectory = _root });
