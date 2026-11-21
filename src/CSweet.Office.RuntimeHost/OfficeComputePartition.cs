@@ -60,7 +60,7 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
                 new(pin.AssignmentSigningKeyId, Convert.ToBase64String(pin.AssignmentVerificationPublicKey)));
             var directory = Path.Combine(storage.ResolveStateDirectory(), "compute-journal");
             Directory.CreateDirectory(directory);
-            var journal = OfficeComputeJournal.Open(directory, enrollment, capacity, clock);
+            var journal = ComputeReplayJournal.OpenForWindowsService(directory, enrollment, capacity, clock, "CSweet.Office.RuntimeHost");
             await journal.InitializeAsync(token);
             var template = new ComputeTemplate("office-linux-" + policy.ImageDigest.Substring(7, 48), "linux", "x64",
                 policy.ImageDigest, policy.Features.ToHashSet(StringComparer.Ordinal));
