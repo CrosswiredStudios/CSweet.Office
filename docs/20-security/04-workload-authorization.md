@@ -186,7 +186,10 @@ Related invariant: `SEC-INV-07` (no bypass) and the epoch rules above.
 ## Recovering a lost creation response
 
 `RuntimeHostProviderClient.CreateAuthorizedAsync` can ask RuntimeHost to observe the original create
-after an I/O failure. The observation carries the signed request. RuntimeHost verifies it again,
+after an I/O failure. When a fresh client resubmits the same live signed creation, the dispatcher
+also directs it to observation. `RuntimeHostAuthorizationGate.AdmitNewCreation` issues a new
+workload to the backend only for a newly accepted epoch. The observation carries the signed request.
+RuntimeHost verifies it again,
 matches its specification digest and current fencing epoch to the on-disk attempt, checks the guest
 lease, and confirms the instance with the provider. Creation admission still rejects duplicate
 epochs. A stopped attempt or destruction receipt prevents recovery. Legacy attempts without a

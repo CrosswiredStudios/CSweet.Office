@@ -120,7 +120,11 @@ public sealed partial class RuntimeHostAuthorizationGate
         return workload;
     }
 
-    public W.WorkloadSpecification ValidateAndCommit(P.CreateWorkloadRequest request)
+    public W.WorkloadSpecification ValidateAndCommit(P.CreateWorkloadRequest request) =>
+        AdmitNewCreation(request) ?? throw new InvalidDataException("The workload authorization was already accepted.");
+
+    // A live, exact replay can be observed. Returning no workload prevents a second backend create.
+    internal W.WorkloadSpecification? AdmitNewCreation(P.CreateWorkloadRequest request)
     {
         var workload = ValidateSignedCreation(request);
         var authorization = request.Authorization;
@@ -129,8 +133,16 @@ public sealed partial class RuntimeHostAuthorizationGate
         lock (_sync)
         {
             var accepted = ReadReplayState();
-            if (accepted.TryGetValue(assignmentId, out var previousEpoch) && previousEpoch >= authorization.FencingEpoch)
-                throw new InvalidDataException("The workload authorization was already accepted or fenced by a newer epoch.");
+            if (accepted.TryGetValue(assignmentId, out var previousEpoch))
+            {
+                if (previousEpoch > authorization.FencingEpoch)
+                    throw new InvalidDataException("The workload authorization was fenced by a newer epoch.");
+                if (previousEpoch == authorization.FencingEpoch)
+                {
+                    RequireLiveCreation(request, workload);
+                    return null;
+                }
+            }
             var attemptPath = AttemptPath(officeId, assignmentId, authorization.FencingEpoch);
             if (File.Exists(attemptPath))
                 throw new InvalidDataException("The exact workload attempt was already accepted or retired.");
@@ -152,14 +164,21 @@ public sealed partial class RuntimeHostAuthorizationGate
         var assignment = Guid.Parse(auth.AssignmentId);
         lock (_sync)
         {
-            var attempt = ReadAttempt(AttemptPath(Guid.Parse(auth.OfficeId), assignment, auth.FencingEpoch));
-            if (attempt is not { Stopped: false } || attempt.WorkloadId != workload.WorkloadId ||
-                attempt.SpecificationDigest != auth.SpecificationSha256 || attempt.ProviderId != request.ProviderId ||
-                attempt.Kind != workload.Kind || workload.BrokerLease.ExpiresAt <= _timeProvider.GetUtcNow() ||
-                !ReadReplayState().TryGetValue(assignment, out var highWater) || highWater != auth.FencingEpoch)
+            if (!ReadReplayState().TryGetValue(assignment, out var highWater) || highWater != auth.FencingEpoch)
                 throw new InvalidDataException("No current signed creation receipt for this workload.");
-            return attempt;
+            return RequireLiveCreation(request, workload);
         }
+    }
+
+    private ShutdownAttempt RequireLiveCreation(P.CreateWorkloadRequest request, W.WorkloadSpecification workload)
+    {
+        var auth = request.Authorization;
+        var attempt = ReadAttempt(AttemptPath(Guid.Parse(auth.OfficeId), Guid.Parse(auth.AssignmentId), auth.FencingEpoch));
+        if (attempt is not { Stopped: false } || attempt.WorkloadId != workload.WorkloadId ||
+            attempt.SpecificationDigest != auth.SpecificationSha256 || attempt.ProviderId != request.ProviderId ||
+            attempt.Kind != workload.Kind || workload.BrokerLease.ExpiresAt <= _timeProvider.GetUtcNow())
+            throw new InvalidDataException("No current signed creation receipt for this workload.");
+        return attempt;
     }
 
     internal void RegisterObservedHandle(P.CreateWorkloadRequest request, A.IsolationWorkloadHandle handle)

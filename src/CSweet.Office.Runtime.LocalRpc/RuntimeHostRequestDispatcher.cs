@@ -145,10 +145,13 @@ public sealed partial class RuntimeHostRequestDispatcher(
         if (!_guestChannelProviders.Contains(request.CreateRequest.ProviderId))
             return ErrorHandle(request, "guest-channel-unavailable",
                 "The provider does not have a certified guest-channel connector installed.");
-        W.WorkloadSpecification workload;
+        W.WorkloadSpecification? workload;
         try
         {
-            workload = authorizationGate.ValidateAndCommit(request.CreateRequest);
+            workload = authorizationGate.AdmitNewCreation(request.CreateRequest);
+            if (workload is null)
+                return ErrorHandle(request, "creation-unconfirmed",
+                    DiagnosticMessage("The signed creation was already admitted and requires observation", request.RequestId));
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or CryptographicException)
         {

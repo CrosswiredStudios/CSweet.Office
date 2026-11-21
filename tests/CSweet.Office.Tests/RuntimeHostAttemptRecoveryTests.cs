@@ -38,7 +38,10 @@ public sealed partial class RuntimeHostRpcIntegrationTests
         {
             var client = new RuntimeHostProviderClient(descriptor, endpoint, new(options, TimeProvider.System));
             var workload = Runtime();
-            var handle = await client.CreateAuthorizedAsync(workload, Authorization(key, trust, descriptor.ProviderId, workload), stop.Token);
+            var authorization = Authorization(key, trust, descriptor.ProviderId, workload);
+            var handle = await client.CreateAuthorizedAsync(workload, authorization, stop.Token);
+            var reconnected = new RuntimeHostProviderClient(descriptor, endpoint, new(options, TimeProvider.System));
+            Assert.Equal(handle, await reconnected.CreateAuthorizedAsync(workload, authorization, stop.Token));
             Assert.Equal(backend.LastHandle, handle);
             Assert.Equal(1, backend.Creates);
             Assert.True(gate.IsHandleAuthorized(handle));
@@ -74,6 +77,10 @@ public sealed partial class RuntimeHostRpcIntegrationTests
             // The caller discarded any response. Reopen the real RuntimeHost journal.
             var restarted = new RuntimeHostAuthorizationGate(options, TimeProvider.System);
             receiver = new RuntimeHostRequestDispatcher([backend], [connector], restarted);
+            var redelivered = (await RunAttempt(receiver, new() { CreateRequest = create })).CreateResponse;
+            Assert.False(redelivered.Success);
+            Assert.Equal("creation-unconfirmed", redelivered.ErrorCode);
+            Assert.Equal(1, backend.Creates);
             var observe = new RuntimeHostEnvelope { ObserveCreationRequest = create };
             var result = (await RunAttempt(receiver, observe)).CreateResponse;
             Assert.True(result.Success, result.SanitizedError);

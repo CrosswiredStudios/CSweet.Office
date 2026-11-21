@@ -113,7 +113,7 @@ production. Only `CreateAuthorizedAsync` may create a workload.
 
 **Authorization validation order stays trust → ids → window → digest → signature → commit.**
 
-The order inside `RuntimeHostAuthorizationGate.ValidateAndCommit` is load-bearing. Committing the replay
+The order inside `RuntimeHostAuthorizationGate.AdmitNewCreation` is load-bearing. Committing the replay
 ledger before signature verification would let unauthenticated traffic burn fencing epochs — a
 denial-of-service primitive with no compensating benefit.
 
@@ -317,4 +317,4 @@ lease expiry, fencing, tunnel loss and teardown. No hypervisor network adapter o
 `src/CSweet.Office.Runtime.HyperV.Helper/{HelperArguments.cs,PowerShellHyperV.cs}`,
 `scripts/windows/Install-CSweetOfficeRuntimeHost.ps1`, `tests/CSweet.Office.Tests/*`.
 
-Verified: 2026-10-13.
+Verified: 2026-11-20 for signed creation and replay admission. Other sections last verified 2026-10-13.
