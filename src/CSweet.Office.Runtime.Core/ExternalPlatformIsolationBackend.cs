@@ -129,7 +129,7 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
             !await VerifyFileDigestAsync(guestImage, _options.GuestImageDigest, cancellationToken))
             throw new InvalidDataException("The configured guest image failed its integrity check.");
         if (workload is not BuilderWorkloadSpecification and not RuntimeWorkloadSpecification and
-            not ToolchainBuildWorkloadSpecification)
+            not ToolchainBuildWorkloadSpecification and not ComputeEnvironmentWorkloadSpecification)
             throw new InvalidDataException("The workload type is not supported by the platform helper protocol.");
         string? artifactImage = null;
         var artifact = workload switch
@@ -155,6 +155,7 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
             BuilderWorkload = workload as BuilderWorkloadSpecification,
             RuntimeWorkload = workload as RuntimeWorkloadSpecification,
             ToolchainBuildWorkload = workload as ToolchainBuildWorkloadSpecification,
+            ComputeEnvironment = workload as ComputeEnvironmentWorkloadSpecification,
             GuestImagePath = Path.GetFullPath(_options.GuestImagePath),
             ArtifactImagePath = artifactImage,
             AttemptKey = attemptKey
@@ -175,6 +176,17 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
         { AttemptKey = attemptKey, RecoveryWorkloadId = workloadId, RecoveryWorkloadKind = kind }, cancellationToken);
         EnsureSuccess(result);
         return new(true, string.IsNullOrEmpty(result.ProviderInstanceId) ? null :
+            new IsolationWorkloadHandle(Descriptor.ProviderId, workloadId, result.ProviderInstanceId, kind));
+    }
+
+    protected async Task<AttemptShutdownResult> InspectDestructionAsync(Guid attemptKey, Guid workloadId,
+        WorkloadKind kind, CancellationToken cancellationToken)
+    {
+        var result = await InvokeAsync("inspect-destruction", new PlatformHelperRequest
+        { AttemptKey = attemptKey, RecoveryWorkloadId = workloadId, RecoveryWorkloadKind = kind }, cancellationToken);
+        if (result.ErrorCode == "destruction-unconfirmed") return new(false, null);
+        EnsureSuccess(result);
+        return new(true, result.ProviderInstanceId is null ? null :
             new IsolationWorkloadHandle(Descriptor.ProviderId, workloadId, result.ProviderInstanceId, kind));
     }
 
@@ -325,7 +337,7 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
         return File.Exists(resolved);
     }
     private static bool IsSha256(string value) => value.Length == 71 && value.StartsWith("sha256:", StringComparison.Ordinal) && value.AsSpan(7).IndexOfAnyExcept("0123456789abcdef") < 0;
-    private static async Task<bool> VerifyFileDigestAsync(
+    public static async Task<bool> VerifyFileDigestAsync(
         string path,
         string expectedDigest,
         CancellationToken cancellationToken)
@@ -345,7 +357,7 @@ public abstract class ExternalPlatformIsolationBackend : IPlatformIsolationBacke
         }
     }
 
-    private static async Task<bool> VerifyGuestImageSignatureAsync(
+    public static async Task<bool> VerifyGuestImageSignatureAsync(
         string imagePath,
         string signaturePath,
         string certificatePath,

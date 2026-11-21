@@ -17,6 +17,10 @@ public sealed class RuntimeHostProviderClient(
 
     public A.IsolationProviderDescriptor Descriptor { get; } = descriptor;
 
+    public async Task<P.ComputeExchangeResult> ExchangeComputeAsync(P.ComputeExchange exchange, CancellationToken token) =>
+        (await CallAsync(new() { ComputeExchange = exchange },
+            P.RuntimeHostEnvelope.BodyOneofCase.ComputeExchangeResult, token)).ComputeExchangeResult;
+
     public async Task PinHeadquartersTrustAsync(
         A.PinnedHeadquartersTrust trust,
         CancellationToken cancellationToken = default)

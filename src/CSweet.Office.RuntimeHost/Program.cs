@@ -50,6 +50,10 @@ if (OperatingSystem.IsWindows())
 {
     builder.Services.AddSingleton(hyperV);
     builder.Services.AddSingleton<IPlatformIsolationBackend, HyperVIsolationBackend>();
+    builder.Services.AddSingleton(builder.Configuration.GetSection("CSweet:Office:Compute").Get<OfficeComputeOptions>() ?? new());
+    builder.Services.AddSingleton<OfficeComputePartition>();
+    builder.Services.AddSingleton<IOfficeComputePartition>(sp => sp.GetRequiredService<OfficeComputePartition>());
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<OfficeComputePartition>());
 }
 else if (OperatingSystem.IsLinux())
 {

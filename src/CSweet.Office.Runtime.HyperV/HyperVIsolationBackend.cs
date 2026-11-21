@@ -28,4 +28,7 @@ public sealed class HyperVIsolationBackend(HyperVIsolationBackendOptions options
 
     public Task<IsolationWorkloadHandle?> ObserveCreationAsync(Guid attemptKey, Guid workloadId, WorkloadKind kind,
         CancellationToken cancellationToken = default) => InspectWithAttemptAsync(attemptKey, workloadId, kind, cancellationToken);
+
+    public Task<AttemptShutdownResult> ObserveDestructionAsync(Guid attemptKey, Guid workloadId, WorkloadKind kind,
+        CancellationToken cancellationToken = default) => InspectDestructionAsync(attemptKey, workloadId, kind, cancellationToken);
 }

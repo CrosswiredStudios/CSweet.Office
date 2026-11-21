@@ -7,6 +7,7 @@ param(
     [string] $InstallRoot,
     [string] $DataRoot,
     [string] $EnrollmentTokenInputPath,
+    [object] $ComputePolicy,
     [guid] $AssistedSetupSessionId = [guid]::Empty,
     [int] $AllocatableCpuCount = 0,
     [int] $AllocatableMemoryMb = 0,
@@ -84,7 +85,7 @@ try {
     & (Join-Path $PSScriptRoot 'Install-CSweetOfficeRuntimeHost.ps1') -PayloadRoot $PayloadRoot `
         -StorageVolumeId $storage.VolumeId -InstallRoot $storage.InstallRoot -DataRoot $storage.DataRoot `
         -ControlPlaneUrl $ControlPlaneUrl -ControlPlaneCertificateSha256 $ControlPlaneCertificateSha256 `
-        -EnrollmentTokenInputPath $inputPath -NonInteractive:$NonInteractive `
+        -EnrollmentTokenInputPath $inputPath -ComputePolicy $ComputePolicy -NonInteractive:$NonInteractive `
         -SecurityProfile $SecurityProfile -MixedUseHost $MixedUseHost `
         -AllowDevelopmentAssignments:$AllowDevelopmentAssignments `
         -AssistedSetupSessionId $AssistedSetupSessionId -AllocatableCpuCount $AllocatableCpuCount `

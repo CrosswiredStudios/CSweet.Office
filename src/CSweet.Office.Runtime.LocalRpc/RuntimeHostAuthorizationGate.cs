@@ -279,7 +279,7 @@ public sealed partial class RuntimeHostAuthorizationGate
         _options.ResolveStateDirectory(), "destroyed-workload-handles",
         Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(handle))) + ".json");
 
-    private A.PinnedHeadquartersTrust? ReadTrust()
+    public A.PinnedHeadquartersTrust? ReadTrust()
     {
         if (!File.Exists(TrustPath)) return null;
         var trust = JsonSerializer.Deserialize<A.PinnedHeadquartersTrust>(File.ReadAllBytes(TrustPath)) ??

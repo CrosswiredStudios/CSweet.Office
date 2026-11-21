@@ -11,6 +11,9 @@ param(
     [string] $CertificationExpiresAt,
     [string] $RuntimeIdentifier = 'win-x64',
     [string] $PrebuiltRoot,
+    [string] $ComputeGuestImage,
+    [string] $ComputeGuestImageSignature,
+    [string[]] $ComputeFeatures = @('docker'),
     [string] $OutputRoot = "$PSScriptRoot\..\..\artifacts\windows-runtime\payload"
 )
 
@@ -71,6 +74,12 @@ Copy-Item -LiteralPath $CertificationEvidence -Destination $installedEvidence -F
 
 function Digest([string] $Path) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
 $outputPrefix = $OutputRoot.TrimEnd('\') + '\'
+if ([bool]$ComputeGuestImage -ne [bool]$ComputeGuestImageSignature) { throw 'Supply both the compute VHDX and its detached signature.' }
+if ($ComputeGuestImage) {
+    $computeDisk = Join-Path $OutputRoot 'images\csweet-compute-guest.vhdx'
+    Copy-Item -LiteralPath $ComputeGuestImage -Destination $computeDisk
+    Copy-Item -LiteralPath $ComputeGuestImageSignature -Destination "$computeDisk.sig"
+}
 $files = @(Get-ChildItem -LiteralPath $OutputRoot -File -Recurse | Where-Object { $_.Name -ne 'runtime-manifest.json' } | ForEach-Object {
     [ordered]@{
         path = $_.FullName.Substring($outputPrefix.Length).Replace('\', '/')
@@ -97,6 +106,10 @@ $manifest = [ordered]@{
     certifiedAt = $CertifiedAt.ToUniversalTime().ToString('O')
     certificationExpiresAt = if ([String]::IsNullOrWhiteSpace($CertificationExpiresAt)) { $null } else { $CertificationExpiresAt }
     files = $files
+}
+if ($ComputeGuestImage) {
+    $manifest.computeImageDigest = 'sha256:' + (Get-FileHash -LiteralPath $computeDisk -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifest.computeFeatures = @($ComputeFeatures | Sort-Object -Unique)
 }
 [IO.File]::WriteAllText((Join-Path $OutputRoot 'runtime-manifest.json'),
     ($manifest | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))

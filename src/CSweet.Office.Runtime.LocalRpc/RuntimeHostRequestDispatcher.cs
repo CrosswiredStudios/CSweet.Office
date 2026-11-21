@@ -11,7 +11,7 @@ public sealed partial class RuntimeHostRequestDispatcher(
     IEnumerable<A.IPlatformIsolationBackend> backends,
     IEnumerable<A.IPlatformGuestChannelConnector> guestChannelConnectors,
     RuntimeHostAuthorizationGate authorizationGate,
-    ILogger<RuntimeHostRequestDispatcher>? logger = null)
+    ILogger<RuntimeHostRequestDispatcher>? logger = null, IOfficeComputePartition? compute = null)
 {
     private readonly IReadOnlyDictionary<string, A.IPlatformIsolationBackend> _backends = backends
         .ToDictionary(item => item.Descriptor.ProviderId, StringComparer.Ordinal);
@@ -26,6 +26,12 @@ public sealed partial class RuntimeHostRequestDispatcher(
     {
         switch (request.BodyCase)
         {
+            case P.RuntimeHostEnvelope.BodyOneofCase.ComputeExchange:
+                var exchange = Base(request);
+                exchange.ComputeExchangeResult = compute is null ? new() :
+                    await compute.ExchangeAsync(request.ComputeExchange, cancellationToken);
+                yield return exchange;
+                break;
             case P.RuntimeHostEnvelope.BodyOneofCase.PinHeadquartersTrustRequest:
                 yield return PinTrust(request);
                 break;

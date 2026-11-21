@@ -32,7 +32,13 @@ switch ($OperatingSystem) {
     'windows' {
         if ($Architecture -ne 'x64') { throw 'Windows release currently supports x64 only.' }
         $payload = Join-Path $output 'windows-x64-payload'
-        & (Join-Path $root 'scripts\windows\New-CSweetWindowsRuntimePayload.ps1') `
+        $compute = @{}
+        if ($env:CSWEET_COMPUTE_GUEST_IMAGE -or $env:CSWEET_COMPUTE_GUEST_SIGNATURE) {
+            $compute.ComputeGuestImage = $env:CSWEET_COMPUTE_GUEST_IMAGE
+            $compute.ComputeGuestImageSignature = $env:CSWEET_COMPUTE_GUEST_SIGNATURE
+            if ($env:CSWEET_COMPUTE_GUEST_FEATURES) { $compute.ComputeFeatures = $env:CSWEET_COMPUTE_GUEST_FEATURES.Split(',') }
+        }
+        & (Join-Path $root 'scripts\windows\New-CSweetWindowsRuntimePayload.ps1') @compute `
             -GuestImage $env:CSWEET_GUEST_IMAGE -GuestImageSignature $env:CSWEET_GUEST_IMAGE_SIGNATURE `
             -GuestImageSigningCertificate $env:CSWEET_GUEST_SIGNING_CERTIFICATE `
             -GuestImageSigningCertificateThumbprint $env:CSWEET_GUEST_SIGNING_THUMBPRINT `

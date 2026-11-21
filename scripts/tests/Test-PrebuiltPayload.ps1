@@ -22,13 +22,25 @@ try {
         }
         [IO.File]::WriteAllText("$root/evidence.json", ($evidence | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
         $payload = Join-Path $root "payload-$protocol"
-        & "$PSScriptRoot/../windows/New-CSweetWindowsRuntimePayload.ps1" -PrebuiltRoot $bundle `
+        $compute = @{}
+        if ($protocol -eq '1.1') {
+            $compute.ComputeGuestImage = "$root/image.vhdx"
+            $compute.ComputeGuestImageSignature = "$root/image.sig"
+        }
+        & "$PSScriptRoot/../windows/New-CSweetWindowsRuntimePayload.ps1" -PrebuiltRoot $bundle @compute `
             -GuestImage "$root/image.vhdx" -GuestImageSignature "$root/image.sig" `
             -GuestImageSigningCertificate "$root/signer.cer" -GuestImageSigningCertificateThumbprint ('a' * 40) `
             -CertificationEvidence "$root/evidence.json" -CertificationSuiteVersion 'test-fixture' `
             -CertifiedAt ([DateTimeOffset]::UtcNow) -CertificationExpiresAt ([DateTimeOffset]::UtcNow.AddHours(1).ToString('O')) `
             -PackageVersion 'test-fixture' -OutputRoot $payload
         $manifest = Get-Content "$payload/runtime-manifest.json" -Raw | ConvertFrom-Json
+        if ($protocol -eq '1.1') {
+            $expected = 'sha256:' + (Get-FileHash -LiteralPath "$root/image.vhdx").Hash.ToLowerInvariant()
+            if ($manifest.computeImageDigest -cne $expected -or $manifest.computeFeatures -notcontains 'docker' -or
+                $manifest.files.path -notcontains 'images/csweet-compute-guest.vhdx.sig') {
+                throw 'The separate compute image, signature or feature declaration is missing.'
+            }
+        } elseif ($manifest.PSObject.Properties['computeImageDigest']) { throw 'Unexpected default compute image.' }
         $expectedVersion = [Version](Get-Item -LiteralPath $NodeExecutable).VersionInfo.FileVersion
         if ($manifest.officeVersion -ne $expectedVersion.ToString(3)) { throw 'Manifest and prebuilt node version disagree.' }
         if ($manifest.brokerProtocolVersion -cne $protocol) { throw 'Manifest and certification broker protocol disagree.' }

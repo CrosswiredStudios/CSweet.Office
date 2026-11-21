@@ -34,10 +34,16 @@ internal static class PowerShellHyperV
         $cpuMaximum = [Int64]::Parse($env:CSWEET_CPU_MAXIMUM, [Globalization.CultureInfo]::InvariantCulture)
         try {
             $vm = Get-VM -Name $vmName -ErrorAction Stop
+            $compute = $vmName.StartsWith('CSweet-ComputeEnvironment-', [StringComparison]::Ordinal)
+            if ($compute -and (Get-VHD -Path $baseDisk -ErrorAction Stop).Size -gt $scratchBytes) {
+                throw 'The compute image exceeds the authorized disk capacity.'
+            }
             $null = New-VHD -Path $osDisk -ParentPath $baseDisk -Differencing -ErrorAction Stop
-            $null = New-VHD -Path $scratchDisk -Dynamic -SizeBytes $scratchBytes -BlockSizeBytes 1MB -ErrorAction Stop
             Add-VMHardDiskDrive -VM $vm -ControllerType SCSI -ControllerNumber 0 -ControllerLocation 0 -Path $osDisk -ErrorAction Stop
-            Add-VMHardDiskDrive -VM $vm -ControllerType SCSI -ControllerNumber 0 -ControllerLocation 1 -Path $scratchDisk -ErrorAction Stop
+            if (-not $compute) {
+                $null = New-VHD -Path $scratchDisk -Dynamic -SizeBytes $scratchBytes -BlockSizeBytes 1MB -ErrorAction Stop
+                Add-VMHardDiskDrive -VM $vm -ControllerType SCSI -ControllerNumber 0 -ControllerLocation 1 -Path $scratchDisk -ErrorAction Stop
+            }
             if (-not [String]::IsNullOrWhiteSpace($artifactIso)) {
                 Add-VMDvdDrive -VM $vm -ControllerNumber 0 -ControllerLocation 2 -Path $artifactIso -ErrorAction Stop
             }
@@ -48,7 +54,8 @@ internal static class PowerShellHyperV
             $adapters = @(Get-VMNetworkAdapter -VM $vm -ErrorAction Stop)
             if ($adapters.Count -ne 0) { throw 'Restricted VM contains a network adapter.' }
             $drives = @(Get-VMHardDiskDrive -VM $vm -ErrorAction Stop)
-            if ($drives.Count -ne 2) { throw 'Restricted VM disk topology is invalid.' }
+            $expectedDisks = if ($compute) { 1 } else { 2 }
+            if ($drives.Count -ne $expectedDisks) { throw 'Restricted VM disk topology is invalid.' }
             $dvdDrives = @(Get-VMDvdDrive -VM $vm -ErrorAction Stop)
             $expectedDvdCount = if ([String]::IsNullOrWhiteSpace($artifactIso)) { 0 } else { 1 }
             if ($dvdDrives.Count -ne $expectedDvdCount) { throw 'Restricted VM artifact media topology is invalid.' }
@@ -112,8 +119,9 @@ internal static class PowerShellHyperV
             $vm = Get-VM -Id ([guid]$env:CSWEET_VM_ID) -ErrorAction Stop
             if ($vm.Name -cne $env:CSWEET_VM_NAME -or @(Get-VMNetworkAdapter -VM $vm).Count) { return }
             $drives = @(Get-VMHardDiskDrive -VM $vm | Sort-Object ControllerLocation)
-            if ($drives.Count -ne 2) { return }
-            for ($i=0; $i -lt 2; $i++) {
+            $expectedDisks = if ($env:CSWEET_VM_NAME.StartsWith('CSweet-ComputeEnvironment-', [StringComparison]::Ordinal)) { 1 } else { 2 }
+            if ($drives.Count -ne $expectedDisks) { return }
+            for ($i=0; $i -lt $expectedDisks; $i++) {
                 $drive = $drives[$i]
                 $leaf = @('os-diff.vhdx','scratch.vhdx')[$i]
                 if ($drive.ControllerType -ne 'SCSI' -or $drive.ControllerNumber -ne 0 -or $drive.ControllerLocation -ne $i -or

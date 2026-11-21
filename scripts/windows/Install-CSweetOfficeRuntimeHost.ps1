@@ -9,6 +9,7 @@ param(
     [string] $ControlPlaneUrl,
     [string] $ControlPlaneCertificateSha256,
     [string] $EnrollmentTokenInputPath,
+    [object] $ComputePolicy,
     [guid] $AssistedSetupSessionId = [guid]::Empty,
     [int] $AllocatableCpuCount = 0,
     [int] $AllocatableMemoryMb = 0,
@@ -414,6 +415,14 @@ if (-not [IO.File]::Exists($packagedImage) -and [IO.File]::Exists("$packagedImag
     Expand-CSweetOfficeGuestImage -ImagePath $packagedImage -Sha256 $manifest.guestImageDigest.Substring(7)
 }
 Assert-Sha256 $manifest.certificationEvidenceDigest 'certificationEvidenceDigest'
+if ($manifest.PSObject.Properties['computeImageDigest']) {
+    Assert-Sha256 $manifest.computeImageDigest 'computeImageDigest'
+    $disk = Resolve-SafeChildPath $PayloadRoot 'images/csweet-compute-guest.vhdx'
+    if (-not [IO.File]::Exists($disk) -and [IO.File]::Exists("$disk.part0000")) {
+        . (Join-Path $PSScriptRoot 'CSweet.OfficeImageParts.ps1')
+        Expand-CSweetOfficeGuestImage -ImagePath $disk -Sha256 $manifest.computeImageDigest.Substring(7)
+    }
+}
 if ($null -eq $manifest.files -or @($manifest.files).Count -lt 1 -or @($manifest.files).Count -gt 1000) {
     throw 'The RuntimeHost payload file manifest is invalid.'
 }
@@ -455,6 +464,7 @@ if ($null -ne $existingNodeService) {
     $existingConfiguration = Get-Content -LiteralPath $existingConfigurationPath -Raw | ConvertFrom-Json
     $existingCSweetConfiguration = Get-OptionalObjectProperty $existingConfiguration 'CSweet'
     $existingOfficeConfiguration = Get-OptionalObjectProperty $existingCSweetConfiguration 'Office'
+    if ($null -eq $ComputePolicy) { $ComputePolicy = Get-OptionalObjectProperty $existingOfficeConfiguration 'Compute' }
     $existingRuntimeHostConfiguration = Get-OptionalObjectProperty $existingOfficeConfiguration 'RuntimeHost'
     if ($null -eq $existingRuntimeHostConfiguration) {
         throw 'The existing Office RuntimeHost configuration is incomplete.'
@@ -795,6 +805,37 @@ $config = @{
             }
         }
     }
+}
+if ($null -ne $ComputePolicy -and $ComputePolicy.Enabled -eq $true) {
+    if ($ComputePolicy.Enabled -isnot [bool] -or [guid]$ComputePolicy.OrganizationId -eq [guid]::Empty -or
+        [int]$ComputePolicy.MaximumEnvironments -lt 1 -or [int]$ComputePolicy.CpuCount -lt 2 -or
+        [int]$ComputePolicy.MemoryMiB -lt 2048 -or [int]$ComputePolicy.DiskMiB -lt 20480 -or
+        -not $manifest.PSObject.Properties['computeImageDigest']) { throw 'Compute requires an installed signed image, a business, and explicit capacity.' }
+    $disk = Resolve-SafeChildPath $versionRoot 'images/csweet-compute-guest.vhdx'
+    if (-not [IO.File]::Exists("$disk.sig") -or (Get-FileHash -LiteralPath $disk).Hash -ine $manifest.computeImageDigest.Substring(7)) {
+        throw 'The signed Office compute image is missing or differs from the release manifest.'
+    }
+    Grant-HyperVGuestImageReadAccess -GuestImagePath $disk
+    $config.CSweet.Office.Compute = @{
+        Enabled = $true; OrganizationId = ([guid]$ComputePolicy.OrganizationId).ToString('D')
+        CpuCount = [int]$ComputePolicy.CpuCount; MemoryMiB = [int]$ComputePolicy.MemoryMiB; DiskMiB = [int]$ComputePolicy.DiskMiB
+        MaximumEnvironments = [int]$ComputePolicy.MaximumEnvironments; ImagePath = $disk; SignaturePath = "$disk.sig"
+        ImageDigest = $manifest.computeImageDigest; Features = @($manifest.computeFeatures)
+    }
+    if ($null -eq $existingNodeConfiguration) {
+        # The installer allocation is the total machine budget. Reserve compute's share before
+        # advertising the balance for Office agent and builder VMs. A repair keeps that balance.
+        $AllocatableCpuCount -= [int]$ComputePolicy.CpuCount
+        $AllocatableMemoryMb -= [int]$ComputePolicy.MemoryMiB
+        $AllocatableDiskMb -= [int]$ComputePolicy.DiskMiB
+        $MaximumConcurrentWorkloads -= [int]$ComputePolicy.MaximumEnvironments
+        if ($AllocatableCpuCount -lt 1 -or $AllocatableMemoryMb -lt 128 -or $AllocatableDiskMb -lt 64 -or $MaximumConcurrentWorkloads -lt 1) {
+            throw 'The Office allocation must cover the compute reservation and leave capacity for agent workloads.'
+        }
+    }
+    $computeSocket = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Virtualization\GuestCommunicationServices\00000acb-facb-11e6-bd58-64006a7986d3'
+    New-Item -Path $computeSocket -Force | Out-Null
+    New-ItemProperty -Path $computeSocket -Name 'ElementName' -PropertyType String -Value 'C-Sweet Office isolated compute guest' -Force | Out-Null
 }
 if ($null -ne $existingNodeConfiguration) {
     $config.CSweet.Office.Node = $existingNodeConfiguration

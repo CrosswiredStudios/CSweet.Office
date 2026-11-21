@@ -7,6 +7,7 @@ public sealed class PlatformHelperRequest
     public BuilderWorkloadSpecification? BuilderWorkload { get; set; }
     public RuntimeWorkloadSpecification? RuntimeWorkload { get; set; }
     public ToolchainBuildWorkloadSpecification? ToolchainBuildWorkload { get; set; }
+    public ComputeEnvironmentWorkloadSpecification? ComputeEnvironment { get; set; }
     public IsolationWorkloadHandle? Handle { get; set; }
     public string? GuestImagePath { get; set; }
     public string? ArtifactImagePath { get; set; }

@@ -202,6 +202,15 @@ function Receive-CSweetMsiUpdate($Release, [string]$Destination) {
         Expand-CSweetOfficeGuestImage -ImagePath $guest -Sha256 $manifest.guestImageDigest.Substring(7)
     }
     if ((Get-FileHash -LiteralPath $guest).Hash -ine $manifest.guestImageDigest.Substring(7)) { throw 'Unexpected Office guest image digest.' }
+    if ($manifest.PSObject.Properties['computeImageDigest']) {
+        if ($manifest.computeImageDigest -cnotmatch '^sha256:[0-9a-f]{64}$') { throw 'Invalid Office compute image digest.' }
+        $compute = Join-Path $payload 'images\csweet-compute-guest.vhdx'
+        if (-not [IO.File]::Exists($compute)) {
+            . (Join-Path $office 'CSweet.OfficeImageParts.ps1')
+            Expand-CSweetOfficeGuestImage -ImagePath $compute -Sha256 $manifest.computeImageDigest.Substring(7)
+        }
+        if ((Get-FileHash -LiteralPath $compute).Hash -ine $manifest.computeImageDigest.Substring(7)) { throw 'Unexpected Office compute image digest.' }
+    }
     return $office
 }
 

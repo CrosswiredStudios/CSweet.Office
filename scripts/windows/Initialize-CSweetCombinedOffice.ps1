@@ -66,7 +66,8 @@ $storage = @{}
 if ($settings.PSObject.Properties['storageVolumeId'] -and $settings.storageVolumeId) {
     $storage.StorageVolumeId = [string]$settings.storageVolumeId
 }
-& (Join-Path $installed 'Install-CSweetOffice.ps1') @storage -NonInteractive -Elevated `
+$computePolicy = if ($settings.PSObject.Properties['compute']) { $settings.compute }
+& (Join-Path $installed 'Install-CSweetOffice.ps1') @storage -ComputePolicy $computePolicy -NonInteractive -Elevated `
     -PayloadRoot (Join-Path $installed 'payload') -ControlPlaneUrl $origin.AbsoluteUri `
     -ControlPlaneCertificateSha256 $settings.controlPlaneCertificateSha256 -EnrollmentTokenInputPath $tokenPath `
     -AllocatableCpuCount $settings.allocatableCpuCount -AllocatableMemoryMb $settings.allocatableMemoryMb `

@@ -98,6 +98,32 @@ public sealed class HyperVAttemptRecoveryTests : IDisposable
         await Assert.ThrowsAsync<IOException>(() => new HyperVHelperController(Paths, vm).ExecuteAsync("destroy", request));
     }
 
+    [Fact]
+    public async Task Compute_teardown_replay_observes_the_original_tombstone_and_disk_without_mutating()
+    {
+        var id = Guid.NewGuid();
+        var physical = Guid.NewGuid();
+        var request = new PlatformHelperRequest { AttemptKey = id, RecoveryWorkloadId = id,
+            RecoveryWorkloadKind = WorkloadKind.ComputeEnvironment };
+        var vm = new FakeVm { Instance = physical };
+        var helper = new HyperVHelperController(Paths, vm);
+        Assert.False((await helper.ExecuteAsync("inspect-destruction", request)).Success);
+        using (var journal = new HyperVAttemptJournal(Paths, id))
+            journal.Save(new(id, id, WorkloadKind.ComputeEnvironment, physical));
+        Assert.True((await helper.ExecuteAsync("destroy", request)).Success);
+        var restarted = new HyperVHelperController(Paths, vm);
+        var observed = await restarted.ExecuteAsync("inspect-destruction", request);
+        Assert.True(observed.Success);
+        Assert.Equal(physical.ToString("N"), observed.ProviderInstanceId);
+        vm.Instance = Guid.NewGuid();
+        Assert.False((await restarted.ExecuteAsync("inspect-destruction", request)).Success);
+        vm.Instance = null;
+        Directory.CreateDirectory(Paths.InstanceDirectory(physical));
+        Assert.False((await restarted.ExecuteAsync("inspect-destruction", request)).Success);
+        Assert.True(Directory.Exists(Paths.InstanceDirectory(physical)));
+        Assert.Equal(1, vm.Destroys);
+    }
+
     public void Dispose() { if (Directory.Exists(_root)) Directory.Delete(_root, true); }
     private sealed class FakeVm : IHyperVAttemptOperations
     {

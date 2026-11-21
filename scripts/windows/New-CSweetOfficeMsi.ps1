@@ -60,12 +60,16 @@ try {
     $manifest = Get-Content -Raw -LiteralPath (Join-Path $stageRoot 'payload\runtime-manifest.json') | ConvertFrom-Json
     if ($manifest.guestImage -cne 'images/csweet-agent-guest.vhdx') { throw 'Unexpected Hyper-V guest image path.' }
     $guestImage = Join-Path $stageRoot 'payload\images\csweet-agent-guest.vhdx'
-    $splitImage = (Get-Item -LiteralPath $guestImage).Length -gt 1GB
-    if ($splitImage) {
+    $images = @($guestImage)
+    if ($manifest.PSObject.Properties['computeImageDigest']) { $images += Join-Path $stageRoot 'payload\images\csweet-compute-guest.vhdx' }
+    $splitImage = $false
+    foreach ($image in $images) {
+        if ((Get-Item -LiteralPath $image).Length -le 1GB) { continue }
+        $splitImage = $true
         . (Join-Path $PSScriptRoot 'CSweet.OfficeImageParts.ps1')
-        $parts = Split-CSweetOfficeGuestImage -ImagePath $guestImage
+        $parts = Split-CSweetOfficeGuestImage -ImagePath $image
         Write-Host "Packaging the guest image in $parts parts."
-        Remove-Item -LiteralPath $guestImage
+        Remove-Item -LiteralPath $image
     }
     $cabPrefix = "csweet-office-$Version-"
     if ($splitImage -and (Get-ChildItem -LiteralPath (Split-Path -Parent $OutputPath) -Filter "$cabPrefix*.cab")) {
@@ -97,6 +101,9 @@ try {
             AddLine $Indent "<Component Id=`"$componentId`" Guid=`"*`">"
             if ($splitImage -and $relativeFile -ieq 'payload\images\csweet-agent-guest.vhdx.part0000') {
                 AddLine ($Indent + 1) '<RemoveFile Id="RemoveExpandedGuestImage" Name="csweet-agent-guest.vhdx" On="uninstall" />'
+            }
+            if ($relativeFile -ieq 'payload\images\csweet-compute-guest.vhdx.part0000') {
+                AddLine ($Indent + 1) '<RemoveFile Id="RemoveExpandedComputeImage" Name="csweet-compute-guest.vhdx" On="uninstall" />'
             }
             AddLine ($Indent + 1) "<File Id=`"$fileId`" Source=`"$(XmlEscape $file.FullName)`" Name=`"$(XmlEscape $file.Name)`" KeyPath=`"yes`" />"
             AddLine $Indent '</Component>'

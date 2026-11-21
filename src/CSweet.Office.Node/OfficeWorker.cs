@@ -300,7 +300,7 @@ public sealed partial class OfficeWorker(
         var renewalTask = RenewDuringSessionAsync(state, certificates, renewalLifetime.Token);
         try
         {
-            await RunControlConnectionsAsync(state, client, cancellationToken);
+            await RunControlConnectionsAsync(state, client, cancellationToken, certificates);
         }
         finally
         {
@@ -311,12 +311,16 @@ public sealed partial class OfficeWorker(
     }
 
     internal async Task RunControlConnectionsAsync(OfficeState state,
-        OfficeGateway.OfficeGatewayClient client, CancellationToken cancellationToken)
+        OfficeGateway.OfficeGatewayClient client, CancellationToken cancellationToken, OfficeCertificateLease? certificates = null)
     {
         // Keep the gRPC channel and workload cancellation independent of an individual
         // control call. SEC-INV-06 still binds every message to the same Office epoch.
         var writer = new ReconnectingControlWriter(TimeSpan.FromSeconds(20));
         using var writerLock = new SemaphoreSlim(1, 1);
+        using var relayLifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Volatile.Write(ref computeInventory, null);
+        Volatile.Write(ref lastSentComputeOperation, "");
+        var relay = certificates is null ? Task.CompletedTask : RelayComputeAsync(relayLifetime.Token);
         try
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -334,6 +338,7 @@ public sealed partial class OfficeWorker(
                         var heartbeat = new OfficeHeartbeat
                         {
                             OfficeVersion = typeof(OfficeWorker).Assembly.GetName().Version!.ToString(3),
+                            ComputeOffer = Volatile.Read(ref computeInventory)?.Offer,
                             OccurredAtUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                             AllocatableCpuCount = options.AllocatableCpuCount,
                             AllocatableMemoryMb = options.AllocatableMemoryMb,
@@ -353,6 +358,14 @@ public sealed partial class OfficeWorker(
                             SessionEpoch = state.SessionEpoch,
                             Heartbeat = heartbeat
                         }, cancellationToken);
+                        if (certificates is not null && Volatile.Read(ref computeInventory)?.Result is { } result)
+                        {
+                            var report = SignComputeResult(state, certificates.Current, result, out var operationId);
+                            await writer.WriteConnectedAsync(call.RequestStream, report, connectionLifetime.Token);
+                            Volatile.Write(ref lastSentComputeOperation, operationId);
+                        }
+                        if (certificates is not null && Volatile.Read(ref computeInventory)?.Maintenance is { } maintenance)
+                            await writer.WriteConnectedAsync(call.RequestStream, SignComputeMaintenance(state, certificates.Current, maintenance), connectionLifetime.Token);
                         await ReplayStopsAsync(writer, writerLock, state, connectionLifetime.Token);
                         await Task.WhenAny(readTask, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
                         if (readTask.IsCompleted)
@@ -381,6 +394,8 @@ public sealed partial class OfficeWorker(
             // Explicit shutdown or rejected identity still stops workloads. A transient
             // connection loss stays inside the loop; sends have a bounded reconnect grace.
             var activeAssignments = _activeAssignments.Values.ToArray();
+            await relayLifetime.CancelAsync();
+            try { await relay; } catch (OperationCanceledException) when (relayLifetime.IsCancellationRequested) { }
             foreach (var active in activeAssignments)
             {
                 try { await active.Cancellation.CancelAsync(); }
@@ -500,6 +515,15 @@ public sealed partial class OfficeWorker(
                 else
                     assignmentCancellation.Dispose();
             }
+            else if (message.BodyCase == HeadquartersControlMessage.BodyOneofCase.ComputeDispatch)
+            {
+                if (message.ComputeDispatch.PacketJson.Length is > 0 and <= 1024 * 1024)
+                    computeInbox.Writer.TryWrite(new() { SignedPacket = message.ComputeDispatch.PacketJson });
+            }
+            else if (message.BodyCase == HeadquartersControlMessage.BodyOneofCase.ComputeReceipt)
+                computeInbox.Writer.TryWrite(new() { SignedReceipt = Google.Protobuf.MessageExtensions.ToByteString(message.ComputeReceipt) });
+            else if (message.BodyCase == HeadquartersControlMessage.BodyOneofCase.ComputeMaintenanceReceipt)
+                computeInbox.Writer.TryWrite(new() { MaintenanceReceipt = Google.Protobuf.MessageExtensions.ToByteString(message.ComputeMaintenanceReceipt) });
             else if (message.BodyCase == HeadquartersControlMessage.BodyOneofCase.ReconcileAssignmentStop)
             {
                 var stop = message.ReconcileAssignmentStop;

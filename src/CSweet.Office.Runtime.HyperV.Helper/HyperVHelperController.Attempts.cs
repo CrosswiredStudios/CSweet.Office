@@ -47,6 +47,29 @@ internal sealed partial class HyperVHelperController
         return new() { Success = true, ProviderInstanceId = handle.ProviderInstanceId };
     }
 
+    private async Task<PlatformHelperResponse> InspectDestroyedAttemptAsync(PlatformHelperRequest request)
+    {
+        if (request.Handle is not null || request.AttemptKey is not { } key || key == Guid.Empty ||
+            request.RecoveryWorkloadId is not { } workload || workload == Guid.Empty ||
+            request.RecoveryWorkloadKind is not { } kind || !Enum.IsDefined(kind))
+            return Failure("invalid-attempt", "Invalid teardown observation scope.");
+        using var journal = new HyperVAttemptJournal(paths, key);
+        if (journal.Read() is not { Stopped: true } entry || entry.Key != key || entry.WorkloadId != workload ||
+            entry.Kind != kind || await (attemptOperations ?? new HyperVAttemptOperations()).FindAsync(entry.VmName) is not null)
+            return Failure("destruction-unconfirmed", "Teardown could not be confirmed.");
+        if (entry.InstanceId is { } id)
+        {
+            try
+            {
+                _ = File.GetAttributes(paths.InstanceDirectory(id));
+                return Failure("destruction-unconfirmed", "The instance directory is still present.");
+            }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+        }
+        return new() { Success = true, ProviderInstanceId = entry.InstanceId?.ToString("N") };
+    }
+
     private async Task<PlatformHelperResponse> DestroyAttemptAsync(PlatformHelperRequest request)
     {
         if (request.AttemptKey is not { } key || key == Guid.Empty ||

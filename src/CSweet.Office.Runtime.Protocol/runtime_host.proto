@@ -30,7 +30,18 @@ message RuntimeHostEnvelope {
     ReconcileAttemptRequest reconcile_attempt_request = 26;
     ReconcileAttemptResponse reconcile_attempt_response = 27;
     CreateWorkloadRequest observe_creation_request = 28;
+    ComputeExchange compute_exchange = 29;
+    ComputeExchangeResult compute_exchange_result = 30;
   }
+}
+message ComputeExchange {
+    oneof operation { bool inventory = 1; bytes signed_packet = 2; bytes signed_receipt = 3; bytes maintenance_receipt = 5; }
+    string after_operation_id = 4;
+}
+message ComputeExchangeResult {
+  bytes capacity_offer = 1;
+  repeated bytes result_payloads = 2;
+    bytes maintenance_entry = 3;
 }
 
 message ReconcileAttemptRequest {

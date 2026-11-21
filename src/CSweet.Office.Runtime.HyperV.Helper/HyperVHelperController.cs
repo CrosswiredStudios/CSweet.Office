@@ -17,6 +17,7 @@ internal sealed partial class HyperVHelperController(HyperVHelperPaths paths, IH
             "create" => await CreateAsync(request),
             "start" => await StartAsync(request),
             "inspect" when request.AttemptKey.HasValue => await InspectAttemptAsync(request),
+            "inspect-destruction" => await InspectDestroyedAttemptAsync(request),
             "inspect" => await InspectAsync(request),
             "stop" => await StopAsync(request),
             "destroy" => await DestroyAsync(request),
@@ -56,7 +57,7 @@ internal sealed partial class HyperVHelperController(HyperVHelperPaths paths, IH
     {
         if (!OperatingSystem.IsWindows()) return Failure("unsupported-host", "Hyper-V requires Windows.");
         var workloads = new WorkloadSpecification?[]
-            { request.BuilderWorkload, request.RuntimeWorkload, request.ToolchainBuildWorkload };
+            { request.BuilderWorkload, request.RuntimeWorkload, request.ToolchainBuildWorkload, request.ComputeEnvironment };
         var workload = workloads.SingleOrDefault(value => value is not null);
         if (workload is null || workloads.Count(value => value is not null) != 1)
             return Failure("invalid-workload", "Exactly one typed workload must be supplied.");
@@ -155,7 +156,7 @@ internal sealed partial class HyperVHelperController(HyperVHelperPaths paths, IH
         try
         {
             await PowerShellHyperV.StartAsync(loaded.Metadata!.VmName);
-            await SaveMetadataAsync(loaded.Directory!, loaded.Metadata with { StartedAt = DateTimeOffset.UtcNow });
+            await SaveMetadataAsync(loaded.Directory!, loaded.Metadata with { StartedAt = DateTimeOffset.UtcNow, FinishedAt = null });
             return Success();
         }
         catch (HyperVCommandException exception) { return Failure(exception.ErrorCode, exception.Message); }
@@ -188,7 +189,8 @@ internal sealed partial class HyperVHelperController(HyperVHelperPaths paths, IH
         try
         {
             await PowerShellHyperV.StopAsync(loaded.Metadata!.VmName);
-            await SaveMetadataAsync(loaded.Directory!, loaded.Metadata with { FinishedAt = DateTimeOffset.UtcNow });
+            if (loaded.Metadata.Kind != WorkloadKind.ComputeEnvironment)
+                await SaveMetadataAsync(loaded.Directory!, loaded.Metadata with { FinishedAt = DateTimeOffset.UtcNow });
             return Success();
         }
         catch (HyperVCommandException exception) { return Failure(exception.ErrorCode, exception.Message); }
