@@ -29,6 +29,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($NonInteractive) { $ProgressPreference = 'SilentlyContinue' }
 if ($SecurityProfile -eq 'development' -and -not $AllowDevelopmentAssignments) {
     throw 'The development security profile requires explicit -AllowDevelopmentAssignments consent.'
 }
@@ -66,10 +67,19 @@ function Assert-Sha256([string] $Value, [string] $Name) {
     }
 }
 
+# MSI and service-driven setup can run without a console reader. A synchronous
+# Out-Host write can suspend setup even after the native command has succeeded.
+function Out-OfficeSetupStatus {
+    param([Parameter(ValueFromPipeline = $true)] $Line)
+    process {
+        if (-not $NonInteractive) { $Line | Out-Host }
+    }
+}
+
 function Invoke-Sc([string[]] $Arguments) {
     $output = @(& "$env:SystemRoot\System32\sc.exe" @Arguments 2>&1)
     $exitCode = $LASTEXITCODE
-    $output | Out-Host
+    $output | Out-OfficeSetupStatus
     if ($exitCode -ne 0) {
         $details = ($output | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }) -join ' '
         throw "Windows service configuration failed while running 'sc.exe $($Arguments -join ' ')' with exit code $exitCode. $details"
@@ -105,7 +115,7 @@ function Set-ProtectedPackageAcl([string] $Root, [string] $RuntimeHostSid, [stri
     # (OI)(CI) through /T can leave existing files without an effective RX ACE.
     & "$env:SystemRoot\System32\icacls.exe" $Root '/inheritance:r' '/grant:r' `
         "*$RuntimeHostSid`:RX" "*$NodeSid`:RX" `
-        '*S-1-5-18:F' '*S-1-5-32-544:F' '/T' '/C' '/Q' | Out-Host
+        '*S-1-5-18:F' '*S-1-5-32-544:F' '/T' '/C' '/Q' | Out-OfficeSetupStatus
     if ($LASTEXITCODE -ne 0) { throw 'The installed Office package ACL could not be secured.' }
 
     $directories = @((Get-Item -LiteralPath $Root -Force)) +
@@ -113,7 +123,7 @@ function Set-ProtectedPackageAcl([string] $Root, [string] $RuntimeHostSid, [stri
     foreach ($directory in $directories) {
         & "$env:SystemRoot\System32\icacls.exe" $directory.FullName '/inheritance:r' '/grant:r' `
             "*$RuntimeHostSid`:(OI)(CI)RX" "*$NodeSid`:(OI)(CI)RX" `
-            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '/Q' | Out-Host
+            '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '/Q' | Out-OfficeSetupStatus
         if ($LASTEXITCODE -ne 0) { throw "The installed package directory ACL could not be secured: $($directory.FullName)" }
     }
 }
@@ -125,9 +135,9 @@ function Grant-HyperVGuestImageReadAccess([string] $GuestImagePath) {
     # inherited access to the rest of the immutable package.
     $virtualMachinesSid = 'S-1-5-83-0'
     $guestImageDirectory = Split-Path -Parent $GuestImagePath
-    & "$env:SystemRoot\System32\icacls.exe" $guestImageDirectory '/grant:r' "*$virtualMachinesSid`:RX" '/Q' | Out-Host
+    & "$env:SystemRoot\System32\icacls.exe" $guestImageDirectory '/grant:r' "*$virtualMachinesSid`:RX" '/Q' | Out-OfficeSetupStatus
     if ($LASTEXITCODE -ne 0) { throw 'The Hyper-V guest-image directory access could not be secured.' }
-    & "$env:SystemRoot\System32\icacls.exe" $GuestImagePath '/grant:r' "*$virtualMachinesSid`:R" '/Q' | Out-Host
+    & "$env:SystemRoot\System32\icacls.exe" $GuestImagePath '/grant:r' "*$virtualMachinesSid`:R" '/Q' | Out-OfficeSetupStatus
     if ($LASTEXITCODE -ne 0) { throw 'The Hyper-V guest-image access could not be secured.' }
 }
 
@@ -198,7 +208,7 @@ function Resolve-ControlPlaneCertificateSha256(
     if (-not $uri.IsAbsoluteUri -or $uri.Scheme -ne 'https') {
         throw 'ControlPlaneUrl must be an absolute HTTPS URL.'
     }
-    Write-Host "Verifying the control-plane TLS certificate at $($uri.AbsoluteUri)..."
+    if (-not $IsNonInteractive) { Write-Host "Verifying the control-plane TLS certificate at $($uri.AbsoluteUri)..." }
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $NodeExecutable
     $startInfo.Arguments = '--probe-control-plane-certificate "' + $uri.AbsoluteUri.Replace('"', '\"') + '"'
@@ -330,7 +340,7 @@ function Remove-LegacyHyperVResources([string] $LegacyRoot) {
         @($paths | Where-Object { Test-PathWithinRoot $_ $LegacyRoot }).Count -gt 0
     })
     foreach ($vm in $legacyVms) {
-        Write-Host "Removing legacy C-Sweet Hyper-V VM '$($vm.Name)'..."
+        if (-not $NonInteractive) { Write-Host "Removing legacy C-Sweet Hyper-V VM '$($vm.Name)'..." }
         if ($vm.State -ne [Microsoft.HyperV.PowerShell.VMState]::Off) {
             Stop-VM -VM $vm -TurnOff -Force -ErrorAction Stop
         }
@@ -584,7 +594,7 @@ elseif ($null -eq $existingNodeService) {
                 Stop-Service -Name $legacyServiceName -Force -ErrorAction SilentlyContinue
                 $legacyService.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
             }
-            & "$env:SystemRoot\System32\sc.exe" delete $legacyServiceName | Out-Host
+            & "$env:SystemRoot\System32\sc.exe" delete $legacyServiceName | Out-OfficeSetupStatus
         }
     }
     $legacyAgentRuntimeRoot = "$env:ProgramData\CSweet\AgentRuntime"
@@ -749,17 +759,17 @@ if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
     try { $random.GetBytes($keyBytes) } finally { $random.Dispose() }
     [IO.File]::WriteAllText($keyPath, [Convert]::ToBase64String($keyBytes), [Text.UTF8Encoding]::new($false))
 }
-& "$env:SystemRoot\System32\icacls.exe" $keyPath '/inheritance:r' "/grant:r" "*$ControlPlaneUserSid`:R" "*$nodeServiceSid`:R" "*$runtimeHostServiceSid`:R" '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Host
+& "$env:SystemRoot\System32\icacls.exe" $keyPath '/inheritance:r' "/grant:r" "*$ControlPlaneUserSid`:R" "*$nodeServiceSid`:R" "*$runtimeHostServiceSid`:R" '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-OfficeSetupStatus
 if ($LASTEXITCODE -ne 0) { throw 'The RuntimeHost key ACL could not be secured.' }
-& "$env:SystemRoot\System32\icacls.exe" $artifactStoreRoot '/inheritance:r' "/grant:r" "*$nodeServiceSid`:(OI)(CI)M" "*$runtimeHostServiceSid`:(OI)(CI)R" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Host
+& "$env:SystemRoot\System32\icacls.exe" $artifactStoreRoot '/inheritance:r' "/grant:r" "*$nodeServiceSid`:(OI)(CI)M" "*$runtimeHostServiceSid`:(OI)(CI)R" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-OfficeSetupStatus
 if ($LASTEXITCODE -ne 0) { throw 'The artifact cache ACL could not be secured.' }
-& "$env:SystemRoot\System32\icacls.exe" $artifactMediaRoot '/inheritance:r' "/grant:r" "*$nodeServiceSid`:(OI)(CI)M" "*$runtimeHostServiceSid`:(OI)(CI)R" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Host
+& "$env:SystemRoot\System32\icacls.exe" $artifactMediaRoot '/inheritance:r' "/grant:r" "*$nodeServiceSid`:(OI)(CI)M" "*$runtimeHostServiceSid`:(OI)(CI)R" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-OfficeSetupStatus
 if ($LASTEXITCODE -ne 0) { throw 'The artifact media ACL could not be secured.' }
-& "$env:SystemRoot\System32\icacls.exe" $hyperVDataRoot '/inheritance:r' "/grant:r" "*$runtimeHostServiceSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Host
+& "$env:SystemRoot\System32\icacls.exe" $hyperVDataRoot '/inheritance:r' "/grant:r" "*$runtimeHostServiceSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-OfficeSetupStatus
 if ($LASTEXITCODE -ne 0) { throw 'The Hyper-V runtime state ACL could not be secured.' }
-& "$env:SystemRoot\System32\icacls.exe" $authorizationDataRoot '/inheritance:r' "/grant:r" "*$runtimeHostServiceSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Host
+& "$env:SystemRoot\System32\icacls.exe" $authorizationDataRoot '/inheritance:r' "/grant:r" "*$runtimeHostServiceSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-OfficeSetupStatus
 if ($LASTEXITCODE -ne 0) { throw 'The privileged authorization state ACL could not be secured.' }
-& "$env:SystemRoot\System32\icacls.exe" $nodeDataRoot '/inheritance:r' "/grant:r" "*$nodeServiceSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Host
+& "$env:SystemRoot\System32\icacls.exe" $nodeDataRoot '/inheritance:r' "/grant:r" "*$nodeServiceSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-OfficeSetupStatus
 if ($LASTEXITCODE -ne 0) { throw 'The Office Node state ACL could not be secured.' }
 
 $config = @{
@@ -903,7 +913,7 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
     }
     [IO.File]::WriteAllText((Join-Path $authorizationDataRoot 'headquarters-trust.json'),
         ($prePinnedTrust | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
-    & "$env:SystemRoot\System32\icacls.exe" $authorizationDataRoot '/inheritance:r' '/grant:r' "*$runtimeHostServiceSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Host
+    & "$env:SystemRoot\System32\icacls.exe" $authorizationDataRoot '/inheritance:r' '/grant:r' "*$runtimeHostServiceSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-OfficeSetupStatus
     if ($LASTEXITCODE -ne 0) { throw 'The pre-pinned Headquarters trust ACL could not be secured.' }
     $inputPath = [IO.Path]::GetFullPath($EnrollmentTokenInputPath)
     if (-not (Test-Path -LiteralPath $inputPath -PathType Leaf)) { throw 'The protected enrollment input is missing.' }
@@ -914,7 +924,7 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
     $nodeTokenPath = Join-Path $nodeDataRoot 'enrollment.secret'
     [IO.File]::WriteAllText($nodeTokenPath, $token, [Text.UTF8Encoding]::new($false))
     $token = $null
-    & "$env:SystemRoot\System32\icacls.exe" $nodeDataRoot '/inheritance:r' '/grant:r' "*$nodeServiceSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Host
+    & "$env:SystemRoot\System32\icacls.exe" $nodeDataRoot '/inheritance:r' '/grant:r' "*$nodeServiceSid`:(OI)(CI)M" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-OfficeSetupStatus
     if ($LASTEXITCODE -ne 0) { throw 'The Office state ACL could not be secured.' }
     $controlPlaneTrustPath = ''
     if (-not [String]::IsNullOrWhiteSpace($resolvedControlPlaneCertificateSha256)) {
@@ -926,7 +936,7 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
         $trust = [ordered]@{ schemaVersion = 1; certificateSha256 = $normalizedCertificateSha256 }
         [IO.File]::WriteAllText($controlPlaneTrustPath,
             ($trust | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
-        & "$env:SystemRoot\System32\icacls.exe" $controlPlaneTrustPath '/inheritance:r' '/grant:r' "*$nodeServiceSid`:R" '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Host
+        & "$env:SystemRoot\System32\icacls.exe" $controlPlaneTrustPath '/inheritance:r' '/grant:r' "*$nodeServiceSid`:R" '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-OfficeSetupStatus
         if ($LASTEXITCODE -ne 0) { throw 'The control-plane trust file ACL could not be secured.' }
     }
     $config.CSweet.Office.Node = @{
@@ -1075,7 +1085,7 @@ if ($ProgressWorkflow -eq 'packaged-installer') {
         -Message 'RuntimeHost is running. C-Sweet is completing final readiness validation.' -PercentComplete 99 `
         -EstimatedRemainingMinimumSeconds 1 -EstimatedRemainingMaximumSeconds 30
 }
-Write-Host 'C-Sweet RuntimeHost was installed and started successfully.' -ForegroundColor Green
+if (-not $NonInteractive) { Write-Host 'C-Sweet RuntimeHost was installed and started successfully.' -ForegroundColor Green }
 } catch {
     $reportedErrorCode = 'runtime-install-failed'
     $reportedErrorMessage = $_.Exception.Message

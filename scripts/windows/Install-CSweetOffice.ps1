@@ -66,8 +66,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 . (Join-Path $PSScriptRoot 'CSweet.OfficeStorage.ps1')
 $storage = Resolve-CSweetOfficeStorage -VolumeId $StorageVolumeId -InstallRoot $InstallRoot -DataRoot $DataRoot -RequiredDiskMb $AllocatableDiskMb -Interactive:(-not $NonInteractive)
-Write-Host "Office services: $($storage.InstallRoot)"
-Write-Host "Office data: $($storage.DataRoot)"
+if (-not $NonInteractive) {
+    Write-Host "Office services: $($storage.InstallRoot)"
+    Write-Host "Office data: $($storage.DataRoot)"
+}
 $inputPath = $EnrollmentTokenInputPath
 $createdInput = $false
 if ($ExistingInstallationAction -ne 'upgrade' -and [String]::IsNullOrWhiteSpace($inputPath)) {

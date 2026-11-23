@@ -2,6 +2,7 @@
 param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 
 # Windows Installer otherwise records only error 1722 for a deferred executable.
 # Keep a diagnostic through rollback, without writing arguments, tokens or raw exceptions.
@@ -79,4 +80,4 @@ if ($null -eq $computePolicy) {
     -PayloadRoot (Join-Path $installed 'payload') -ControlPlaneUrl $origin.AbsoluteUri `
     -ControlPlaneCertificateSha256 $settings.controlPlaneCertificateSha256 -EnrollmentTokenInputPath $tokenPath `
     -AllocatableCpuCount $settings.allocatableCpuCount -AllocatableMemoryMb $settings.allocatableMemoryMb `
-    -AllocatableDiskMb $settings.allocatableDiskMb -MaximumConcurrentWorkloads $settings.maximumConcurrentWorkloads
+    -AllocatableDiskMb $settings.allocatableDiskMb -MaximumConcurrentWorkloads $settings.maximumConcurrentWorkloads 3>$null 6>$null | Out-Null
