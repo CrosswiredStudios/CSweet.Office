@@ -61,7 +61,24 @@ try {
     if ($manifest.guestImage -cne 'images/csweet-agent-guest.vhdx') { throw 'Unexpected Hyper-V guest image path.' }
     $guestImage = Join-Path $stageRoot 'payload\images\csweet-agent-guest.vhdx'
     $images = @($guestImage)
-    if ($manifest.PSObject.Properties['computeImageDigest']) { $images += Join-Path $stageRoot 'payload\images\csweet-compute-guest.vhdx' }
+    if ($manifest.PSObject.Properties['computeImageDigest']) {
+        $computeImage = Join-Path $stageRoot 'payload\images\csweet-compute-guest.vhdx'
+        $hash = Get-FileHash -LiteralPath $computeImage -Algorithm SHA256
+        if ($manifest.computeImageDigest -cne ('sha256:' + $hash.Hash.ToLowerInvariant())) { throw 'The compute disk differs from its catalog digest.' }
+        $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new((Join-Path $stageRoot 'payload\certificates\guest-image-signing.cer'))
+        try {
+            $key = [Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($cert)
+            try {
+                $hashBytes = [byte[]]@(for ($i = 0; $i -lt 64; $i += 2) { [Convert]::ToByte($hash.Hash.Substring($i, 2), 16) })
+                if ($null -eq $key -or $cert.Thumbprint -ine $manifest.guestImageSigningCertificateThumbprint -or
+                    !$key.VerifyHash($hashBytes, [IO.File]::ReadAllBytes("$computeImage.sig"),
+                        [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)) {
+                    throw 'The compute disk signature does not match the release guest signer.'
+                }
+            } finally { if ($key) { $key.Dispose() } }
+        } finally { $cert.Dispose() }
+        $images += $computeImage
+    }
     $splitImage = $false
     foreach ($image in $images) {
         if ((Get-Item -LiteralPath $image).Length -le 1GB) { continue }
@@ -121,6 +138,16 @@ try {
     AddLine 0 '<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">'
     AddLine 1 "<Package Name=`"C-Sweet Office`" Manufacturer=`"C-Sweet`" Version=`"$Version`" UpgradeCode=`"{$($UpgradeCode.ToString().ToUpperInvariant())}`" Scope=`"perMachine`" InstallerVersion=`"500`">"
     AddLine 2 '<MajorUpgrade DowngradeErrorMessage="A newer C-Sweet Office package is already installed." />'
+    if ($manifest.PSObject.Properties['computeImageDigest']) {
+        $features = @($manifest.computeFeatures)
+        if ($manifest.computeImageDigest -cnotmatch '^sha256:[0-9a-f]{64}$' -or $features.Count -gt 64 -or
+            $features -cnotcontains 'docker' -or @($features | Where-Object { $_ -isnot [string] -or $_ -cnotmatch '^[a-z0-9][a-z0-9._-]{0,63}$' }).Count) {
+            throw 'The compute image declaration is invalid.'
+        }
+        # The combined release builder reads the immutable Property table after checking the MSI publisher.
+        AddLine 2 ('<Property Id="OfficeComputeImageDigest" Value="{0}" />' -f $manifest.computeImageDigest)
+        AddLine 2 ('<Property Id="OfficeComputeImageFeatures" Value="{0}" />' -f ($features -join ','))
+    }
     if ($splitImage) {
         AddLine 2 "<MediaTemplate CabinetTemplate=`"${cabPrefix}{0}.cab`" MaximumUncompressedMediaSize=`"640`" EmbedCab=`"no`" />"
     } else {

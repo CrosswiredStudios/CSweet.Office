@@ -15,7 +15,7 @@ try {
         'binaries-linux-x64/components/smoke/CSweet.Office.WindowsSmokeTest',
         'binaries-linux-x64/components/probe/CSweet.Office.GuestProbe', 'binaries-linux-x64/scripts/linux/setup.sh',
         'guest-images/linux-guest/CSweet.Office.GuestProbe',
-        'guest-images/windows-guest/csweet-agent-guest.vhdx', 'guest-images/linux-guest/csweet-agent-guest.ext4',
+        'guest-images/windows-guest/csweet-agent-guest.vhdx', 'guest-images/windows-guest/csweet-compute-guest.vhdx', 'guest-images/linux-guest/csweet-agent-guest.ext4',
         'guest-images/linux-tools/firecracker', 'guest-images/linux-tools/jailer')) {
         $path = Join-Path "$root/input" $relative
         New-Item -ItemType Directory (Split-Path -Parent $path) -Force | Out-Null
@@ -39,6 +39,8 @@ try {
             $global:LASTEXITCODE = 0
         }
     }
+    @{ imageDigest = 'sha256:' + (Get-FileHash "$root/input/guest-images/windows-guest/csweet-compute-guest.vhdx").Hash.ToLowerInvariant()
+       features = @('docker','docker-apps-v1') } | ConvertTo-Json | Set-Content "$root/input/guest-images/windows-guest/compute-image-profile.json"
     $windowsInput = "$root/windows-only-input"
     New-Item -ItemType Directory $windowsInput | Out-Null
     Copy-Item "$root/input/binaries-win-x64" "$windowsInput/binaries-win-x64" -Recurse
@@ -60,6 +62,16 @@ try {
     catch { $rejected = $_.Exception.Message -like '*does not match its development-profile build evidence*' }
     if (-not $rejected) { throw 'Packaging admitted a substituted image under another profile declaration.' }
     Set-Content -LiteralPath $profilePath -Value $profile -Encoding utf8
+    $computeProfilePath = "$windowsInput/windows-guest/compute-image-profile.json"
+    $computeProfile = [IO.File]::ReadAllText($computeProfilePath)
+    $substitute = $computeProfile | ConvertFrom-Json
+    $substitute.imageDigest = 'sha256:' + ('0' * 64)
+    $substitute | ConvertTo-Json | Set-Content -LiteralPath $computeProfilePath -Encoding utf8
+    $rejected = $false
+    try { & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot $windowsInput -OutputRoot "$root/reject-compute" -WindowsOnly }
+    catch { $rejected = $_.Exception.Message -like '*compute disk does not match*' }
+    if (!$rejected) { throw 'Packaging admitted a substituted workspace disk.' }
+    [IO.File]::WriteAllText($computeProfilePath, $computeProfile)
     & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot "$root/input" -OutputRoot "$root/output"
     $manifest = Get-Content "$root/output/office-bootstrap.json" -Raw | ConvertFrom-Json
     if ($manifest.officeVersion -cne $version -or $manifest.assets.Count -ne 3) { throw 'Release identity or assets are wrong.' }
@@ -97,7 +109,23 @@ try {
         if (($dataMode -band $executeBits) -ne 0) { throw 'Linux data files must not be marked executable.' }
         Write-Host 'Extracted Linux executable and data file modes passed.'
     }
-    & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot $windowsInput -OutputRoot "$root/windows-only-output" -WindowsOnly
+    $rsa = [Security.Cryptography.RSA]::Create(2048)
+    $certificateRequest = [Security.Cryptography.X509Certificates.CertificateRequest]::new(
+        'CN=Office release fixture', $rsa, [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+    $publisher = $certificateRequest.CreateSelfSigned([DateTimeOffset]::UtcNow.AddDays(-1), [DateTimeOffset]::UtcNow.AddDays(1))
+    try {
+        & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot $windowsInput -OutputRoot "$root/windows-only-output" -WindowsOnly -UpdatePublisher $publisher
+        $supportZip = [IO.Compression.ZipFile]::OpenRead("$root/windows-only-output/csweet-office-$version-windows-support.zip")
+        try {
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($supportZip.GetEntry('scripts/windows/office-release-signer.cer'), "$root/test-publisher.cer")
+        } finally { $supportZip.Dispose() }
+        . "$repository/scripts/windows/CSweet.OfficeRelease.ps1"
+        $signedManifest = Read-CSweetSignedReleaseManifest ([IO.File]::ReadAllText("$root/windows-only-output/office-bootstrap.p7m.b64")) "$root/test-publisher.cer"
+        if ($signedManifest.officeVersion -cne $version -or $signedManifest.computeImage.imageDigest -cne
+            ('sha256:' + (Get-FileHash "$windowsInput/windows-guest/csweet-compute-guest.vhdx").Hash.ToLowerInvariant())) {
+            throw 'The installed publisher pin could not verify the packaged compute image digest.'
+        }
+    } finally { $publisher.Dispose(); $rsa.Dispose() }
     $windowsManifest = Get-Content "$root/windows-only-output/office-bootstrap.json" -Raw | ConvertFrom-Json
     if ($windowsManifest.assets.Count -ne 2 -or $windowsManifest.requiresHostCertification -ne $true -or $windowsManifest.signing -cne 'development') {
         throw 'Windows-only assets or certification requirements are wrong.'
@@ -110,7 +138,9 @@ try {
     }
     $windowsZip = [IO.Compression.ZipFile]::OpenRead("$root/windows-only-output/csweet-office-$version-windows-x64.zip")
     try {
-        if ($null -eq $windowsZip.GetEntry('guest/csweet-agent-guest.vhdx')) { throw 'Windows-only image is missing.' }
+        foreach ($path in @('guest/csweet-agent-guest.vhdx','guest/csweet-compute-guest.vhdx','scripts/windows/office-release-signer.cer')) {
+            if ($null -eq $windowsZip.GetEntry($path)) { throw "Windows bundle is missing $path" }
+        }
     } finally { $windowsZip.Dispose() }
     $schema = "$repository/release/office-bootstrap.schema.json"
     $windowsManifest.assets = @($windowsManifest.assets[0], $windowsManifest.assets[0])

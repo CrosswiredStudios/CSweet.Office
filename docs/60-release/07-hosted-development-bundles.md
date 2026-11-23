@@ -1,5 +1,16 @@
 # GitHub-hosted development bundles
 
+For the Windows compute image, release owners supply an immutable HTTPS VHDX URL in
+`CSWEET_DEVELOPMENT_COMPUTE_IMAGE_URL` and its independently approved SHA-256 in
+`CSWEET_DEVELOPMENT_COMPUTE_IMAGE_SHA256`. Use the certified developer image containing the
+compute guest service and the offline Python and Node images. The hosted image job checks the
+digest, disk format, executable and installed profile before packaging. The destination verifies the
+digest again before signing its local copy. A separate, stable development update certificate is
+supplied in the Actions secrets `CSWEET_DEVELOPMENT_UPDATE_PFX` (base64 PKCS#12) and
+`CSWEET_DEVELOPMENT_UPDATE_PASSWORD`. Only the public certificate goes in the support and full
+bundles. Preserve the same signer across releases. Verified: 2026-11-22.
+[Image job](../../.github/workflows/hosted-release.yml) · [Publisher](../../scripts/release/Publish-HostedOfficeAssets.ps1) · [Windows bootstrap](../../scripts/windows/Initialize-CSweetWindowsIsolationTest.ps1)
+
 **Audience:** developers preparing a release or installing without a source checkout.
 
 `hosted-release.yml` runs when a push to `main` changes `Directory.Build.props`, the workflow,
