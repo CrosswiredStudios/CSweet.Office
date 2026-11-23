@@ -183,6 +183,24 @@ jobs:
           LIBGUESTFS_DEBUG: '0'
           LIBGUESTFS_TRACE: '0'
         run: bash scripts/release/build-hosted-hyperv-image.sh artifacts/windows-guest 2>&1 | tee artifacts/image-diagnostics/hyperv-build.log
+      - name: Include the release-approved compute guest
+        shell: bash
+        env:
+          IMAGE_URL: ${{ vars.CSWEET_DEVELOPMENT_COMPUTE_IMAGE_URL }}
+          IMAGE_SHA256: ${{ vars.CSWEET_DEVELOPMENT_COMPUTE_IMAGE_SHA256 }}
+          IMAGE_PARTS: ${{ vars.CSWEET_DEVELOPMENT_COMPUTE_IMAGE_PARTS }}
+          LIBGUESTFS_DEBUG: '0'
+          LIBGUESTFS_TRACE: '0'
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_URL" == https://* && "$IMAGE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo 'Missing pinned development compute image.' >&2; exit 1; }
+          disk=artifacts/windows-guest/csweet-compute-guest.vhdx
+          bash scripts/release/receive-hosted-compute-image.sh "$disk"
+          [[ "$(qemu-img info --output=json "$disk" | jq -r .format)" == vhdx ]]
+          flags=$(guestfish --ro --format=vhdx -a "$disk" -i cat /etc/csweet/compute-profile)
+          grep -Fxq docker-apps-v1 <<< "$flags"
+          [[ "$(guestfish --ro --format=vhdx -a "$disk" -i is-file /opt/csweet/compute-guest/CSweet.Compute.Guest)" == true ]]
+          jq -n --arg digest "sha256:$IMAGE_SHA256" '{imageDigest:$digest,features:["docker","docker-apps-v1"]}' > artifacts/windows-guest/compute-image-profile.json
       - uses: actions/upload-artifact@v4
         with:
           name: windows-guest
@@ -211,7 +229,21 @@ jobs:
         run: ./scripts/tests/Test-HostedManifest.ps1
       - name: Package immutable development bundles and checksums
         shell: pwsh
-        run: ./scripts/release/Publish-HostedOfficeAssets.ps1 -Version '${{ needs.metadata.outputs.version }}' -InputRoot artifacts/download -OutputRoot artifacts/release -WindowsOnly
+        env:
+          DEVELOPMENT_UPDATE_PFX: ${{ secrets.CSWEET_DEVELOPMENT_UPDATE_PFX }}
+          DEVELOPMENT_UPDATE_PASSWORD: ${{ secrets.CSWEET_DEVELOPMENT_UPDATE_PASSWORD }}
+          DEVELOPMENT_UPDATE_CERT_SHA256: ${{ vars.CSWEET_DEVELOPMENT_UPDATE_CERT_SHA256 }}
+        run: |
+          if (!$env:DEVELOPMENT_UPDATE_PFX) { throw 'Configure the stable development update publisher before publishing.' }
+          $bytes = [Convert]::FromBase64String($env:DEVELOPMENT_UPDATE_PFX)
+          $publisher = [Security.Cryptography.X509Certificates.X509Certificate2]::new($bytes, $env:DEVELOPMENT_UPDATE_PASSWORD, [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
+          [Array]::Clear($bytes, 0, $bytes.Length)
+          if ($env:DEVELOPMENT_UPDATE_CERT_SHA256 -cnotmatch '^[a-f0-9]{64}$' -or $publisher.GetCertHashString('SHA256') -ine $env:DEVELOPMENT_UPDATE_CERT_SHA256) {
+            throw 'The hosted update signer differs from the configured development publisher.'
+          }
+          Remove-Item Env:DEVELOPMENT_UPDATE_PFX,Env:DEVELOPMENT_UPDATE_PASSWORD -ErrorAction SilentlyContinue
+          try { ./scripts/release/Publish-HostedOfficeAssets.ps1 -Version '${{ needs.metadata.outputs.version }}' -InputRoot artifacts/download -OutputRoot artifacts/release -WindowsOnly -UpdatePublisher $publisher }
+          finally { $publisher.Dispose() }
       - name: Publish tagged release atomically
         env:
           GH_TOKEN: ${{ github.token }}

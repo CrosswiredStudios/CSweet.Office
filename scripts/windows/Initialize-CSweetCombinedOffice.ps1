@@ -67,6 +67,14 @@ if ($settings.PSObject.Properties['storageVolumeId'] -and $settings.storageVolum
     $storage.StorageVolumeId = [string]$settings.storageVolumeId
 }
 $computePolicy = if ($settings.PSObject.Properties['compute']) { $settings.compute }
+if ($null -eq $computePolicy) {
+    $automaticPolicy = Join-Path $provisioning 'combined-office-compute.json'
+    if ([IO.File]::Exists($automaticPolicy)) {
+        if ((Get-Item -LiteralPath $automaticPolicy).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Redirected combined compute configuration.' }
+        $plan = Get-Content -LiteralPath $automaticPolicy -Raw | ConvertFrom-Json
+        if ($plan.PSObject.Properties['reservation']) { $computePolicy = $plan.reservation }
+    }
+}
 & (Join-Path $installed 'Install-CSweetOffice.ps1') @storage -ComputePolicy $computePolicy -NonInteractive -Elevated `
     -PayloadRoot (Join-Path $installed 'payload') -ControlPlaneUrl $origin.AbsoluteUri `
     -ControlPlaneCertificateSha256 $settings.controlPlaneCertificateSha256 -EnrollmentTokenInputPath $tokenPath `

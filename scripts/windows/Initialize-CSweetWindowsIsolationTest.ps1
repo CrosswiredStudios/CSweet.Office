@@ -178,6 +178,7 @@ Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $p
     -EstimatedRemainingMinimumSeconds 900 -EstimatedRemainingMaximumSeconds 2700
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$computeImage = $null
 if ($PrebuiltRoot) {
     $PrebuiltRoot = [IO.Path]::GetFullPath($PrebuiltRoot)
     $bundle = Get-Content (Join-Path $PrebuiltRoot 'office-bundle.json') -Raw | ConvertFrom-Json
@@ -192,6 +193,13 @@ if ($PrebuiltRoot) {
         throw 'This prebuilt Office guest does not include the required development environment. Use a compatible release or configured source preparation; no services were changed.'
     }
     $guestImage = Join-Path $PrebuiltRoot 'guest\csweet-agent-guest.vhdx'
+    if ($bundle.PSObject.Properties['computeImage']) {
+        $computeImage = Join-Path $PrebuiltRoot 'guest\csweet-compute-guest.vhdx'
+        $computeDigest = 'sha256:' + (Get-FileHash -LiteralPath $computeImage -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($computeDigest -cne $bundle.computeImage.imageDigest -or (@($bundle.computeImage.features) -join ',') -cne 'docker,docker-apps-v1') {
+            throw 'The development compute disk differs from the release profile.'
+        }
+    }
     if (-not (Test-Path -LiteralPath $guestImage -PathType Leaf)) { throw 'The prebuilt guest image is missing.' }
 } else {
     $guestFingerprint = (Get-GuestBuildFingerprint $repositoryRoot) + $(if ($DevelopmentTools) { "-development" } else { "-restricted" })
@@ -329,20 +337,29 @@ if ($null -eq $certificate) {
 $certificatePath = Join-Path $runRoot 'guest-image-signing.cer'
 $signaturePath = "$guestImage.sig"
 Export-Certificate -Cert $certificate -FilePath $certificatePath -Type CERT -Force | Out-Null
-$imageHash = (Get-FileHash -LiteralPath $guestImage -Algorithm SHA256).Hash
-$hashBytes = [byte[]]::new(32)
-for ($index = 0; $index -lt $hashBytes.Length; $index++) {
-    $hashBytes[$index] = [Convert]::ToByte($imageHash.Substring($index * 2, 2), 16)
+function Write-GuestImageSignature($Key, [string] $Image, [string] $OutputFile) {
+    $imageHash = (Get-FileHash -LiteralPath $Image -Algorithm SHA256).Hash
+    $hashBytes = [byte[]]::new(32)
+    for ($index = 0; $index -lt $hashBytes.Length; $index++) {
+        $hashBytes[$index] = [Convert]::ToByte($imageHash.Substring($index * 2, 2), 16)
+    }
+    $signature = $Key.SignHash($hashBytes, [Security.Cryptography.HashAlgorithmName]::SHA256,
+        [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+    [IO.File]::WriteAllBytes($OutputFile, $signature)
 }
+$computePayload = @{}
 $rsa = [Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($certificate)
 if ($null -eq $rsa) { throw 'The development signing certificate has no RSA private key.' }
 try {
-    $signature = $rsa.SignHash($hashBytes, [Security.Cryptography.HashAlgorithmName]::SHA256,
-        [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+    Write-GuestImageSignature $rsa $guestImage $signaturePath
+    if ($computeImage) {
+        $computeSignature = Join-Path $runRoot 'compute-image.sig'
+        Write-GuestImageSignature $rsa $computeImage $computeSignature
+        $computePayload = @{ ComputeGuestImage=$computeImage; ComputeGuestImageSignature=$computeSignature; ComputeFeatures=@($bundle.computeImage.features) }
+    }
 } finally {
     $rsa.Dispose()
 }
-[IO.File]::WriteAllBytes($signaturePath, $signature)
 
 $packageVersion = "dev-$runId"
 $payloadRoot = Join-Path $runRoot 'payload'
@@ -350,7 +367,7 @@ Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $p
     -State running -PhaseKey package-runtime -PhaseDisplayName 'Packaging the secure runtime' `
     -Message 'RuntimeHost, the native helper, signed guest, and certification evidence are being packaged.' `
     -PercentComplete 88 -EstimatedRemainingMinimumSeconds 60 -EstimatedRemainingMaximumSeconds 300
-& (Join-Path $PSScriptRoot 'New-CSweetWindowsRuntimePayload.ps1') `
+& (Join-Path $PSScriptRoot 'New-CSweetWindowsRuntimePayload.ps1') @computePayload `
     -GuestImage $guestImage `
     -GuestImageSignature $signaturePath `
     -GuestImageSigningCertificate $certificatePath `

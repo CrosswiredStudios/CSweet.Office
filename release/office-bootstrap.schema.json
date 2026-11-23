@@ -13,6 +13,15 @@
     "assets"
   ],
   "properties": {
+    "computeImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["imageDigest","features"],
+      "properties": {
+        "imageDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "features": { "const": ["docker","docker-apps-v1"] }
+      }
+    },
     "schemaVersion": {
       "enum": [
         1,
