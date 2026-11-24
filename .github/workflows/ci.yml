@@ -43,3 +43,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/tests/Test-CombinedOfficeIntegrity.ps1
+      - name: Test unattended Office setup with a blocked console
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/tests/Test-HeadlessOfficeSetup.ps1

@@ -14,6 +14,10 @@ immutable package, pins Headquarters assignment trust over the verified TLS conn
 service, and drives enrollment. Installation is refused on a domain controller (`SEC-INV-17`), and it never
 migrates a legacy identity (`SEC-INV-18`).
 
+During unattended setup, `Install-CSweetOfficeRuntimeHost.ps1` writes service and ACL
+progress to the setup progress file without printing native tool output to the console.
+If service configuration fails, `Invoke-Sc` retains the exit code and command diagnostic.
+
 Office Maintenance can also consume the independently signed Windows MSI and cabinets
 on a release. The hardened Windows packager signs their names, lengths and hashes in
 `office-windows-update.p7m.b64`. Maintenance verifies the publisher and stages a
@@ -213,4 +217,4 @@ directory ACL is reset so only the control-plane user (read), `SYSTEM`, and `Adm
 `src/CSweet.Office.Runtime.HyperV.Helper/HyperVHelperController.cs`, `src/CSweet.Office.Node/OfficeOptions.cs`,
 `README.md`, `docs/20-security/06-host-privilege-model.md`.
 
-Verified: 2026-11-20.
+Verified: 2026-11-23.
