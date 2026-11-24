@@ -1,12 +1,17 @@
 import Foundation
 
 let providerID = "apple-virtualization"
-let guestChannelTransport = "stdio-duplex-v1"
+let stdioGuestChannelTransport = "stdio-duplex-v1"
 let helperProtocolVersion = "1.0"
 
 struct PlatformRequest: Decodable {
     var builderWorkload: WorkloadSpec? = nil
     var runtimeWorkload: WorkloadSpec? = nil
+    var toolchainBuildWorkload: WorkloadSpec? = nil
+    var computeEnvironment: WorkloadSpec? = nil
+    var attemptKey: UUID? = nil
+    var recoveryWorkloadId: UUID? = nil
+    var recoveryWorkloadKind: Int? = nil
     var handle: WorkloadHandle? = nil
     var guestImagePath: String? = nil
     var artifactImagePath: String? = nil
@@ -14,8 +19,8 @@ struct PlatformRequest: Decodable {
     var maximumBytes: Int? = nil
 
     var singleWorkload: WorkloadSpec? {
-        if builderWorkload != nil && runtimeWorkload != nil { return nil }
-        return builderWorkload ?? runtimeWorkload
+        let workloads = [builderWorkload, runtimeWorkload, toolchainBuildWorkload, computeEnvironment].compactMap { $0 }
+        return workloads.count == 1 ? workloads[0] : nil
     }
 }
 
@@ -25,6 +30,7 @@ struct WorkloadSpec: Decodable {
     var resourceLimits: ResourceLimits
     var brokerLease: BrokerLease
     var artifact: ArtifactReference?
+    var adapterArtifact: ArtifactReference?
 }
 
 struct ResourceLimits: Codable {
@@ -84,7 +90,7 @@ struct PlatformResponse: Codable {
     var guestChannelTransport: String? = nil
 
     static func ok(transport: Bool = false) -> PlatformResponse {
-        PlatformResponse(success: true, guestChannelTransport: transport ? guestChannelTransport : nil)
+        PlatformResponse(success: true, guestChannelTransport: transport ? stdioGuestChannelTransport : nil)
     }
 
     static func failure(_ code: String, _ message: String) -> PlatformResponse {

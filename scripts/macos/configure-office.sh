@@ -8,8 +8,8 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "Run this command with sudo." >&2
   exit 1
 fi
-if [ "$#" -ne 1 ] && [ "$#" -ne 3 ]; then
-  echo "usage: sudo $0 https://control-plane" >&2
+if [ "$#" -lt 1 ]; then
+  echo "usage: sudo $0 https://control-plane [--storage-volume UUID] [--gateway-sha256 HEX]" >&2
   exit 2
 fi
 case "$1" in
@@ -23,5 +23,18 @@ fi
 
 control_plane=$1
 shift
-if [ "$#" -ne 0 ]; then [ "$1" = --storage-volume ] || { echo 'Expected --storage-volume UUID.' >&2; exit 2; }; fi
-exec "$installer" "$package_root" "$control_plane" "$@"
+storage_volume=
+gateway_sha256=
+while [ "$#" -gt 0 ]; do
+  [ "$#" -ge 2 ] || exit 2
+  case "$1" in
+    --storage-volume) storage_volume=$2 ;;
+    --gateway-sha256) gateway_sha256=$2 ;;
+    *) echo "Unknown configuration option: $1" >&2; exit 2 ;;
+  esac
+  shift 2
+done
+set -- "$package_root" "$control_plane"
+if [ -n "$storage_volume" ]; then set -- "$@" --storage-volume "$storage_volume"; fi
+if [ -n "$gateway_sha256" ]; then set -- "$@" --gateway-sha256 "$gateway_sha256"; fi
+exec "$installer" "$@"

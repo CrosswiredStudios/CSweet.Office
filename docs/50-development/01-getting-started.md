@@ -17,6 +17,18 @@
 A build also needs no other repository, with one exception: the Independent solution is designed to
 build from a lone checkout plus the pinned package, which is what CI does.
 
+## Quick start on macOS
+
+```sh
+git clone https://github.com/CrosswiredStudios/CSweet.Office.git
+cd CSweet.Office
+dotnet build CSweet.Office.Independent.slnx -c Release -p:UseLocalOfficeContracts=false
+dotnet test tests/CSweet.Office.Tests/CSweet.Office.Tests.csproj -c Release --no-build -p:UseLocalOfficeContracts=false
+swift build --package-path src/CSweet.Office.Runtime.AppleVirtualization.Helper -c release
+```
+
+For live builder and runtime verification, follow the [Mac hardware acceptance instructions](06-macos-dev-loop.md#run-the-hardware-acceptance-test).
+
 ## Clone layout
 
 The two sibling directories must sit next to the repository directory. Both defaults compute a sibling,
@@ -110,4 +122,4 @@ on Windows, or [06-macos-dev-loop.md](06-macos-dev-loop.md) on macOS.
 `scripts/linux/initialize-firecracker-test.sh`, `scripts/macos/new-runtime-payload.sh`,
 `src/CSweet.Office.Runtime.AppleVirtualization.Helper/Package.swift`.
 
-Verified: 2026-09-15.
+Verified: 2026-11-23.

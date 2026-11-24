@@ -32,6 +32,11 @@ if [ "$force" != true ] && { [ "$drain_state" != draining ] || [ "$active_count"
   exit 3
 fi
 
+if [ "$force" != true ] && office_has_unretired_apple_compute; then
+  echo "Destroy remaining Compute workspaces in Headquarters before uninstalling this Office." >&2
+  exit 3
+fi
+
 launchctl bootout system/com.csweet.office 2>/dev/null || true
 launchctl bootout system/com.csweet.office.runtime 2>/dev/null || true
 rm -f -- /Library/LaunchDaemons/com.csweet.office.node.plist
@@ -44,10 +49,13 @@ rm -rf -- /Library/Application\ Support/CSweet/AgentRuntime
 rm -rf -- /Library/Application\ Support/CSweet/InstallerPayload
 rmdir /Library/Application\ Support/CSweet 2>/dev/null || true
 rm -rf -- /var/run/csweet-av
+rm -f -- /var/run/csweet-office/rpc.sock
+rmdir /var/run/csweet-office 2>/dev/null || true
 
 if dscl . -read /Users/_csweetnode >/dev/null 2>&1; then dscl . -delete /Users/_csweetnode; fi
 if dscl . -read /Groups/_csweet >/dev/null 2>&1; then dscl . -delete /Groups/_csweet; fi
 
+rm -f -- /usr/local/sbin/csweet-configure-compute
 rm -f -- /usr/local/sbin/csweet-configure-office
 rm -f -- /usr/local/sbin/csweet-uninstall-office
 pkgutil --forget com.csweet.office.payload >/dev/null 2>&1 || true

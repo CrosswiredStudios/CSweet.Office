@@ -6,6 +6,7 @@
   <key>GroupName</key><string>_csweet</string>
   <key>ProgramArguments</key><array><string>/usr/local/sbin/csweet-office-start</string><string>node</string></array>
   <key>EnvironmentVariables</key><dict>
+    <key>CSweet__Office__Node__ControlPlaneCertificateSha256</key><string>__GATEWAY_SHA256__</string>
     <key>CSweet__Office__Node__ControlPlaneUrl</key><string>__CONTROL_PLANE_URL__</string>
     <key>CSweet__Office__Node__StateDirectory</key><string>__OFFICE_DATA_ROOT__/node</string>
     <key>CSweet__Office__Node__ArtifactCacheDirectory</key><string>__OFFICE_DATA_ROOT__/node/artifact-cache</string>
@@ -14,6 +15,7 @@
     <key>CSweet__Office__Node__SecurityProfile</key><string>__SECURITY_PROFILE__</string>
     <key>CSweet__Office__Node__MixedUseHost</key><string>__MIXED_USE_HOST__</string>
     <key>CSweet__Office__Node__AllowDevelopmentAssignments</key><string>__ALLOW_DEVELOPMENT_ASSIGNMENTS__</string>
+    <key>CSweet__Office__RuntimeHost__UnixSocketPath</key><string>/var/run/csweet-office/rpc.sock</string>
     <key>CSweet__Office__RuntimeHost__Authentication__SharedKeyFilePath</key><string>__OFFICE_DATA_ROOT__/runtime-host.key</string>
   </dict>
   <key>ProcessType</key><string>Background</string>

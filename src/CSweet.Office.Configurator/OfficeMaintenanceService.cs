@@ -67,6 +67,7 @@ internal sealed class MaintenanceWorker(MaintenanceSettings settings, ILogger<Ma
         // Schannel needs a named key when it presents the recovered certificate. Without
         // PersistKeySet the imported key is temporary and released with this certificate.
         using var identity = X509CertificateLoader.LoadPkcs12FromFile(Path.Combine(settings.StateDirectory, "node-identity.pfx"), null,
+            OperatingSystem.IsMacOS() ? X509KeyStorageFlags.Exportable :
             OperatingSystem.IsWindows() ? X509KeyStorageFlags.UserKeySet : X509KeyStorageFlags.EphemeralKeySet);
         using var recovery = CreateClient();
         using var challengeResponse = await recovery.PostAsync($"api/offices/{officeId:D}/certificate/challenge", null, cancellationToken);

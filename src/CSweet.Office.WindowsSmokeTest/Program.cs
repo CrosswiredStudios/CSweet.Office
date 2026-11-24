@@ -87,7 +87,7 @@ var workload = new RuntimeWorkloadSpecification(
     image,
     new WorkloadResourceLimits(1, 100, 1024, 1024, 64, 1024 * 1024, TimeSpan.FromMinutes(3)),
     new BrokerChannelLease(channelId, "1.0", bootToken, guestDigest, artifactDigest, expiresAt),
-    new AgentArtifactReference(artifactDigest, "smoke-test", "1.0", "linux", "x64"),
+    new AgentArtifactReference(artifactDigest, "smoke-test", "1.0", "linux", guestArchitecture),
     new RuntimeAgentIdentity(installationId, businessId.ToString("D"), tickId),
     ["probe"]);
 IsolationWorkloadHandle? handle = null;
@@ -220,7 +220,7 @@ var evidence = new
     certifiedAt = now,
     // Certification binds the tested provider and image; elapsed time alone must not
     // disable an installed Office. Explicitly expiring evidence is still enforced.
-    certificationExpiresAt = (DateTimeOffset?)null,
+    certificationExpiresAt = arguments.CertificationExpiresAt,
     checks = combinedChecks,
     guestOperatingSystem = validatedReport.GuestOperatingSystem,
     completedAt = validatedReport.CompletedAt
@@ -749,6 +749,7 @@ internal sealed record SmokeArguments(
     string EvidenceOutputPath,
     bool PreserveFailedVirtualMachine)
 {
+    public DateTimeOffset? CertificationExpiresAt { get; init; }
     public bool PublicInternet { get; init; }
     public bool PublicInternetIpv4Only { get; init; }
     public static SmokeArguments Parse(string[] args)
@@ -769,11 +770,19 @@ internal sealed record SmokeArguments(
             : "hyperv";
         if (provider is not ("hyperv" or "firecracker" or "apple"))
             throw new ArgumentException("--provider must be hyperv, firecracker, or apple.");
+        DateTimeOffset? expiration = null;
+        if (values.TryGetValue("certification-expires-at", out var expiry))
+        {
+            if (!DateTimeOffset.TryParse(expiry, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed) || parsed <= DateTimeOffset.UtcNow)
+                throw new ArgumentException("--certification-expires-at requires a future timestamp.");
+            expiration = parsed.ToUniversalTime();
+        }
         return new SmokeArguments(
             provider,
             Required("helper"), Required("guest-image"), Required("probe"),
             Required("output-root"), Required("evidence"), preserve)
-        { PublicInternet = values.TryGetValue("public-internet", out var enabled) && bool.Parse(enabled),
+        { CertificationExpiresAt = expiration, PublicInternet = values.TryGetValue("public-internet", out var enabled) && bool.Parse(enabled),
           PublicInternetIpv4Only = values.TryGetValue("public-internet-ipv4-only", out var ipv4) && bool.Parse(ipv4) };
     }
 

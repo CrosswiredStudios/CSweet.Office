@@ -43,7 +43,8 @@ wipefs --all --force "$scratch"
 mkfs.ext4 -F -L CSWEET_SCRATCH "$scratch"
 mount -t ext4 -o rw,nosuid,nodev "$scratch" /run/csweet
 chmod 0711 /run/csweet
-install -d -o csweet-workload -g csweet-workload -m 0700 /run/csweet/workload
+# The guest supervisor sets HOME here. NuGet creates its per-user mutex below it.
+install -d -o csweet-workload -g csweet-workload -m 0700 /run/csweet/workload /run/csweet/workload/home
 exec /usr/lib/csweet/guest/CSweet.Office.RuntimeGuest
 SCRIPT
 chmod 0755 /usr/lib/csweet/prepare-runtime.sh

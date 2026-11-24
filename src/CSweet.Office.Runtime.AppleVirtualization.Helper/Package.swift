@@ -12,6 +12,9 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "CSweetAppleVirtualizationHelper",
-            path: "Sources/CSweetAppleVirtualizationHelper")
+            path: "Sources/CSweetAppleVirtualizationHelper"),
+        .testTarget(
+            name: "AppleHelperTests",
+            dependencies: ["CSweetAppleVirtualizationHelper"])
     ]
 )

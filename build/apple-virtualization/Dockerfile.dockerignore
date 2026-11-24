@@ -1,0 +1,13 @@
+**
+!Directory.Build.props
+!Directory.Build.targets
+!Directory.Packages.props
+!Office.GlobalUsings.cs
+!src/
+!src/**
+**/bin/
+**/obj/
+**/.build/
+!build/
+!build/linux-firecracker/
+!build/linux-firecracker/provision-guest.sh

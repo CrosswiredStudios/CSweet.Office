@@ -4,6 +4,7 @@ import Virtualization
 
 @available(macOS 14.0, *)
 final class VirtualMachineManager: NSObject, VZVirtualMachineDelegate {
+    private let computeOwnership: FileHandle?
     private let metadataPath: String
     private var metadata: InstanceMetadata
     private let queue = DispatchQueue(label: "com.csweet.apple-virtualization.vm")
@@ -18,16 +19,22 @@ final class VirtualMachineManager: NSObject, VZVirtualMachineDelegate {
         metadata = try loadMetadata(from: metadataPath)
         let instanceName = metadata.instanceId.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         let expectedDirectory = try paths.instanceDirectory(metadata.instanceId)
+        computeOwnership = metadata.kind == 3 ? try lockComputeManager(expectedDirectory) : nil
         guard metadataPath == (try safeChild(expectedDirectory, "instance.json")),
               metadata.scratchImagePath == (try safeChild(expectedDirectory, "scratch.raw")),
               metadata.managerSocketPath == (try safeChild(paths.managerSocketsRoot, instanceName + ".sock")),
-              metadata.kernelImagePath == URL(fileURLWithPath: paths.kernelImagePath).standardizedFileURL.path,
+              metadata.kernelImagePath == (try canonicalFile(paths.kernelImagePath)),
               metadata.managerToken.utf8.count >= 32 && metadata.managerToken.utf8.count <= 256 else {
             throw HelperError(code: "invalid-metadata", message: "The workload metadata escaped its protected instance.")
         }
+        metadata.managerPid = getpid()
         super.init()
-        virtualMachine = VZVirtualMachine(configuration: try makeConfiguration(), queue: queue)
-        virtualMachine.delegate = self
+        try metadata.resources.validate()
+        let configuration = try makeOfficeGuestConfiguration(kernel: metadata.kernelImagePath,
+            guest: metadata.guestImagePath, scratch: metadata.scratchImagePath, artifact: metadata.artifactImagePath,
+            cpus: metadata.resources.virtualCpuCount, memoryMiB: metadata.resources.memoryMegabytes, port: metadata.brokerPort, compute: metadata.kind == 3)
+        virtualMachine = VZVirtualMachine(configuration: configuration, queue: queue)
+        queue.sync { virtualMachine.delegate = self }
     }
 
     func run() throws -> Never {
@@ -73,8 +80,21 @@ final class VirtualMachineManager: NSObject, VZVirtualMachineDelegate {
                 exit(EXIT_SUCCESS)
             case "open-guest-channel":
                 let connection = try connectGuestChannel()
-                try sendResponse(.ok(transport: true), client)
-                relayDuplex(client, connection.fileDescriptor)
+                let channel = dup(client)
+                guard channel >= 0 else {
+                    throw HelperError(code: "channel-unavailable", message: "Could not open the guest channel.")
+                }
+                do {
+                    try sendResponse(.ok(transport: true), client)
+                } catch {
+                    close(channel)
+                    throw error
+                }
+                // Keep the manager available for inspect and stop while the broker stream is open.
+                DispatchQueue.global().async {
+                    defer { close(channel) }
+                    withExtendedLifetime(connection) { relayDuplex(channel, connection.fileDescriptor) }
+                }
             default:
                 throw HelperError(code: "invalid-operation", message: "The workload manager operation is not supported.")
             }
@@ -83,49 +103,6 @@ final class VirtualMachineManager: NSObject, VZVirtualMachineDelegate {
         } catch {
             try? sendResponse(.failure("manager-operation-failed", "The workload manager operation failed."), client)
         }
-    }
-
-    private func makeConfiguration() throws -> VZVirtualMachineConfiguration {
-        try metadata.resources.validate()
-        for path in [metadata.kernelImagePath, metadata.guestImagePath] {
-            guard FileManager.default.isReadableFile(atPath: path) else {
-                throw HelperError(code: "image-unavailable", message: "An immutable virtual machine image is unavailable.")
-            }
-        }
-        let configuration = VZVirtualMachineConfiguration()
-        configuration.platform = VZGenericPlatformConfiguration()
-        let bootLoader = VZLinuxBootLoader(kernelURL: URL(fileURLWithPath: metadata.kernelImagePath))
-        bootLoader.commandLine = "console=hvc0 panic=-1 reboot=t root=/dev/vda ro csweet.broker_port=\(metadata.brokerPort)"
-        configuration.bootLoader = bootLoader
-        configuration.cpuCount = max(VZVirtualMachineConfiguration.minimumAllowedCPUCount,
-            min(metadata.resources.virtualCpuCount, VZVirtualMachineConfiguration.maximumAllowedCPUCount))
-        let memoryBytes = UInt64(metadata.resources.memoryMegabytes) * 1_048_576
-        guard memoryBytes >= VZVirtualMachineConfiguration.minimumAllowedMemorySize,
-              memoryBytes <= VZVirtualMachineConfiguration.maximumAllowedMemorySize else {
-            throw HelperError(code: "invalid-resources", message: "The requested memory is unsupported on this host.")
-        }
-        configuration.memorySize = memoryBytes
-        configuration.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
-        configuration.socketDevices = [VZVirtioSocketDeviceConfiguration()]
-        configuration.networkDevices = []
-
-        var storage: [VZStorageDeviceConfiguration] = []
-        storage.append(try blockDevice(metadata.guestImagePath, readOnly: true))
-        storage.append(try blockDevice(metadata.scratchImagePath, readOnly: false))
-        if let artifact = metadata.artifactImagePath {
-            storage.append(try blockDevice(artifact, readOnly: true))
-        }
-        configuration.storageDevices = storage
-        try configuration.validate()
-        return configuration
-    }
-
-    private func blockDevice(_ path: String, readOnly: Bool) throws -> VZVirtioBlockDeviceConfiguration {
-        let attachment = try VZDiskImageStorageDeviceAttachment(
-            url: URL(fileURLWithPath: path), readOnly: readOnly,
-            cachingMode: readOnly ? .cached : .automatic,
-            synchronizationMode: readOnly ? .none : .full)
-        return VZVirtioBlockDeviceConfiguration(attachment: attachment)
     }
 
     private func start() throws {
@@ -138,6 +115,7 @@ final class VirtualMachineManager: NSObject, VZVirtualMachineDelegate {
             }
         }
         try result.get()
+        metadata.finishedAt = nil
         metadata.startedAt = metadata.startedAt ?? Date()
         try saveMetadata(metadata, to: metadataPath)
     }
@@ -170,12 +148,18 @@ final class VirtualMachineManager: NSObject, VZVirtualMachineDelegate {
     }
 
     private func connectGuestChannel() throws -> VZVirtioSocketConnection {
-        guard queue.sync(execute: { virtualMachine.state == .running }),
-              let device = virtualMachine.socketDevices.first as? VZVirtioSocketDevice else {
-            throw HelperError(code: "not-running", message: "The workload is not running.")
-        }
+        let port = metadata.brokerPort
         let result: Result<VZVirtioSocketConnection, Error> = waitOnQueue { completion in
-            device.connect(toPort: self.metadata.brokerPort, completionHandler: completion)
+            guard self.virtualMachine.state == .running,
+                  let device = self.virtualMachine.socketDevices.first as? VZVirtioSocketDevice else {
+                completion(.failure(HelperError(code: "not-running", message: "The workload is not running.")))
+                return
+            }
+            device.connect(toPort: port) { result in
+                completion(result.mapError { _ in
+                    HelperError(code: "guest-broker-unavailable", message: "The guest broker has not accepted the channel.")
+                })
+            }
         }
         return try result.get()
     }

@@ -42,7 +42,10 @@ struct HelperPaths {
         guard value.hasPrefix("/"), !value.contains("\0") else {
             throw HelperError(code: "invalid-path", message: "A configured Apple Virtualization path is invalid.")
         }
-        return URL(fileURLWithPath: value).standardizedFileURL.path
+        guard !value.split(separator: "/").contains("..") else {
+            throw HelperError(code: "invalid-path", message: "A configured path contains a parent traversal.")
+        }
+        return URL(fileURLWithPath: value).path
     }
 }
 
@@ -54,13 +57,17 @@ func safeChild(_ root: String, _ relative: String) throws -> String {
     guard !parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
         throw HelperError(code: "invalid-path", message: "A helper path escaped its protected root.")
     }
-    let normalizedRoot = URL(fileURLWithPath: root, isDirectory: true).standardizedFileURL.path
-    let candidate = URL(fileURLWithPath: relative, relativeTo: URL(fileURLWithPath: normalizedRoot, isDirectory: true))
-        .standardizedFileURL.path
-    guard candidate.hasPrefix(normalizedRoot.hasSuffix("/") ? normalizedRoot : normalizedRoot + "/") else {
-        throw HelperError(code: "invalid-path", message: "A helper path escaped its protected root.")
+    // These validated relative components cannot escape the configured root.
+    // Keep its spelling stable before and after the child is created on APFS.
+    return (root as NSString).appendingPathComponent(relative)
+}
+
+func canonicalFile(_ path: String) throws -> String {
+    guard path.hasPrefix("/"), let resolved = realpath(path, nil) else {
+        throw HelperError(code: "invalid-path", message: "A helper file path is invalid.")
     }
-    return candidate
+    defer { free(resolved) }
+    return String(cString: resolved)
 }
 
 func ensureProtectedDirectory(_ path: String) throws {
@@ -299,4 +306,16 @@ func verifyArtifactISO(path: String, expectedDigest: String) -> Bool {
 private func littleEndianUInt32(_ data: Data, _ offset: Int) -> UInt32 {
     UInt32(data[offset]) | UInt32(data[offset + 1]) << 8 |
         UInt32(data[offset + 2]) << 16 | UInt32(data[offset + 3]) << 24
+}
+
+// The kernel releases this lock when a VM manager exits, including after a host reboot.
+func lockComputeManager(_ directory: String) throws -> FileHandle {
+    let path = try safeChild(directory, "manager.lock")
+    let fd = open(path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
+    guard fd >= 0 else { throw HelperError(code: "manager-lock-failed", message: "Cannot open the Compute manager lock.") }
+    guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+        close(fd)
+        throw HelperError(code: "manager-active", message: "The Compute manager still owns the instance.")
+    }
+    return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
 }

@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-2022]
+        os: [ubuntu-latest, windows-2022, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +18,11 @@ jobs:
         with: { dotnet-version: '10.0.x' }
       - run: dotnet restore CSweet.Office.Independent.slnx -p:UseLocalOfficeContracts=false
       - run: dotnet build CSweet.Office.Independent.slnx -c Release --no-restore -p:UseLocalOfficeContracts=false
+      - name: Build and test native Apple VM helper
+        if: runner.os == 'macOS'
+        run: |
+          swift test --package-path src/CSweet.Office.Runtime.AppleVirtualization.Helper -c release
+          sh scripts/tests/test-office-storage.sh
       - name: Test independent Office
         shell: pwsh
         run: |

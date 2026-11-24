@@ -2,12 +2,16 @@
 
 **Audience:** a contributor on macOS building the Apple Virtualization backend.
 
-There is no automated isolation test script for macOS in this repository. `scripts/macos` contains
-`configure-office.sh`, `install-office.sh`, `new-installer-package.sh`, `new-runtime-payload.sh`,
-`uninstall-office.sh`, and two launchd plists — nothing that builds a guest image or certifies one. The
-certification smoke runner supports exactly two providers, `hyperv` on Windows and `firecracker` on
-Linux, so the Apple provider has no in-repo certification path. The supported way to produce a macOS
-payload is `scripts/macos/new-runtime-payload.sh` with inputs produced elsewhere.
+A fresh clone can build the native Swift helper and run the independent .NET tests on a Mac with the .NET 10 SDK and Xcode command-line tools. Run the following from the repository root.
+
+```sh
+dotnet test tests/CSweet.Office.Tests/CSweet.Office.Tests.csproj -c Release -p:UseLocalOfficeContracts=false
+swift build --package-path src/CSweet.Office.Runtime.AppleVirtualization.Helper -c release
+```
+
+CI runs both checks on macOS. Live builder and runtime acceptance additionally requires an architecture-matched Linux kernel, Office guest image, Linux guest probe, and an entitled helper on a virtualization-capable Mac.
+
+The Apple helper runs builder, runtime, toolchain-build and generic Compute workloads. The generic Compute partition offers an approved arm64 Linux template from an enrolled Mac Office. See [Mac Compute configuration and hardware verification](../40-operations/03-installation-macos.md#generic-compute-on-apple-silicon). Verified: 2026-11-23. [RuntimeHost registration](../../src/CSweet.Office.RuntimeHost/Program.cs) · [Apple helper](../../src/CSweet.Office.Runtime.AppleVirtualization.Helper/Sources/CSweetAppleVirtualizationHelper/HelperController.swift)
 
 ## Building the Swift helper
 
@@ -20,7 +24,7 @@ in neither solution:
 | Platform floor | `.macOS(.v14)` |
 | Product | `CSweet.Office.Runtime.AppleVirtualization.Helper` |
 | Target | `CSweetAppleVirtualizationHelper`, path `Sources/CSweetAppleVirtualizationHelper` |
-| Sources | `HelperController.swift`, `main.swift`, `Models.swift`, `SecureIO.swift`, `VirtualMachineManager.swift` |
+| Sources | `HelperController.swift`, `main.swift`, `Models.swift`, `SecureIO.swift`, `LinuxGuestConfiguration.swift`, `VirtualMachineManager.swift` |
 | Entitlement | `CSweet.AppleVirtualization.entitlements` — `com.apple.security.virtualization` = `true` |
 
 ```bash
@@ -38,14 +42,14 @@ arguments and one JSON request on standard input, and writes one JSON response:
 echo '{}' | ./CSweet.Office.Runtime.AppleVirtualization.Helper --protocol 1.0 --operation probe
 ```
 
-The operation allow-list is `probe`, `create`, `start`, `inspect`, `stop`, `destroy`, `reap`, `logs`, and
+The operation allow-list is `probe`, `create`, `start`, `inspect`, `stop`, `destroy`, `inspect-destruction`, `reap`, `logs`, and
 `open-guest-channel`. Anything else is rejected as `invalid-arguments`. The runtime independently enforces
 `macOS 14` and reports `unsupported-host` below it. `--workload-host <instance.json>` is the internal
 manager mode that `create` spawns; it is not part of the helper protocol surface
 (`SEC-INV-20` governs the helper boundary).
 
 Signing: the payload script signs the helper with `--entitlements CSweet.AppleVirtualization.entitlements`,
-then fails the build unless `plutil -extract com.apple.security.virtualization raw` returns `true`.
+then fails the build unless the literal entitlement key is Boolean true.
 A locally built helper is unsigned, so sign local builds the same way before running anything that needs
 the Virtualization framework.
 
@@ -115,11 +119,46 @@ in the payload, re-verifies all three signatures plus the entitlement, stages th
 `/Library/Application Support/CSweet/Office/InstallerPayload`, and submits the package to
 `notarytool` before stapling.
 
-> **Out of repo:** the kernel, the guest image, its signature, the signing certificate, and the
-> certification evidence are inputs to this repository's payload script, not outputs of it. Producing
-> and certifying an Apple Virtualization guest image is owned outside this repository; the in-repo
-> evidence for that boundary is the argument list of `scripts/macos/new-runtime-payload.sh` and the
-> absence of any macOS entry in the smoke runner's provider checks.
+## Build and boot a development guest on the Mac
+
+Start Docker Desktop and run these commands from the Office checkout on an Apple silicon Mac. Use a new output directory. On Intel, select `linux/amd64`.
+
+```sh
+docker buildx build --platform linux/arm64 -f build/apple-virtualization/Dockerfile \
+  --output type=local,dest=artifacts/apple-guest .
+./scripts/macos/test-guest-boot.sh artifacts/apple-guest
+```
+
+The Docker build exports an Ubuntu kernel (`vmlinux`), its matching `initrd.img`, a read-only ext4 Office guest and the Linux certification probe. It reuses the Office provisioning script for virtio block devices and the guest broker. The boot check signs a temporary test executable locally, starts the shared Apple VM configuration with two vCPUs, 1 GiB RAM, a fresh scratch disk and zero network devices, connects to the Office broker on virtio socket port 5000, and stops the VM. It runs as the logged-in user. [Guest build](../../build/apple-virtualization/Dockerfile) · [Boot check](../../scripts/macos/test-guest-boot.sh)
+
+For a packaged guest that needs an initial RAM disk, set `CSWEET_GUEST_INITRD` to the matching file when building the runtime payload. It is included in the manifest digest checks alongside the kernel. Existing kernel-only payloads can boot without it.
+
+## Run the hardware acceptance test
+
+The shared certification runner boots two disposable VMs. The runtime probe checks the workload identity, network isolation, mounts, and broker. The builder fetches a fixture through the broker, compiles it with the guest SDK, and returns an executable artifact for digest verification. On November 23, 2026, all 18 checks in suite `csweet-hardware-vm-smoke-v14` passed on an Apple silicon Mac Studio with macOS 26.5.
+
+For a local developer run, build the guest above and run the following from your trusted Office checkout. The test uses a locally signed helper and a private directory, with no launchd install.
+
+```sh
+helper_project=src/CSweet.Office.Runtime.AppleVirtualization.Helper
+swift build --package-path "$helper_project" -c release
+helper_dir=$(swift build --package-path "$helper_project" -c release --show-bin-path)
+dotnet build src/CSweet.Office.WindowsSmokeTest -c Release
+
+output=$(sudo mktemp -d /private/tmp/csweet-office.XXXXXX)
+sudo install -m 0755 "$helper_dir/CSweet.Office.Runtime.AppleVirtualization.Helper" "$output/helper"
+sudo codesign --force --sign - --entitlements "$helper_project/CSweet.AppleVirtualization.entitlements" "$output/helper"
+sudo install -m 0444 artifacts/apple-guest/{vmlinux,initrd.img,csweet-agent-guest.img,CSweet.Office.GuestProbe} "$output/"
+sudo ditto src/CSweet.Office.WindowsSmokeTest/bin/Release/net10.0 "$output/runner"
+sudo env CSWEET_APPLE_VIRTUALIZATION_PACKAGE_ROOT="$output" CSWEET_APPLE_VIRTUALIZATION_SOCKET_ROOT="$output/sockets" \
+  "$(command -v dotnet)" "$output/runner/CSweet.Office.WindowsSmokeTest.dll" \
+  --provider apple --helper "$output/helper" --guest-image "$output/csweet-agent-guest.img" \
+  --probe "$output/CSweet.Office.GuestProbe" --output-root "$output/run" --evidence "$output/evidence.json"
+```
+
+After a successful run, save the report with `sudo cat "$output/evidence.json" > artifacts/macos-acceptance.json`. The disposable files are under the path printed by `echo "$output"`.
+
+For release evidence, pass `--certification-expires-at "$CSWEET_CERTIFICATION_VALID_UNTIL"` with the protected release expiry in ISO 8601 format. Developer runs can omit this option. The release workflow consumes the guest image, signature, certificate and acceptance evidence as protected inputs. See `scripts/release/Invoke-MacRelease.ps1` and `src/CSweet.Office.WindowsSmokeTest/Program.cs`.
 
 ## Sources
 
@@ -131,4 +170,4 @@ in the payload, re-verifies all three signatures plus the entitlement, stages th
 `src/CSweet.Office.Runtime.Core/PlatformRuntimePayloadManifest.cs`, `src/CSweet.Office.WindowsSmokeTest/Program.cs`,
 `docs/30-workloads/07-provider-backends.md`.
 
-Verified: 2026-09-15.
+Verified: 2026-11-23.
