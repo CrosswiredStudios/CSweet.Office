@@ -46,6 +46,7 @@ office_list_volumes() {
   else
     # APFS's writable Data volume represents the system destination; sealed System,
     # Preboot, Recovery and VM mounts must not appear as independent choices.
+    registered_id=${1:-}
     diskutil list -plist internal | plutil -extract AllDisks xml1 -o - - |
       sed -n 's/.*<string>\([^<]*\)<\/string>.*/\1/p' |
     while IFS= read -r disk; do
@@ -54,7 +55,12 @@ office_list_volumes() {
       mount=$(field MountPoint); id=$(field VolumeUUID); fs=$(field FilesystemType)
       [ "$(field Internal)" = true ] || continue
       case "$fs" in apfs|hfs) ;; *) continue ;; esac
-      case "$mount" in /System/Volumes/Data) mount=/ ;; /System/*|'') continue ;; esac
+      case "$mount" in
+        /System/Volumes/Data) mount=/ ;;
+        /) # Only retain a sealed-root UUID if an earlier installation registered it.
+           [ "$id" = "$registered_id" ] || continue ;;
+        /System/*|'') continue ;;
+      esac
       office_safe_value "$mount" && office_safe_value "$id" || continue
       reason=-
       if [ "$(field ReadOnlyVolume)" = true ] || [ "$(field ReadOnlyMedia)" = true ]; then reason='The volume is read only'; fi
@@ -115,7 +121,7 @@ office_load_storage() {
     # or treating this service namespace's read-only root as an unsuitable host volume.
     office_verify_linux_mount || return 2
   else
-    observed=$(office_list_volumes | awk -F '|' -v id="$office_volume_id" -v mount="$office_mount" '$1==id && $2==mount && $8=="-" {print $1}')
+    observed=$(office_list_volumes "$office_volume_id" | awk -F '|' -v id="$office_volume_id" -v mount="$office_mount" '$1==id && $2==mount && $8=="-" {print $1}')
     [ "$observed" = "$office_volume_id" ] || { echo 'The Office volume is unavailable, replaced, or unsuitable.' >&2; return 2; }
   fi
   office_assert_path "$office_install_root" && office_assert_path "$office_data_root"
@@ -175,6 +181,7 @@ office_xml_escape() { printf '%s' "$1" | sed 's/\&/\&amp;/g; s/</\&lt;/g; s/>/\&
 office_render_plist() {
   sed -e "s|__OFFICE_INSTALL_ROOT__|$(office_sed_escape "$(office_xml_escape "$office_install_root")")|g" \
       -e "s|__OFFICE_DATA_ROOT__|$(office_sed_escape "$(office_xml_escape "$office_data_root")")|g" \
+      -e "s|__GATEWAY_SHA256__|${gateway_sha256:-}|g" \
       -e "s|__CONTROL_PLANE_URL__|$(office_sed_escape "$(office_xml_escape "$control_plane")")|g" \
       -e "s|__SECURITY_PROFILE__|$security_profile|g" \
       -e "s|__MIXED_USE_HOST__|$mixed_use|g" \
@@ -191,4 +198,15 @@ office_verify_linux_mount() {
     echo 'The registered Office volume is missing or has been replaced.' >&2
     return 2
   }
+}
+
+# A stopped Compute VM still owns its private disk. The Apple helper retains a
+# terminal record after exact removal; .lock files are synchronization only.
+office_has_unretired_apple_compute() {
+  for attempt in "$office_data_root"/AppleVirtualization/compute-attempts/*; do
+    [ -f "$attempt" ] || continue
+    case "$attempt" in *.lock) continue ;; esac
+    case "$(cat "$attempt")" in retired|never-created) ;; *) return 0 ;; esac
+  done
+  return 1
 }

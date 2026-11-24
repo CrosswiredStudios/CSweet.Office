@@ -5,4 +5,4 @@ artifacts/
 *.user
 *.pfx
 *.key
-
+/src/CSweet.Office.Runtime.AppleVirtualization.Helper/.build/

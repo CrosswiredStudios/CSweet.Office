@@ -12,6 +12,12 @@ final class HelperController {
 
     func execute(_ operation: String, request: PlatformRequest) -> PlatformResponse {
         do {
+            if let key = request.attemptKey {
+                return try computeAttempt(operation, request: request, key: key)
+            }
+            if request.computeEnvironment != nil || request.handle?.kind == 3 && operation == "destroy" {
+                throw HelperError(code: "attempt-required", message: "Compute creation and removal require exact attempt authority.")
+            }
             switch operation {
             case "probe": return try probe()
             case "create": return try create(request)
@@ -55,11 +61,13 @@ final class HelperController {
         return .ok(transport: true)
     }
 
-    private func create(_ request: PlatformRequest) throws -> PlatformResponse {
+    private func create(_ request: PlatformRequest, computeId: UUID? = nil) throws -> PlatformResponse {
         _ = try probe()
-        guard let workload = request.singleWorkload,
-              (request.builderWorkload == nil) != (request.runtimeWorkload == nil) else {
+        guard let workload = request.singleWorkload else {
             throw HelperError(code: "invalid-workload", message: "Exactly one typed workload must be supplied.")
+        }
+        guard (computeId != nil) == (workload.kind == 3) else {
+            throw HelperError(code: "invalid-workload", message: "The workload kind does not match the request.")
         }
         try workload.resourceLimits.validate()
         guard let guestValue = request.guestImagePath,
@@ -69,10 +77,13 @@ final class HelperController {
         }
         let guestImage = try canonicalFile(guestValue)
         var artifactImage: String?
-        if let artifact = workload.artifact {
+        if request.runtimeWorkload != nil || request.toolchainBuildWorkload != nil {
+            guard let artifact = request.runtimeWorkload?.artifact ?? request.toolchainBuildWorkload?.adapterArtifact else {
+                throw HelperError(code: "invalid-artifact-media", message: "The workload artifact reference is missing.")
+            }
             guard let value = request.artifactImagePath,
                   let resolved = try? canonicalFile(value),
-                  URL(fileURLWithPath: resolved).deletingLastPathComponent().path == URL(fileURLWithPath: paths.artifactMediaRoot).standardizedFileURL.path,
+                  URL(fileURLWithPath: resolved).deletingLastPathComponent().path == (try? canonicalFile(paths.artifactMediaRoot)),
                   URL(fileURLWithPath: resolved).lastPathComponent == String(artifact.digest.dropFirst(7)) + ".iso",
                   verifyArtifactISO(path: resolved, expectedDigest: artifact.digest) else {
                 throw HelperError(code: "invalid-artifact-media", message: "The runtime artifact media failed its path or integrity check.")
@@ -82,7 +93,7 @@ final class HelperController {
             throw HelperError(code: "invalid-artifact-media", message: "Builder workloads cannot attach runtime artifact media.")
         }
 
-        let instanceId = UUID()
+        let instanceId = computeId ?? UUID()
         let directory = try paths.instanceDirectory(instanceId)
         try ensureProtectedDirectory(directory)
         let scratch = try safeChild(directory, "scratch.raw")
@@ -90,30 +101,113 @@ final class HelperController {
         let socketPath = try safeChild(paths.managerSocketsRoot,
             instanceId.uuidString.replacingOccurrences(of: "-", with: "").lowercased() + ".sock")
         do {
-            try createScratch(scratch, megabytes: workload.resourceLimits.writableDiskMegabytes)
-            var metadata = InstanceMetadata(
+            if computeId != nil {
+                let size = off_t(workload.resourceLimits.writableDiskMegabytes) * 1_048_576
+                let original = try FileManager.default.attributesOfItem(atPath: guestImage)[.size] as? NSNumber
+                guard let original, original.int64Value <= size else {
+                    throw HelperError(code: "invalid-resources", message: "The Compute template exceeds the disk quota.")
+                }
+                try FileManager.default.copyItem(atPath: guestImage, toPath: scratch)
+                guard chmod(scratch, 0o600) == 0, truncate(scratch, size) == 0 else {
+                    throw HelperError(code: "disk-create-failed", message: "The private Compute disk could not be sized.")
+                }
+            } else {
+                try createScratch(scratch, megabytes: workload.resourceLimits.writableDiskMegabytes)
+            }
+            let metadata = InstanceMetadata(
                 instanceId: instanceId, workloadId: workload.workloadId, kind: workload.kind,
                 managerPid: 0, managerSocketPath: socketPath, managerToken: try secureRandomToken(),
                 guestImagePath: guestImage, artifactImagePath: artifactImage,
                 kernelImagePath: try canonicalFile(paths.kernelImagePath), scratchImagePath: scratch,
-                resources: workload.resourceLimits, brokerPort: paths.brokerPort,
+                resources: workload.resourceLimits, brokerPort: computeId == nil ? paths.brokerPort : 2763,
                 createdAt: Date(), startedAt: nil, finishedAt: nil,
                 leaseExpiresAt: request.runtimeWorkload == nil ? nil : workload.brokerLease.expiresAt)
             try saveMetadata(metadata, to: metadataPath)
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: try helperExecutable())
-            process.arguments = ["--workload-host", metadataPath]
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            metadata.managerPid = process.processIdentifier
-            try saveMetadata(metadata, to: metadataPath)
-            try waitForManager(socketPath, timeout: 10)
+            try launchManager(metadataPath: metadataPath, socket: socketPath)
             return PlatformResponse(success: true, providerInstanceId: metadata.handle.providerInstanceId)
         } catch {
-            try? FileManager.default.removeItem(atPath: directory)
+            if computeId == nil { try? FileManager.default.removeItem(atPath: directory) }
             throw error
+        }
+    }
+
+    // The signed partition uses the environment UUID as its creation key. Keep a
+    // durable tombstone even after removing the disk so delayed creates cannot replay.
+    private func computeAttempt(_ operation: String, request: PlatformRequest, key: UUID) throws -> PlatformResponse {
+        guard geteuid() == 0, key != UUID(uuidString: "00000000-0000-0000-0000-000000000000"),
+              request.handle == nil else { throw HelperError(code: "invalid-attempt", message: "Invalid Compute attempt.") }
+        let root = try safeChild(paths.dataRoot, "compute-attempts")
+        try ensureProtectedDirectory(root)
+        let id = key.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let path = try safeChild(root, id)
+        let lock = open(path + ".lock", O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard lock >= 0 else { throw HelperError(code: "attempt-lock-failed", message: "Cannot lock the Compute attempt.") }
+        defer { close(lock) }
+        guard flock(lock, LOCK_EX) == 0 else { throw HelperError(code: "attempt-lock-failed", message: "Cannot lock the Compute attempt.") }
+        let phase = FileManager.default.fileExists(atPath: path) ? try String(contentsOfFile: path, encoding: .utf8) : nil
+        func save(_ value: String) throws { try value.write(toFile: path, atomically: true, encoding: .utf8) }
+        if operation == "create" {
+            guard phase == nil, request.computeEnvironment?.workloadId == key, request.computeEnvironment?.kind == 3,
+                  request.singleWorkload != nil else {
+                throw HelperError(code: "invalid-attempt", message: "The Compute attempt is invalid or already recorded.")
+            }
+            try save("preparing")
+            let result = try create(request, computeId: key)
+            try save("created")
+            return result
+        }
+        guard request.recoveryWorkloadKind == 3, request.recoveryWorkloadId == key else {
+            throw HelperError(code: "invalid-attempt", message: "Compute recovery identity does not match.")
+        }
+        let handle = WorkloadHandle(providerId: providerID, workloadId: key, providerInstanceId: id, kind: 3)
+        let directory = try paths.instanceDirectory(key)
+        switch operation {
+        case "inspect":
+            guard phase == "created" || phase == "preparing" else { return .failure("creation-unconfirmed", "Compute creation is unconfirmed.") }
+            guard let loaded = try? load(handle) else { return .failure("creation-unconfirmed", "Compute creation is unconfirmed.") }
+            if phase == "preparing" {
+                guard (try? managerResponse("inspect", metadata: loaded.metadata))?.success == true else {
+                    return .failure("creation-unconfirmed", "Compute manager creation is unconfirmed.")
+                }
+                try save("created")
+            }
+            return PlatformResponse(success: true, providerInstanceId: id)
+        case "inspect-destruction":
+            guard phase == "retired" || phase == "never-created" else { return .failure("destruction-unconfirmed", "Compute removal is unconfirmed.") }
+            return PlatformResponse(success: true, providerInstanceId: phase == "retired" ? id : nil)
+        case "destroy":
+            if phase == nil || phase == "never-created" {
+                guard !FileManager.default.fileExists(atPath: directory) else { return .failure("destruction-unconfirmed", "Unexpected instance data exists.") }
+                try save("never-created")
+                return .ok()
+            }
+            if phase != "retired" {
+                if FileManager.default.fileExists(atPath: directory) {
+                    let socket = try safeChild(paths.managerSocketsRoot, id + ".sock")
+                    if let loaded = try? load(handle) {
+                        // A responsive manager must confirm shutdown. If it has already
+                        // exited, its kernel lock independently proves the disk is unused.
+                        if let response = try? managerResponse("destroy", metadata: loaded.metadata, grace: 0),
+                           !response.success { return response }
+                    } else if phase != "preparing" {
+                        return .failure("destruction-unconfirmed", "Compute metadata is unavailable.")
+                    }
+                    var ownership: FileHandle?
+                    for _ in 0..<100 {
+                        ownership = try? lockComputeManager(directory)
+                        if ownership != nil { break }
+                        Thread.sleep(forTimeInterval: 0.02)
+                    }
+                    guard let ownership else { return .failure("destruction-unconfirmed", "Compute manager still owns the disk.") }
+                    try withExtendedLifetime(ownership) {
+                        try FileManager.default.removeItem(atPath: directory)
+                        unlink(socket)
+                    }
+                }
+                try save("retired")
+            }
+            return PlatformResponse(success: true, providerInstanceId: id)
+        default: throw HelperError(code: "invalid-attempt", message: "Unsupported Compute recovery operation.")
         }
     }
 
@@ -123,8 +217,16 @@ final class HelperController {
         catch let error as HelperError where error.code == "not-found" {
             return operation == "inspect" ? .failure("not-found", "The workload was not found.") : .ok()
         }
-        let response = try managerResponse(
-            operation, metadata: loaded.metadata, grace: request.gracePeriodSeconds)
+        let response: PlatformResponse
+        do { response = try managerResponse(operation, metadata: loaded.metadata, grace: request.gracePeriodSeconds) }
+        catch where loaded.metadata.kind == 3 && ["start", "stop", "inspect"].contains(operation) {
+            // Only an unowned private disk may acquire a replacement manager.
+            let ownership = try lockComputeManager(loaded.directory)
+            unlink(loaded.metadata.managerSocketPath)
+            try ownership.close()
+            try launchManager(metadataPath: safeChild(loaded.directory, "instance.json"), socket: loaded.metadata.managerSocketPath)
+            response = try managerResponse(operation, metadata: loaded.metadata, grace: request.gracePeriodSeconds)
+        }
         if operation == "destroy", response.success {
             unlink(loaded.metadata.managerSocketPath)
             try? FileManager.default.removeItem(atPath: loaded.directory)
@@ -193,6 +295,17 @@ final class HelperController {
         try sendAll(descriptor, data)
     }
 
+    private func launchManager(metadataPath: String, socket: String) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try helperExecutable())
+        process.arguments = ["--workload-host", metadataPath]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        try waitForManager(socket, timeout: 10)
+    }
+
     private func waitForManager(_ path: String, timeout: TimeInterval) throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -214,14 +327,6 @@ final class HelperController {
         guard ftruncate(descriptor, off_t(megabytes) * 1_048_576) == 0 else {
             throw HelperError(code: "scratch-create-failed", message: "The bounded scratch device could not be sized.")
         }
-    }
-
-    private func canonicalFile(_ path: String) throws -> String {
-        guard path.hasPrefix("/"), let resolved = realpath(path, nil) else {
-            throw HelperError(code: "invalid-path", message: "A helper file path is invalid.")
-        }
-        defer { free(resolved) }
-        return String(cString: resolved)
     }
 
     private func helperExecutable() throws -> String {

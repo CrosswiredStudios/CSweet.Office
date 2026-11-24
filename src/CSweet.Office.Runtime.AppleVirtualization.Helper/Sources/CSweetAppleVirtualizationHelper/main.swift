@@ -30,14 +30,24 @@ do {
         : try JSONDecoder.csweet.decode(PlatformRequest.self, from: payload)
     let controller = HelperController(paths: try HelperPaths.resolve())
     if arguments.operation == "open-guest-channel" {
-        let manager = try controller.openGuestChannel(request)
-        defer { close(manager) }
-        let handshakeData = try readSocketLine(manager)
-        let handshake = try JSONDecoder.csweet.decode(PlatformResponse.self, from: handshakeData)
-        try writeResponse(handshake, to: .standardOutput, newline: true)
-        responseCommitted = true
-        if handshake.success && handshake.guestChannelTransport == guestChannelTransport {
-            relaySplit(input: STDIN_FILENO, output: STDOUT_FILENO, peer: manager)
+        // A running VM can still be starting Linux and its broker. Retry in the channel
+        // process so the manager can service stop and inspect throughout guest boot.
+        let deadline = ProcessInfo.processInfo.systemUptime + 115
+        while true {
+            let manager = try controller.openGuestChannel(request)
+            defer { close(manager) }
+            let handshakeData = try readSocketLine(manager)
+            let handshake = try JSONDecoder.csweet.decode(PlatformResponse.self, from: handshakeData)
+            if handshake.errorCode == "guest-broker-unavailable", ProcessInfo.processInfo.systemUptime < deadline {
+                Thread.sleep(forTimeInterval: 0.25)
+                continue
+            }
+            try writeResponse(handshake, to: .standardOutput, newline: true)
+            responseCommitted = true
+            if handshake.success && handshake.guestChannelTransport == stdioGuestChannelTransport {
+                relaySplit(input: STDIN_FILENO, output: STDOUT_FILENO, peer: manager)
+            }
+            break
         }
     } else {
         let response = controller.execute(arguments.operation, request: request)
@@ -62,7 +72,7 @@ private struct Arguments {
 }
 
 private func parseArguments(_ values: [String]) throws -> Arguments {
-    let allowed = Set(["probe", "create", "start", "inspect", "stop", "destroy", "reap", "logs", "open-guest-channel"])
+    let allowed = Set(["probe", "create", "start", "inspect", "inspect-destruction", "stop", "destroy", "reap", "logs", "open-guest-channel"])
     guard values.count == 4 else {
         throw HelperError(code: "invalid-arguments", message: "The helper arguments are incomplete.")
     }

@@ -87,8 +87,7 @@ public sealed class OfficeStateStore(OfficeOptions options)
     {
         Directory.CreateDirectory(_directory);
         if (File.Exists(CertificatePath))
-            return X509CertificateLoader.LoadPkcs12FromFile(CertificatePath, null,
-                X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet);
+            return LoadIdentityCertificate();
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var request = new CertificateRequest(
             $"CN=CSweet Office {Environment.MachineName}", key, HashAlgorithmName.SHA256);
@@ -97,8 +96,16 @@ public sealed class OfficeStateStore(OfficeOptions options)
         request.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(request.PublicKey, false));
         using var generated = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(7));
         File.WriteAllBytes(CertificatePath, generated.Export(X509ContentType.Pfx));
-        return X509CertificateLoader.LoadPkcs12FromFile(CertificatePath, null,
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet);
+        return LoadIdentityCertificate();
+    }
+
+    private X509Certificate2 LoadIdentityCertificate()
+    {
+        // launchd service identities have no interactive login keychain. The protected PFX
+        // already provides durable storage across restarts.
+        var flags = OperatingSystem.IsMacOS() ? X509KeyStorageFlags.Exportable
+            : X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet;
+        return X509CertificateLoader.LoadPkcs12FromFile(CertificatePath, null, flags);
     }
 
     public string GetCertificatePath() => CertificatePath;
@@ -137,8 +144,7 @@ public sealed class OfficeStateStore(OfficeOptions options)
                 File.WriteAllBytes(temporary, combined.Export(X509ContentType.Pfx));
                 File.Move(temporary, CertificatePath, true);
             }
-            return X509CertificateLoader.LoadPkcs12FromFile(CertificatePath, null,
-                X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet);
+            return LoadIdentityCertificate();
         }
     }
 

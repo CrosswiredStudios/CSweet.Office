@@ -71,7 +71,7 @@ public sealed partial class RuntimeHostRpcIntegrationTests
         var endpoint = new RuntimeHostEndpointOptions
         {
             NamedPipeName = $"csweet-runtime-test-{Guid.NewGuid():N}",
-            UnixSocketPath = Path.Combine(Path.GetTempPath(), $"csweet-runtime-test-{Guid.NewGuid():N}.sock"),
+            UnixSocketPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.sock"),
             ConnectTimeoutSeconds = 5
         };
         if (OperatingSystem.IsWindows())
@@ -122,7 +122,7 @@ public sealed partial class RuntimeHostRpcIntegrationTests
         var endpoint = new RuntimeHostEndpointOptions
         {
             NamedPipeName = $"csweet-runtime-test-{Guid.NewGuid():N}",
-            UnixSocketPath = Path.Combine(Path.GetTempPath(), $"csweet-runtime-test-{Guid.NewGuid():N}.sock"),
+            UnixSocketPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.sock"),
             ConnectTimeoutSeconds = 5
         };
         if (OperatingSystem.IsWindows())
