@@ -38,7 +38,7 @@ The headquarters gateway, scheduling, enrollment approval, certificates, artifac
 | Understand the trust chain and privilege split | [Trust model](docs/10-system/02-trust-model.md), [Host privilege model](docs/20-security/06-host-privilege-model.md) |
 | Know what must never change | [Security invariants](docs/20-security/11-security-invariants.md) |
 | Follow an assignment end to end | [Runtime workload lifecycle](docs/30-workloads/02-runtime-workload-lifecycle.md) |
-| Build, test, and run a local payload | [Getting started](docs/50-development/01-getting-started.md), [Windows development loop](docs/50-development/04-windows-dev-loop.md) |
+| Build, test, and run a local payload | [Getting started](docs/50-development/01-getting-started.md), [macOS development loop](docs/50-development/06-macos-dev-loop.md), [Windows development loop](docs/50-development/04-windows-dev-loop.md) |
 | Install, upgrade, drain, or recover an Office | [Operations](docs/40-operations/README.md) |
 | Cut a release | [Release pipeline](docs/60-release/04-release-pipeline.md) |
 
@@ -66,6 +66,14 @@ dotnet build CSweet.Office.Independent.slnx -c Release -p:UseLocalOfficeContract
 The primary solution loads the sibling `CSweet.Office.Contracts` project for Visual Studio development. The independent solution intentionally excludes that project and verifies the published package boundary used by CI and releases.
 
 Install Office independently, create a one-use enrollment in C-Sweet, connect it to the gateway, verify its fingerprint, and approve it. C-Sweet AppHost does not launch Office.
+
+### macOS installation and development
+
+For agent builds and runtimes on a Mac, use a signed, notarized Office package for the host architecture (arm64 for Apple silicon or x64 for Intel). Install it, then run the command shown in Headquarters Agent Execution. The configurator reads the one-use code at its prompt. A Mac can also run Headquarters with an enrolled Office on a different host. [Mac installation](docs/40-operations/03-installation-macos.md)
+
+An enrolled Apple silicon Office can also host generic arm64 Linux Compute VMs for a business. [Configure and test generic Compute](docs/40-operations/03-installation-macos.md#generic-compute-on-apple-silicon)
+
+To build the Apple Virtualization.framework helper and run the managed Office tests from a fresh clone, follow the [macOS development loop](docs/50-development/06-macos-dev-loop.md). The [Mac guest build and boot check](docs/50-development/06-macos-dev-loop.md#build-and-boot-a-development-guest-on-the-mac) produces the matching Linux kernel, guest image and probe locally and boots the guest without administrator privileges.
 
 ### Windows development installation
 

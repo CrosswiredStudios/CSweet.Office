@@ -7,6 +7,7 @@
   <key>EnvironmentVariables</key><dict>
     <key>CSweet__Office__Providers__AppleVirtualization__ArtifactImageRoot</key><string>__OFFICE_DATA_ROOT__/artifact-media</string>
     <key>CSweet__Office__Providers__AppleVirtualization__PayloadManifestPath</key><string>__OFFICE_INSTALL_ROOT__/runtime-manifest.json</string>
+    <key>CSweet__Office__RuntimeHost__UnixSocketPath</key><string>/var/run/csweet-office/rpc.sock</string>
     <key>CSweet__Office__RuntimeHost__Authentication__SharedKeyFilePath</key><string>__OFFICE_DATA_ROOT__/runtime-host.key</string>
     <key>CSweet__Office__RuntimeHost__Authorization__StateDirectory</key><string>__OFFICE_DATA_ROOT__/authorization</string>
     <key>CSWEET_APPLE_VIRTUALIZATION_DATA_ROOT</key><string>__OFFICE_DATA_ROOT__/AppleVirtualization</string>

@@ -21,7 +21,7 @@ printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {
 [ ! -e "$output_pkg" ] || { echo "Output already exists: $output_pkg" >&2; exit 2; }
 
 script_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-for required in runtime-manifest.json install-office.sh uninstall-office.sh \
+for required in runtime-manifest.json install-office.sh uninstall-office.sh configure-compute.sh \
   com.csweet.office.runtime.plist com.csweet.office.node.plist CSweet.Office.RuntimeHost CSweet.Office.Node \
   CSweet.Office.Runtime.AppleVirtualization.Helper; do
   [ -e "$payload_root/$required" ] || { echo "Payload is missing $required." >&2; exit 2; }
@@ -36,7 +36,7 @@ codesign --verify --strict --deep "$payload_root/CSweet.Office.RuntimeHost"
 codesign --verify --strict --deep "$payload_root/CSweet.Office.Node"
 codesign --verify --strict "$payload_root/CSweet.Office.Runtime.AppleVirtualization.Helper"
 entitlement_value=$(codesign -d --entitlements :- "$payload_root/CSweet.Office.Runtime.AppleVirtualization.Helper" 2>/dev/null | \
-  plutil -extract com.apple.security.virtualization raw -o - -)
+  plutil -extract 'com\.apple\.security\.virtualization' raw -expect bool -o - -)
 [ "$entitlement_value" = true ] || { echo "The helper is missing the Apple Virtualization entitlement." >&2; exit 2; }
 
 build_root=$(mktemp -d)
@@ -47,6 +47,7 @@ mkdir -p "$staged_payload" "$package_root/usr/local/sbin" "$(dirname "$output_pk
 ditto "$payload_root" "$staged_payload"
 install -m 0755 "$script_root/configure-office.sh" \
   "$package_root/usr/local/sbin/csweet-configure-office"
+install -m 0755 "$payload_root/configure-compute.sh" "$package_root/usr/local/sbin/csweet-configure-compute"
 install -m 0644 "$script_root/../office-storage.sh" "$package_root/usr/local/sbin/csweet-office-storage.sh"
 install -m 0755 "$script_root/uninstall-office.sh" \
   "$package_root/usr/local/sbin/csweet-uninstall-office"

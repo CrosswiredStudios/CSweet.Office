@@ -9,6 +9,7 @@ using CSweet.Office.Contracts.Security;
 using CSweet.Office.Runtime.Abstractions;
 using CSweet.Office.Runtime.Core;
 using CSweet.Office.Runtime.HyperV;
+using CSweet.Office.Runtime.AppleVirtualization;
 using CSweet.Office.Runtime.LocalRpc;
 using CSweet.Office.Runtime.Protocol;
 using Google.Protobuf;
@@ -29,22 +30,24 @@ public sealed class OfficeComputeOptions
     public string[] Features { get; set; } = [];
 }
 
-internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperVIsolationBackendOptions runtime,
+internal sealed class OfficeComputePartition(OfficeComputeOptions policy, PlatformIsolationBackendOptions runtime,
+    IPlatformIsolationBackend installedBackend,
     RuntimeHostAuthorizationOptions storage, RuntimeHostAuthorizationGate trust, TimeProvider clock,
     ILogger<OfficeComputePartition> logger) : BackgroundService, IOfficeComputePartition
 {
-    private const string Provider = "office-hyperv";
+    private static string Provider => OperatingSystem.IsMacOS() ? "office-apple-virtualization" : "office-hyperv";
+    private static string Architecture => OperatingSystem.IsMacOS() ? IsolationProviderCatalog.AppleVirtualization().HostArchitecture : "x64";
     private static readonly HashSet<string> Actions = [InfrastructureActions.Provision, InfrastructureActions.Execute,
         InfrastructureActions.Start, InfrastructureActions.Stop, InfrastructureActions.Restart, InfrastructureActions.Destroy];
     private readonly SemaphoreSlim initialization = new(1);
     private readonly WindowsHyperVSocketTransport socket = new(new() { LinuxVsockPort = ComputeGuestWire.Port });
     private State? state;
-    private sealed record State(PinnedHeadquartersTrust Trust, ComputeTemplate Template, HyperVIsolationBackend Backend,
+    private sealed record State(PinnedHeadquartersTrust Trust, ComputeTemplate Template, ComputeBackend Backend,
         ComputeReplayJournal Journal, ComputeDispatchVerifier Verifier);
 
     private async Task<State?> OpenAsync(CancellationToken token)
     {
-        if (policy.OrganizationId == Guid.Empty || !OperatingSystem.IsWindows()) return null;
+        if (policy.OrganizationId == Guid.Empty || !(OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())) return null;
         await initialization.WaitAsync(token);
         try
         {
@@ -60,13 +63,14 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
                 new(pin.AssignmentSigningKeyId, Convert.ToBase64String(pin.AssignmentVerificationPublicKey)));
             var directory = Path.Combine(storage.ResolveStateDirectory(), "compute-journal");
             Directory.CreateDirectory(directory);
-            var journal = ComputeReplayJournal.OpenForWindowsService(directory, enrollment, capacity, clock, "CSweet.Office.RuntimeHost");
+            var journal = OperatingSystem.IsMacOS() ? new ComputeReplayJournal(directory, enrollment, capacity, clock)
+                : ComputeReplayJournal.OpenForWindowsService(directory, enrollment, capacity, clock, "CSweet.Office.RuntimeHost");
             await journal.InitializeAsync(token);
-            var template = new ComputeTemplate("office-linux-" + policy.ImageDigest.Substring(7, 48), "linux", "x64",
+            var template = new ComputeTemplate("office-linux-" + policy.ImageDigest.Substring(7, 48), "linux", Architecture,
                 policy.ImageDigest, policy.Features.ToHashSet(StringComparer.Ordinal));
             var verifier = new ComputeDispatchVerifier(enrollment, new(Provider, [template.Id], Actions, [ComputeNetworkMode.None], false, false),
                 capacity.Resources, new Dictionary<string, ComputeTemplate> { [template.Id] = template }, clock);
-            var backend = new HyperVIsolationBackend(new() { HelperExecutablePath = runtime.HelperExecutablePath,
+            var backend = new ComputeBackend(installedBackend.Descriptor, new() { HelperExecutablePath = runtime.HelperExecutablePath,
                 HelperExecutableDigest = runtime.HelperExecutableDigest, GuestImagePath = policy.ImagePath,
                 GuestImageDigest = policy.ImageDigest, BrokerProtocolVersion = "1.0" }, clock);
             return state = new(pin, template, backend, journal, verifier);
@@ -75,7 +79,7 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
     }
 
     private readonly SemaphoreSlim verification = new(1);
-    private readonly HyperVIsolationBackend installedBackend = new(runtime, clock);
+
     private DateTimeOffset imageSignerExpiresAt;
     private DateTimeOffset providerVerifiedUntil;
     private async Task<bool> CanProvisionAsync(CancellationToken token)
@@ -89,7 +93,8 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
             {
                 foreach (var path in new[] { policy.ImagePath, policy.SignaturePath, runtime.GuestImageSigningCertificatePath,
                              runtime.HelperExecutablePath })
-                    WindowsComputeProtectedPaths.Verify(path);
+                    if (OperatingSystem.IsMacOS()) MacComputeProtectedPaths.Verify(path);
+                    else WindowsComputeProtectedPaths.Verify(path);
                 if (!await ExternalPlatformIsolationBackend.VerifyFileDigestAsync(policy.ImagePath, policy.ImageDigest, token) ||
                     !await ExternalPlatformIsolationBackend.VerifyGuestImageSignatureAsync(policy.ImagePath, policy.SignaturePath,
                         runtime.GuestImageSigningCertificatePath, runtime.GuestImageSigningCertificateThumbprint, token)) return false;
@@ -138,8 +143,8 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
                     ?? throw new InvalidDataException("Missing compute dispatch.");
                 var verified = local.Verifier.Verify(packet);
                 var cleanup = verified.Authorization.Action is InfrastructureActions.Stop or InfrastructureActions.Destroy;
-                if (verified.Specification is not { OperatingSystem: "linux", Architecture: "x64", Persistence: ComputePersistence.Ephemeral } spec ||
-                    spec.NetworkPolicy.Mode != ComputeNetworkMode.None || spec.NetworkPolicy.AllowOutbound || spec.NetworkPolicy.Ports.Count != 0 ||
+                if (verified.Specification is not { OperatingSystem: "linux", Persistence: ComputePersistence.Ephemeral } spec ||
+                    spec.Architecture != Architecture || spec.NetworkPolicy.Mode != ComputeNetworkMode.None || spec.NetworkPolicy.AllowOutbound || spec.NetworkPolicy.Ports.Count != 0 ||
                     spec.Resources.GpuCount != 0 || !cleanup && (spec.TemplateId != local.Template.Id || !await CanProvisionAsync(token)))
                     throw new UnauthorizedAccessException("Compute dispatch exceeds the Office installation policy.");
                 await local.Journal.RunPhysicalAsync(verified, (decision, known, ct) =>
@@ -190,7 +195,7 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
             var spec = dispatch.Specification;
             var limits = new WorkloadResourceLimits(spec.Resources.CpuCount, 100 * spec.Resources.CpuCount,
                 checked((int)spec.Resources.MemoryMiB), checked((int)spec.Resources.DiskMiB), 4096, 65536, TimeSpan.FromDays(7));
-            var image = new GuestImageReference(local.Template.Id, "1", local.Template.ImageDigest, "linux", "x64");
+            var image = new GuestImageReference(local.Template.Id, "1", local.Template.ImageDigest, "linux", Architecture);
             var workload = new ComputeEnvironmentWorkloadSpecification(id, image, limits,
                 new(id, "1.0", "", image.Digest, null, claim.EnvironmentLeaseExpiresAt), claim.OrganizationId, claim.InstallationId);
             handle = await backend.CreateAttemptAsync(workload, id, token);
@@ -209,7 +214,13 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
         }
         var status = await backend.InspectAsync(handle, token);
         var running = status?.State == IsolationWorkloadState.Running;
-        var vm = Guid.ParseExact(handle.ProviderInstanceId, "N");
+        async Task<Stream> Connect(CancellationToken ct)
+        {
+            if (runtime is not AppleVirtualizationIsolationBackendOptions apple)
+                return await socket.ConnectAsync(Guid.ParseExact(handle.ProviderInstanceId, "N"), ct);
+            try { return await new AppleVirtualizationGuestChannelConnector(apple).OpenGuestChannelAsync(handle, ct); }
+            catch (IsolationUnavailableException error) { throw new IOException("The Compute guest channel is unavailable.", error); }
+        }
         if (claim.Action == InfrastructureActions.Execute)
         {
             ComputeWorkloadResult output;
@@ -224,12 +235,12 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
 
             // The guest reports truncation. Leave space for base64 output and the signed result envelope.
             Task<ComputeGuestWireResult> RunCommandAsync(ComputeGuestCommand command, CancellationToken ct) =>
-                ComputeGuestCommandClient.ExecuteAsync(inner => socket.ConnectAsync(vm, inner),
+                ComputeGuestCommandClient.ExecuteAsync(Connect,
                     command with { MaximumOutputBytes = Math.Min(command.MaximumOutputBytes, 16 * 1024) }, "linux", ct);
         }
         if (claim.Action == InfrastructureActions.Stop && status?.State == IsolationWorkloadState.Stopped)
             return new(true, handle.ProviderInstanceId, new(ComputeLifecycleState.Stopped));
-        var ready = running && await ComputeGuestReadiness.ProbeAsync(ct => socket.ConnectAsync(vm, ct), "linux", "x64", token);
+        var ready = running && await ComputeGuestReadiness.ProbeAsync(Connect, "linux", Architecture, token);
         return new(true, handle.ProviderInstanceId, new(ready ? ComputeLifecycleState.Ready :
             running ? ComputeLifecycleState.Bootstrapping : ComputeLifecycleState.Failed));
     }
@@ -260,4 +271,23 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
             await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
         }
     }
+}
+
+// Both helpers implement the exact-attempt wire operations for Compute environments.
+internal sealed class ComputeBackend(IsolationProviderDescriptor descriptor, PlatformIsolationBackendOptions options, TimeProvider clock)
+    : ExternalPlatformIsolationBackend(descriptor, options, clock)
+{
+    protected override bool IsHostPlatform(out string reason)
+    {
+        reason = "Unsupported Compute host.";
+        return OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+    }
+    public Task<IsolationWorkloadHandle> CreateAttemptAsync(ComputeEnvironmentWorkloadSpecification spec, Guid key, CancellationToken ct) =>
+        CreateWithAttemptAsync(spec, key, ct);
+    public Task<IsolationWorkloadHandle?> ObserveCreationAsync(Guid key, Guid workload, WorkloadKind kind, CancellationToken ct) =>
+        InspectWithAttemptAsync(key, workload, kind, ct);
+    public Task<AttemptShutdownResult> DestroyAttemptAsync(Guid key, Guid workload, WorkloadKind kind, CancellationToken ct) =>
+        DestroyWithAttemptAsync(key, workload, kind, ct);
+    public Task<AttemptShutdownResult> ObserveDestructionAsync(Guid key, Guid workload, WorkloadKind kind, CancellationToken ct) =>
+        InspectDestructionAsync(key, workload, kind, ct);
 }

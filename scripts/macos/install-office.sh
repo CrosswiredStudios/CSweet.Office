@@ -13,8 +13,13 @@ security_profile=baseline
 mixed_use=true
 allow_development=false
 storage_volume=
+gateway_sha256=
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --gateway-sha256)
+      [ "$#" -ge 2 ] && [ "${#2}" -eq 64 ] || { echo 'Expected a SHA-256 gateway fingerprint.' >&2; exit 2; }
+      case "$2" in *[!0-9A-Fa-f]*) exit 2 ;; esac
+      gateway_sha256=$2; shift 2 ;;
     --storage-volume) [ "$#" -ge 2 ] || exit 2; storage_volume=$2; shift 2 ;;
     --enrollment-token-file) [ "$#" -ge 2 ] || exit 2; token_file=$2; shift 2 ;;
     --result-job-id) [ "$#" -ge 2 ] || exit 2; result_job_id=$2; shift 2 ;;
@@ -40,7 +45,7 @@ codesign --verify --strict --deep "$package_root/CSweet.Office.RuntimeHost"
 codesign --verify --strict --deep "$package_root/CSweet.Office.Node"
 codesign --verify --strict "$package_root/CSweet.Office.Runtime.AppleVirtualization.Helper"
 entitlement_value=$(codesign -d --entitlements :- "$package_root/CSweet.Office.Runtime.AppleVirtualization.Helper" 2>/dev/null | \
-  plutil -extract com.apple.security.virtualization raw -o - -)
+  plutil -extract 'com\.apple\.security\.virtualization' raw -expect bool -o - -)
 if [ "$entitlement_value" != "true" ]; then
   echo "The signed helper is missing the Apple Virtualization entitlement." >&2; exit 2
 fi
@@ -125,6 +130,7 @@ if [ "${#token}" -lt 32 ] || [ "${#token}" -gt 256 ]; then echo "Invalid enrollm
 office_save_storage
 install -d -o root -m 0755 /usr/local/sbin
 install -m 0644 "$package_root/office-storage.sh" /usr/local/sbin/csweet-office-storage.sh
+install -m 0755 "$package_root/configure-compute.sh" /usr/local/sbin/csweet-configure-compute
 install -m 0755 "$package_root/office-start.sh" /usr/local/sbin/csweet-office-start
 install -d -m 0755 "$office_install_root" "$office_data_root"/artifact-media
 install -d -o _csweetnode -g _csweet -m 0700 "$office_data_root"/node
@@ -145,9 +151,9 @@ if [ ! -f "$office_data_root"/runtime-host.key ]; then
 fi
 chown root:_csweet "$office_data_root"/runtime-host.key
 chmod 0640 "$office_data_root"/runtime-host.key
-"$office_install_root"/CSweet.Office.Node \
-  --initialize-headquarters-assignment-trust "$control_plane" \
-  "$office_data_root"/authorization/headquarters-trust.json
+set -- --initialize-headquarters-assignment-trust "$control_plane" "$office_data_root/authorization/headquarters-trust.json"
+if [ -n "$gateway_sha256" ]; then set -- "$@" "$gateway_sha256"; fi
+"$office_install_root"/CSweet.Office.Node "$@"
 chown root:wheel "$office_data_root"/authorization/headquarters-trust.json
 chmod 0600 "$office_data_root"/authorization/headquarters-trust.json
 printf '%s' "$token" > "$office_data_root"/node/enrollment.secret

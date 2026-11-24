@@ -44,6 +44,7 @@ grep -F 'ExecStart="/mnt/Office & Data/CSweet/Office/program/CSweet.Office.Runti
 grep -F 'ReadWritePaths="/mnt/Office & Data/CSweet/Office/data"' "$test_root/runtime.service" >/dev/null
 grep -F 'RequiresMountsFor="/mnt/Office & Data/CSweet/Office/program"' "$test_root/runtime.service" >/dev/null
 control_plane='https://headquarters.example/?a=1&b=2'
+gateway_sha256=$(printf '%064d' 0)
 security_profile=baseline; mixed_use=true; allow_development=false
 office_render_plist "$script_root/../macos/com.csweet.office.node.plist" "$test_root/node.plist"
 if command -v python >/dev/null 2>&1 && python -c 'import plistlib' >/dev/null 2>&1; then
@@ -58,6 +59,8 @@ with open(sys.argv[1], 'rb') as stream:
 assert plist['ProgramArguments'] == ['/usr/local/sbin/csweet-office-start', 'node']
 env = plist['EnvironmentVariables']
 assert env['CSweet__Office__Node__StateDirectory'] == '/mnt/Office & Data/CSweet/Office/data/node'
+assert env['CSweet__Office__Node__ControlPlaneCertificateSha256'] == '0' * 64
+assert env['CSweet__Office__RuntimeHost__UnixSocketPath'] == '/var/run/csweet-office/rpc.sock'
 assert env['CSweet__Office__Node__ControlPlaneUrl'] == 'https://headquarters.example/?a=1&b=2'
 PY
 office_volume_id=data-uuid

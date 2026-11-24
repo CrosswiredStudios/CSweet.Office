@@ -21,9 +21,9 @@ public sealed partial class OfficeWorker
 
     private async Task RelayComputeAsync(CancellationToken token)
     {
-        if (!OperatingSystem.IsWindows()) return;
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return;
         var client = _providers.Values.OfType<RuntimeHostProviderClient>().SingleOrDefault(x =>
-            x.Descriptor.ProviderId == CSweet.Office.Runtime.Abstractions.IsolationProviderCatalog.HyperV().ProviderId);
+            x.Descriptor.ProviderId == (OperatingSystem.IsMacOS() ? "apple-virtualization" : "hyperv-gen2"));
         if (client is null) return;
         while (!token.IsCancellationRequested)
         {
@@ -61,7 +61,7 @@ public sealed partial class OfficeWorker
     private static OfficeControlMessage SignComputeResult(OfficeState state, X509Certificate2 certificate, ByteString payload, out string operationId)
     {
         var result = JsonSerializer.Deserialize<ComputeProviderResult>(payload.Span, ComputeProtocol.Json);
-        if (result?.NodeId != state.OfficeId || result.ProviderId != "office-hyperv")
+        if (result?.NodeId != state.OfficeId || result.ProviderId != (OperatingSystem.IsMacOS() ? "office-apple-virtualization" : "office-hyperv"))
             throw new InvalidDataException("The compute result belongs to another Office.");
         operationId = result.OperationId.ToString("D");
         using var key = certificate.GetECDsaPrivateKey() ?? throw new CryptographicException("Unavailable Office identity.");

@@ -51,10 +51,14 @@ install -m 0755 "$build_root/runtime-host/CSweet.Office.RuntimeHost" "$output_ro
 install -m 0755 "$build_root/office/CSweet.Office.Node" "$output_root/CSweet.Office.Node"
 install -m 0755 "$helper_bin" "$output_root/CSweet.Office.Runtime.AppleVirtualization.Helper"
 install -m 0644 "$kernel" "$output_root/apple-virtualization/vmlinux"
+if [ -n "${CSWEET_GUEST_INITRD:-}" ]; then
+  install -m 0644 "$CSWEET_GUEST_INITRD" "$output_root/apple-virtualization/initrd.img"
+fi
 install -m 0644 "$guest" "$output_root/images/csweet-agent-guest.img"
 install -m 0644 "$guest_signature" "$output_root/images/csweet-agent-guest.img.sig"
 install -m 0644 "$signing_certificate" "$output_root/certificates/guest-image-signing.cer"
 install -m 0644 "$evidence" "$output_root/certification/macos-apple-virtualization.json"
+install -m 0755 "$script_root/configure-compute.sh" "$output_root/configure-compute.sh"
 install -m 0755 "$script_root/install-office.sh" "$output_root/install-office.sh"
 install -m 0644 "$script_root/../office-storage.sh" "$output_root/office-storage.sh"
 install -m 0755 "$script_root/../office-start.sh" "$output_root/office-start.sh"
@@ -65,11 +69,11 @@ install -m 0644 "$script_root/com.csweet.office.node.plist" "$output_root/com.cs
 codesign --force --timestamp --options runtime --sign "$signing_identity" \
   --entitlements "$helper_root/CSweet.AppleVirtualization.entitlements" \
   "$output_root/CSweet.Office.Runtime.AppleVirtualization.Helper"
-codesign --force --timestamp --options runtime --sign "$signing_identity" "$output_root/CSweet.Office.RuntimeHost"
-codesign --force --timestamp --options runtime --sign "$signing_identity" "$output_root/CSweet.Office.Node"
+codesign --force --timestamp --options runtime --sign "$signing_identity" --entitlements "$script_root/CSweet.DotNet.entitlements" "$output_root/CSweet.Office.RuntimeHost"
+codesign --force --timestamp --options runtime --sign "$signing_identity" --entitlements "$script_root/CSweet.DotNet.entitlements" "$output_root/CSweet.Office.Node"
 codesign --verify --strict "$output_root/CSweet.Office.Runtime.AppleVirtualization.Helper"
 entitlement_value=$(codesign -d --entitlements :- "$output_root/CSweet.Office.Runtime.AppleVirtualization.Helper" 2>/dev/null | \
-  plutil -extract com.apple.security.virtualization raw -o - -)
+  plutil -extract 'com\.apple\.security\.virtualization' raw -expect bool -o - -)
 [ "$entitlement_value" = "true" ] || { echo "The helper is missing the virtualization entitlement." >&2; exit 2; }
 
 files_json="$build_root/files.jsonl"

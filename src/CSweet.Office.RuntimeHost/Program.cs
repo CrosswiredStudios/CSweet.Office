@@ -50,10 +50,6 @@ if (OperatingSystem.IsWindows())
 {
     builder.Services.AddSingleton(hyperV);
     builder.Services.AddSingleton<IPlatformIsolationBackend, HyperVIsolationBackend>();
-    builder.Services.AddSingleton(builder.Configuration.GetSection("CSweet:Office:Compute").Get<OfficeComputeOptions>() ?? new());
-    builder.Services.AddSingleton<OfficeComputePartition>();
-    builder.Services.AddSingleton<IOfficeComputePartition>(sp => sp.GetRequiredService<OfficeComputePartition>());
-    builder.Services.AddHostedService(sp => sp.GetRequiredService<OfficeComputePartition>());
 }
 else if (OperatingSystem.IsLinux())
 {
@@ -64,6 +60,25 @@ else if (OperatingSystem.IsMacOS())
 {
     builder.Services.AddSingleton(apple);
     builder.Services.AddSingleton<IPlatformIsolationBackend, AppleVirtualizationIsolationBackend>();
+}
+if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+{
+    builder.Services.AddSingleton<PlatformIsolationBackendOptions>(OperatingSystem.IsMacOS() ? apple : hyperV);
+    var compute = builder.Configuration.GetSection("CSweet:Office:Compute").Get<OfficeComputeOptions>() ?? new();
+    if (OperatingSystem.IsMacOS())
+    {
+        var path = Path.Combine(authorization.ResolveStateDirectory(), "compute-policy.json");
+        if (File.Exists(path))
+        {
+            CSweet.Compute.Runtime.MacComputeProtectedPaths.Verify(path);
+            compute = System.Text.Json.JsonSerializer.Deserialize<OfficeComputeOptions>(File.ReadAllBytes(path))
+                ?? throw new InvalidDataException("Invalid installed Compute policy.");
+        }
+    }
+    builder.Services.AddSingleton(compute);
+    builder.Services.AddSingleton<OfficeComputePartition>();
+    builder.Services.AddSingleton<IOfficeComputePartition>(sp => sp.GetRequiredService<OfficeComputePartition>());
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<OfficeComputePartition>());
 }
 var hyperVSocket = builder.Configuration.GetSection("CSweet:Office:RuntimeHost:HyperVSocket")
     .Get<HyperVSocketTransportOptions>() ?? new HyperVSocketTransportOptions();

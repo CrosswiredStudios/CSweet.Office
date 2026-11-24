@@ -64,10 +64,10 @@ notarized through `xcrun notarytool`, stapled, and assessed with `spctl --assess
 ## `csweet-configure-office`
 
 ```
-sudo csweet-configure-office https://control-plane
+sudo /usr/local/sbin/csweet-configure-office https://control-plane
 ```
 
-The macOS configurator takes exactly one argument: the control-plane URL. It assumes the payload directory
+The macOS configurator takes the control-plane URL and optionally `--storage-volume UUID` and `--gateway-sha256 HEX`. Headquarters can include the TLS certificate fingerprint in the command for a private development gateway. The installer validates the pin during assignment-trust initialization and configures the same pin for Node. With no pin, the gateway must pass normal TLS validation. It assumes the payload directory
 above, re-validates the URL scheme, and executes the payload's `install-office.sh`. Because the Apple provider
 has no equivalent of the Linux baseline notice, there is no `--dedicated-host` or `--accept-baseline-risk`
 flag here — the same behaviour is reachable only by invoking `install-office.sh` directly from the payload
@@ -78,6 +78,10 @@ An install driven directly takes the same options as the Linux installer, includ
 `--security-profile baseline|hardened|development`, `--dedicated-host`, and `--allow-development-assignments`.
 Enrollment tokens are never accepted as command-line arguments: they arrive from a non-symlink file that is
 deleted after reading, from an echo-off prompt, or from standard input.
+
+## Local service connection
+
+Node and RuntimeHost communicate over `/var/run/csweet-office/rpc.sock`. The RuntimeHost startup wrapper recreates its root-owned directory with group `_csweet` after reboot. The VM helper uses its own protected manager sockets under `/var/run/csweet-av`. See `scripts/office-start.sh` and both `scripts/macos/com.csweet.office.*.plist` files.
 
 ## plist configuration
 
@@ -156,4 +160,20 @@ reaped, so a crash during a build can leave an orphaned VM to clean up by hand. 
 `src/CSweet.Office.Runtime.AppleVirtualization.Helper/` (entitlement and socket contract),
 `README.md`, `docs/20-security/06-host-privilege-model.md`, `docs/20-security/12-known-limits-and-tradeoffs.md`.
 
-Verified: 2026-10-24.
+Verified: 2026-11-23.
+
+## Generic Compute on Apple silicon
+
+Verified: 2026-11-23.
+
+Build the arm64 Ubuntu Compute image and have its digest signed by the image signer pinned in this Office installation. The configurator stores the image and detached signature in the registered Office data volume and writes a root-owned policy under `authorization/compute-policy.json`. The default capacity is one workspace with two vCPUs, 2 GiB of RAM and a 20 GiB ephemeral root disk. [Configurator source](../../scripts/macos/configure-compute.sh)
+
+```sh
+sudo /usr/local/sbin/csweet-configure-compute BUSINESS_UUID /path/to/compute.img /path/to/compute.img.sig
+```
+
+Approve the printed SHA-256 and the feature list `["docker"]` for this business in Headquarters. Drain the Office and reload its RuntimeHost. The node offers capacity after the installed provider certification and Compute image signature pass validation. [Runtime policy](../../src/CSweet.Office.RuntimeHost/OfficeComputePartition.cs) · [Node relay](../../src/CSweet.Office.Node/OfficeWorker.Compute.cs)
+
+Complete teardown of running and stopped Compute workspaces before an ordinary Office uninstall. The uninstaller checks the physical attempt records on the registered Office volume before it deletes local data. [Uninstall check](../../scripts/macos/uninstall-office.sh)
+
+The hardware smoke test uses a disposable root-owned directory and temporary signing keys. Run it with a matching Office kernel, agent guest and real Office acceptance evidence. [Test runner](../../scripts/macos/test-compute-vm.sh) · [Headquarters image build and configuration](../../../C-Sweet/build/apple-compute/README.md)

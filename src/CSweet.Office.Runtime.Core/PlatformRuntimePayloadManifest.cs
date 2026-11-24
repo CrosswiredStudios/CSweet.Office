@@ -46,6 +46,13 @@ public static class PlatformRuntimePayloadManifest
         var packageRoot = manifestInfo.DirectoryName
             ?? throw new InvalidDataException("The platform payload manifest has no package directory.");
         var declaredFiles = ValidateFiles(manifest, packageRoot);
+        if (expectedProvider.ProviderId == "apple-virtualization")
+        {
+            ResolveDeclaredFile(packageRoot, "apple-virtualization/vmlinux", declaredFiles);
+            const string initrd = "apple-virtualization/initrd.img";
+            if (File.Exists(Path.Combine(packageRoot, initrd)))
+                ResolveDeclaredFile(packageRoot, initrd, declaredFiles);
+        }
         var helper = ResolveDeclaredFile(packageRoot, manifest.HelperExecutable, declaredFiles);
         var guest = ResolveDeclaredFile(packageRoot, manifest.GuestImage, declaredFiles);
         var signature = ResolveDeclaredFile(packageRoot, manifest.GuestImageSignature, declaredFiles);
