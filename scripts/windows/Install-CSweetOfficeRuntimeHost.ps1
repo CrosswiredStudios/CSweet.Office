@@ -10,6 +10,9 @@ param(
     [string] $ControlPlaneCertificateSha256,
     [string] $EnrollmentTokenInputPath,
     [object] $ComputePolicy,
+    [int] $WorkspaceCpuCount,
+    [int] $WorkspaceMemoryMiB,
+    [int] $WorkspaceDiskMiB,
     [guid] $AssistedSetupSessionId = [guid]::Empty,
     [int] $AllocatableCpuCount = 0,
     [int] $AllocatableMemoryMb = 0,
@@ -452,6 +455,12 @@ if ($payloadOfficeVersion -lt $minimumOfficeVersion) {
 
 $existingNodeService = Get-Service -Name $nodeServiceName -ErrorAction SilentlyContinue
 $existingNodeConfiguration = $null
+$resizeWorkspace = $PSBoundParameters.ContainsKey('WorkspaceCpuCount') -or
+    $PSBoundParameters.ContainsKey('WorkspaceMemoryMiB') -or $PSBoundParameters.ContainsKey('WorkspaceDiskMiB')
+if ($resizeWorkspace -and ($ExistingInstallationAction -ne 'upgrade' -or $null -ne $ComputePolicy -or
+        $WorkspaceCpuCount -lt 2 -or $WorkspaceMemoryMiB -lt 2048 -or $WorkspaceDiskMiB -lt 20480)) {
+    throw 'Resizing workspace VMs requires an identity-preserving upgrade and all three workspace limits.'
+}
 if ($null -ne $existingNodeService) {
     $existingNodeServiceConfiguration = Get-CimInstance -ClassName Win32_Service -Filter "Name='$nodeServiceName'"
     $contentRootMatch = [Regex]::Match(
@@ -481,6 +490,34 @@ if ($null -ne $existingNodeService) {
     }
     $existingNodeConfiguration = Get-OptionalObjectProperty $existingOfficeConfiguration 'Node'
     if ($null -ne $existingNodeConfiguration) {
+        if ($resizeWorkspace) {
+            if ($null -eq $ComputePolicy -or $ComputePolicy.Enabled -ne $true) {
+                throw 'The installed Office must have a compute reservation before it can be resized.'
+            }
+            # Repartition the previously approved total. Retained disks and the provider journal
+            # keep their identities. Lower disk limits take effect on future admission.
+            $agentCpu = [long]$existingNodeConfiguration.AllocatableCpuCount + $ComputePolicy.CpuCount - $WorkspaceCpuCount
+            $agentMemory = [long]$existingNodeConfiguration.AllocatableMemoryMb + $ComputePolicy.MemoryMiB - $WorkspaceMemoryMiB
+            if ($WorkspaceDiskMiB -lt [int]$ComputePolicy.DiskMiB) {
+                $probe = Join-Path $PSScriptRoot 'Get-CSweetOfficeRecoveryState.ps1'
+                if ((& $probe -InstallRoot $InstallRoot -DataRoot $DataRoot | Select-Object -Last 1) -ne 'clean') {
+                    throw 'Retained workloads reserve disk. Lower the workspace limit in Office settings or release their storage before transferring disk to agent runtimes.'
+                }
+            }
+            $agentDisk = [long]$existingNodeConfiguration.AllocatableDiskMb + $ComputePolicy.DiskMiB - $WorkspaceDiskMiB
+            if ($agentCpu -lt 1 -or $agentMemory -lt 128 -or $agentDisk -lt 64 -or
+                $agentCpu -gt [int]::MaxValue -or $agentMemory -gt [int]::MaxValue -or $agentDisk -gt [int]::MaxValue) {
+                throw 'Workspace limits must fit the approved Office allocation and leave resources for agent runtimes.'
+            }
+            $existingNodeConfiguration.AllocatableCpuCount = [int]$agentCpu
+            $existingNodeConfiguration.AllocatableMemoryMb = [int]$agentMemory
+            $existingNodeConfiguration.AllocatableDiskMb = [int]$agentDisk
+            $existingNodeConfiguration.MaximumConcurrentWorkloads = [Math]::Max(1, [int][Math]::Floor($agentCpu / 2))
+            $ComputePolicy.CpuCount = $WorkspaceCpuCount
+            $ComputePolicy.MemoryMiB = $WorkspaceMemoryMiB
+            $ComputePolicy.DiskMiB = $WorkspaceDiskMiB
+            $ComputePolicy.MaximumEnvironments = $WorkspaceCpuCount
+        }
         $existingControlPlaneUrl = Get-OptionalObjectProperty $existingNodeConfiguration 'ControlPlaneUrl'
         $existingStateDirectory = Get-OptionalObjectProperty $existingNodeConfiguration 'StateDirectory'
         if ([String]::IsNullOrWhiteSpace([string]$existingControlPlaneUrl) -or

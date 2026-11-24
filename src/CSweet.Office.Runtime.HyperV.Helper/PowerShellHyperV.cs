@@ -135,9 +135,15 @@ internal static class PowerShellHyperV
         "Import-Module Hyper-V -ErrorAction Stop; Start-VM -Name $env:CSWEET_VM_NAME -ErrorAction Stop | Out-Null",
         vmName, TimeSpan.FromMinutes(1));
 
-    public static Task<string> StopAsync(string vmName) => ExecuteVmCommandAsync(
-        "Import-Module Hyper-V -ErrorAction Stop; $vm = Get-VM -Name $env:CSWEET_VM_NAME -ErrorAction SilentlyContinue; if ($null -eq $vm) { exit 44 }; if ($vm.State -ne 'Off') { Stop-VM -VM $vm -TurnOff -Force -Confirm:$false -ErrorAction Stop }",
-        vmName, TimeSpan.FromMinutes(1));
+    public static Task<string> StopAsync(string vmName, bool shutDownGuest)
+    {
+        // A retained workspace gets a guest shutdown so the filesystem can flush its writes.
+        var powerOff = shutDownGuest ? "Stop-VM" : "Stop-VM -TurnOff -Force";
+        return ExecuteVmCommandAsync(
+            "Import-Module Hyper-V -ErrorAction Stop; $vm = Get-VM -Name $env:CSWEET_VM_NAME -ErrorAction SilentlyContinue; " +
+            "if ($null -eq $vm) { exit 44 }; if ($vm.State -ne 'Off') { " + powerOff + " -VM $vm -Confirm:$false -ErrorAction Stop }",
+            vmName, TimeSpan.FromMinutes(1));
+    }
 
     public static Task<string> DestroyAsync(string vmName) => ExecuteVmCommandAsync(
         "Import-Module Hyper-V -ErrorAction Stop; $vm = Get-VM -Name $env:CSWEET_VM_NAME -ErrorAction SilentlyContinue; if ($null -ne $vm) { if ($vm.State -ne 'Off') { Stop-VM -VM $vm -TurnOff -Force -Confirm:$false -ErrorAction Stop }; Remove-VM -VM $vm -Force -Confirm:$false -ErrorAction Stop }",

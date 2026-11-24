@@ -188,7 +188,8 @@ internal sealed partial class HyperVHelperController(HyperVHelperPaths paths, IH
         if (loaded.Error is not null) return loaded.Error;
         try
         {
-            await PowerShellHyperV.StopAsync(loaded.Metadata!.VmName);
+            await PowerShellHyperV.StopAsync(loaded.Metadata!.VmName,
+                shutDownGuest: loaded.Metadata.Kind == WorkloadKind.ComputeEnvironment);
             if (loaded.Metadata.Kind != WorkloadKind.ComputeEnvironment)
                 await SaveMetadataAsync(loaded.Directory!, loaded.Metadata with { FinishedAt = DateTimeOffset.UtcNow });
             return Success();

@@ -61,7 +61,6 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
             var directory = Path.Combine(storage.ResolveStateDirectory(), "compute-journal");
             Directory.CreateDirectory(directory);
             var journal = ComputeReplayJournal.OpenForWindowsService(directory, enrollment, capacity, clock, "CSweet.Office.RuntimeHost");
-            await journal.InitializeAsync(token);
             var template = new ComputeTemplate("office-linux-" + policy.ImageDigest.Substring(7, 48), "linux", "x64",
                 policy.ImageDigest, policy.Features.ToHashSet(StringComparer.Ordinal));
             var verifier = new ComputeDispatchVerifier(enrollment, new(Provider, [template.Id], Actions, [ComputeNetworkMode.None], false, false),
@@ -69,6 +68,12 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
             var backend = new HyperVIsolationBackend(new() { HelperExecutablePath = runtime.HelperExecutablePath,
                 HelperExecutableDigest = runtime.HelperExecutableDigest, GuestImagePath = policy.ImagePath,
                 GuestImageDigest = policy.ImageDigest, BrokerProtocolVersion = "1.0" }, clock);
+            await journal.InitializeAsync(async (id, resource, ct) =>
+            {
+                var handle = await backend.ObserveCreationAsync(id, id, WorkloadKind.ComputeEnvironment, ct);
+                return handle != null && handle.ProviderInstanceId == resource &&
+                    (await backend.InspectAsync(handle, ct))?.State == IsolationWorkloadState.Stopped;
+            }, token);
             return state = new(pin, template, backend, journal, verifier);
         }
         finally { initialization.Release(); }
@@ -245,10 +250,24 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, HyperV
                     var monitor = new ComputeLeaseMonitor(local.Journal, (id, ct) => local.Journal.EnforceExpiredLeaseAsync(id,
                         async (lease, inner) =>
                         {
+                            if (lease.Action == InfrastructureActions.Stop)
+                            {
+                                var handle = await local.Backend.ObserveCreationAsync(id, id, WorkloadKind.ComputeEnvironment, inner);
+                                if (handle == null || handle.ProviderInstanceId != lease.ResourceId) return new(false, lease.ResourceId);
+                                await local.Backend.StopAsync(handle, TimeSpan.Zero, inner);
+                                var status = await local.Backend.InspectAsync(handle, inner);
+                                return new(status?.State == IsolationWorkloadState.Stopped, lease.ResourceId);
+                            }
                             var removed = await local.Backend.DestroyAttemptAsync(id, id, WorkloadKind.ComputeEnvironment, inner);
                             return new(removed.Confirmed, lease.ResourceId);
                         }, ct, async (lease, inner) =>
                         {
+                            if (lease.Action == InfrastructureActions.Stop)
+                            {
+                                var handle = await local.Backend.ObserveCreationAsync(id, id, WorkloadKind.ComputeEnvironment, inner);
+                                return handle != null && handle.ProviderInstanceId == lease.ResourceId &&
+                                    (await local.Backend.InspectAsync(handle, inner))?.State == IsolationWorkloadState.Stopped;
+                            }
                             var observed = await local.Backend.ObserveDestructionAsync(id, id, WorkloadKind.ComputeEnvironment, inner);
                             return observed.Confirmed && (lease.ResourceId is null || lease.ResourceId == observed.Handle?.ProviderInstanceId);
                         }), clock, _ => { });
