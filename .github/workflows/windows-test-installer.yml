@@ -69,11 +69,34 @@ jobs:
         with:
           name: windows-test-installer
           path: installers
-      - name: Publish a Windows test prerelease
+      - name: Publish Windows test installers on the Office release and test prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.build.outputs.tag }}
         run: |
           cd installers
-          sha256sum --check SHA256SUMS
-          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --latest=false --title "C-Sweet Office for Windows (test installer ${TAG#windows-test-})" --notes-file ../scripts/release/windows-test/release-notes.md ./*.exe ./*.msi SHA256SUMS
+          tr -d '\r' < SHA256SUMS | sha256sum --check -
+          build=${TAG#windows-test-}
+          version_tag=v${build%-*}
+          test "$(gh release view "$version_tag" --json isDraft --jq .isDraft)" = false
+
+          # The Setup EXE pins its matching MSI on this build-specific prerelease.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --latest=false --title "C-Sweet Office for Windows (test installer $build)" --notes-file ../scripts/release/windows-test/release-notes.md ./*.exe ./*.msi SHA256SUMS
+          fi
+          test "$(gh release view "$TAG" --json isDraft,isPrerelease --jq '(.isDraft == false) and .isPrerelease')" = true
+
+          # Keep the existing bundle checksums and any previously published binaries intact.
+          asset_digest() {
+            gh release view "$1" --json assets --jq ".assets[] | select(.name == \"$2\" and .state == \"uploaded\") | .digest"
+          }
+          for file in csweet-office-"$build"-windows-x64-test.msi csweet-office-"$build"-windows-x64-test-setup.exe; do
+            digest="sha256:$(sha256sum "$file" | cut -d' ' -f1)"
+            test "$(asset_digest "$TAG" "$file")" = "$digest"
+            existing=$(asset_digest "$version_tag" "$file")
+            if [[ -z "$existing" ]]; then
+              gh release upload "$version_tag" "$file"
+              existing=$(asset_digest "$version_tag" "$file")
+            fi
+            test "$existing" = "$digest" || { echo "Release asset hash mismatch: $file" >&2; exit 1; }
+          done

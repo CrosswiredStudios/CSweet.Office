@@ -45,7 +45,7 @@ try {
         & $compiler /nologo /target:winexe /platform:x64 /optimize+ /define:WINDOWS_TEST_INSTALLER /reference:System.Net.Http.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll "/resource:$resource,OfficeFiles" "/out:$executable" $source
         if ($LASTEXITCODE -ne 0) { throw 'Failed to build Windows test Setup EXE.' }
         $sums = Get-ChildItem -Path "$Output/*.msi","$Output/*.exe" | ForEach-Object { "$((Get-FileHash $_.FullName).Hash.ToLowerInvariant())  $($_.Name)" }
-        [IO.File]::WriteAllLines("$Output/SHA256SUMS", [string[]]$sums)
+        [IO.File]::WriteAllText("$Output/SHA256SUMS", ($sums -join "`n") + "`n", [Text.Encoding]::ASCII)
     } finally { Pop-Location }
 } finally {
     if ([IO.Path]::GetDirectoryName($inputs) -eq [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') -and
