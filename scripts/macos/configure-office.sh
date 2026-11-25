@@ -25,7 +25,20 @@ control_plane=$1
 shift
 storage_volume=
 gateway_sha256=
+cpu=
+memory=
+disk=
+fresh=false
 while [ "$#" -gt 0 ]; do
+  if [ "$1" = --limits ]; then
+    [ "$#" -ge 4 ] || exit 2
+    for limit in "$2" "$3" "$4"; do
+      case "$limit" in ''|*[!0-9]*) exit 2 ;; esac
+      [ "${#limit}" -le 10 ] && [ "$limit" -gt 0 ] && [ "$limit" -le 2147483647 ] || exit 2
+    done
+    cpu=$2; memory=$3; disk=$4; shift 4; continue
+  fi
+  if [ "$1" = --fresh-only ]; then fresh=true; shift; continue; fi
   [ "$#" -ge 2 ] || exit 2
   case "$1" in
     --storage-volume) storage_volume=$2 ;;
@@ -37,4 +50,6 @@ done
 set -- "$package_root" "$control_plane"
 if [ -n "$storage_volume" ]; then set -- "$@" --storage-volume "$storage_volume"; fi
 if [ -n "$gateway_sha256" ]; then set -- "$@" --gateway-sha256 "$gateway_sha256"; fi
+if [ -n "$cpu" ]; then set -- "$@" --limits "$cpu" "$memory" "$disk"; fi
+if [ "$fresh" = true ]; then set -- "$@" --fresh-only; fi
 exec "$installer" "$@"

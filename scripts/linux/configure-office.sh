@@ -17,8 +17,23 @@ shift
 dedicated=false
 accepted=false
 storage_volume=
+gateway_sha256=
+cpu=
+memory=
+disk=
+fresh=false
 while [ "$#" -gt 0 ]; do
+  if [ "$1" = --limits ]; then
+    [ "$#" -ge 4 ] || exit 2
+    for limit in "$2" "$3" "$4"; do
+      case "$limit" in ''|*[!0-9]*) exit 2 ;; esac
+      [ "${#limit}" -le 10 ] && [ "$limit" -gt 0 ] && [ "$limit" -le 2147483647 ] || exit 2
+    done
+    cpu=$2; memory=$3; disk=$4; shift 4; continue
+  fi
   case "$1" in
+    --fresh-only) fresh=true; shift ;;
+    --gateway-sha256) [ "$#" -ge 2 ] || exit 2; gateway_sha256=$2; shift 2 ;;
     --storage-volume) [ "$#" -ge 2 ] || exit 2; storage_volume=$2; shift 2 ;;
     --dedicated-host) dedicated=true; shift ;;
     --accept-baseline-risk) accepted=true; shift ;;
@@ -34,10 +49,14 @@ if [ ! -x "$installer" ]; then
   exit 2
 fi
 
+set -- --storage-volume "$storage_volume"
+if [ -n "$gateway_sha256" ]; then set -- "$@" --gateway-sha256 "$gateway_sha256"; fi
+if [ -n "$cpu" ]; then set -- "$@" --limits "$cpu" "$memory" "$disk"; fi
+if [ "$fresh" = true ]; then set -- "$@" --fresh-only; fi
 if [ "$dedicated" = true ]; then
   echo "Security label: Hardened (dedicated-host declaration)."
   echo "Keep Ubuntu, KVM, Firecracker, firmware, and CPU microcode patched."
-  exec "$installer" "$package_root" "$control_plane" --security-profile hardened --dedicated-host --storage-volume "$storage_volume"
+  exec "$installer" "$package_root" "$control_plane" --security-profile hardened --dedicated-host "$@"
 fi
 
 echo "Security label: Baseline (shared or personal host)."
@@ -53,4 +72,4 @@ if [ "$accepted" != true ]; then
   IFS= read -r answer
   case "$answer" in y|Y|yes|YES) ;; *) echo "Setup cancelled." >&2; exit 1 ;; esac
 fi
-exec "$installer" "$package_root" "$control_plane" --security-profile baseline --storage-volume "$storage_volume"
+exec "$installer" "$package_root" "$control_plane" --security-profile baseline "$@"

@@ -39,6 +39,9 @@ jobs:
       - name: Test hosted release manifest and archive layout
         shell: pwsh
         run: ./scripts/tests/Test-HostedManifest.ps1
+      - name: Verify release certification metadata
+        shell: pwsh
+        run: ./scripts/tests/Test-OfficeReleaseCertification.ps1
       - name: Test signed update manifests and large guest image integrity
         if: runner.os == 'Windows'
         shell: pwsh

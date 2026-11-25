@@ -52,6 +52,13 @@ install -m 0644 "$script_root/../office-storage.sh" "$package_root/usr/local/sbi
 install -m 0755 "$script_root/uninstall-office.sh" \
   "$package_root/usr/local/sbin/csweet-uninstall-office"
 
+menu_app="$package_root/Applications/C-Sweet Office.app"
+mkdir -p "$menu_app/Contents/MacOS"
+install -m 0644 "$script_root/OfficeMenu.Info.plist" "$menu_app/Contents/Info.plist"
+xcrun swiftc -O "$script_root/OfficeMenu.swift" -o "$menu_app/Contents/MacOS/OfficeMenu"
+codesign --force --options runtime --timestamp --sign "${CSWEET_APPLE_SIGNING_IDENTITY:?Application signing identity required}" "$menu_app"
+codesign --verify --strict "$menu_app"
+
 component_pkg="$build_root/csweet-office-component.pkg"
 pkgbuild --root "$package_root" --identifier com.csweet.office.payload \
   --version "$version" --install-location / --ownership recommended "$component_pkg"

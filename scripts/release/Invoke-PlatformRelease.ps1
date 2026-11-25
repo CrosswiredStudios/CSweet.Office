@@ -31,6 +31,7 @@ foreach ($name in $required) { if ([string]::IsNullOrWhiteSpace([Environment]::G
 switch ($OperatingSystem) {
     'windows' {
         if ($Architecture -ne 'x64') { throw 'Windows release currently supports x64 only.' }
+        $certification = & (Join-Path $PSScriptRoot 'Get-OfficeReleaseCertification.ps1') -EvidencePath $env:CSWEET_CERTIFICATION_EVIDENCE -ExpectedExpiry $env:CSWEET_CERTIFICATION_VALID_UNTIL
         $payload = Join-Path $output 'windows-x64-payload'
         $compute = @{}
         if ($env:CSWEET_COMPUTE_GUEST_IMAGE -or $env:CSWEET_COMPUTE_GUEST_SIGNATURE) {
@@ -42,13 +43,14 @@ switch ($OperatingSystem) {
             -GuestImage $env:CSWEET_GUEST_IMAGE -GuestImageSignature $env:CSWEET_GUEST_IMAGE_SIGNATURE `
             -GuestImageSigningCertificate $env:CSWEET_GUEST_SIGNING_CERTIFICATE `
             -GuestImageSigningCertificateThumbprint $env:CSWEET_GUEST_SIGNING_THUMBPRINT `
-            -CertificationEvidence $env:CSWEET_CERTIFICATION_EVIDENCE -CertificationSuiteVersion 'production-v1' `
-            -CertifiedAt ([DateTimeOffset]::UtcNow) -CertificationExpiresAt $env:CSWEET_CERTIFICATION_VALID_UNTIL `
+            -CertificationEvidence $env:CSWEET_CERTIFICATION_EVIDENCE -CertificationSuiteVersion $certification.Suite `
+            -CertifiedAt $certification.CertifiedAt -CertificationExpiresAt $certification.ExpiresAt `
             -PackageVersion $version -OutputRoot $payload
         & (Join-Path $root 'scripts\windows\New-CSweetOfficeMsi.ps1') -PayloadRoot $payload `
             -OutputPath (Join-Path $output "csweet-office-$version-windows-x64.msi") -Version $version `
             -CertificateThumbprint $env:CSWEET_WINDOWS_SIGNING_THUMBPRINT
         & (Join-Path $root 'scripts\release\New-OfficeWindowsUpdateManifest.ps1') -Directory $output -Version $version -CertificateThumbprint $env:CSWEET_WINDOWS_SIGNING_THUMBPRINT
+        & (Join-Path $root 'scripts\release\New-OfficeSetupDownload.ps1') -Directory $output -Version $version -CertificateThumbprint $env:CSWEET_WINDOWS_SIGNING_THUMBPRINT
     }
     'linux' {
         & (Join-Path $root 'scripts\release\Invoke-LinuxRelease.ps1') -Architecture $Architecture -Version $version -Output $output

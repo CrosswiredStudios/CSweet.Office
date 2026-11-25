@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>OfficeMenu</string>
+<key>CFBundleName</key><string>C-Sweet Office</string>
+<key>CFBundleIdentifier</key><string>com.csweet.office.menu</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSUIElement</key><true/>
+</dict></plist>

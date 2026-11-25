@@ -30,7 +30,7 @@ $reparsePoint = Get-ChildItem -LiteralPath $PayloadRoot -Recurse -Force |
     Select-Object -First 1
 if ($null -ne $reparsePoint) { throw "Payload may not contain reparse points: $($reparsePoint.FullName)" }
 
-$scriptFiles = @('Initialize-CSweetCombinedOffice.ps1', 'CSweet.OfficeImageParts.ps1', 'CSweet.OfficeStorage.ps1', 'Install-CSweetOffice.ps1', 'Install-CSweetOfficeRuntimeHost.ps1',
+$scriptFiles = @('Open-CSweetOffice.ps1', 'Initialize-CSweetCombinedOffice.ps1', 'CSweet.OfficeImageParts.ps1', 'CSweet.OfficeStorage.ps1', 'Install-CSweetOffice.ps1', 'Install-CSweetOfficeRuntimeHost.ps1',
     'CSweet.WindowsSetupProgress.ps1', 'Get-CSweetOfficeRecoveryState.ps1', 'Enter-CSweetOfficeMaintenance.ps1',
     'Remove-CSweetOfficeForRecovery.ps1', 'Uninstall-CSweetOffice.ps1',
     'Start-CSweetOfficeAutomaticUpdate.ps1', 'CSweet.OfficeRelease.ps1')
@@ -164,12 +164,14 @@ try {
     AddLine 3 '<Custom Action="RemoveExecutionFleet" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND CSWEET_FORCE_REMOVE&lt;&gt;&quot;1&quot;" />'
     AddLine 3 '<Custom Action="ForceRemoveExecutionFleet" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND CSWEET_FORCE_REMOVE=&quot;1&quot;" />'
     AddLine 2 '</InstallExecuteSequence>'
+    AddLine 2 '<StandardDirectory Id="ProgramMenuFolder" />'
     AddLine 2 '<StandardDirectory Id="ProgramFiles64Folder">'
     AddLine 3 '<Directory Id="CSweetVendorFolder" Name="CSweet">'
     AddLine 4 '<Directory Id="INSTALLFOLDER" Name="Office">'
     AddDirectoryContents $stageRoot '' 5
     $protocolComponentId = 'cmp_csweet_office_protocol'
     AddLine 5 "<Component Id=`"$protocolComponentId`" Guid=`"*`">"
+    AddLine 6 '<Shortcut Id="OfficeMenuShortcut" Directory="ProgramMenuFolder" Name="C-Sweet Office" Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe" Arguments="-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File &quot;[INSTALLFOLDER]Open-CSweetOffice.ps1&quot;" WorkingDirectory="INSTALLFOLDER" />'
     AddLine 6 '<RegistryKey Root="HKLM" Key="Software\CSweet\Office">'
     AddLine 7 '<RegistryValue Name="ProductCode" Type="string" Value="[ProductCode]" />'
     AddLine 6 '</RegistryKey>'

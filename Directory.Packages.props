@@ -4,7 +4,8 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="CSweet.Office.Contracts" Version="0.14.1" />
+    <PackageVersion Include="QRCoder" Version="1.7.0" />
+    <PackageVersion Include="CSweet.Office.Contracts" Version="0.15.0" />
     <PackageVersion Include="CSweet.Compute.Contracts" Version="0.3.0" />
     <PackageVersion Include="CSweet.Compute.Provider" Version="0.3.0" />
     <PackageVersion Include="Google.Protobuf" Version="3.35.1" />

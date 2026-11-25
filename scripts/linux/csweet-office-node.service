@@ -6,6 +6,8 @@ Requires=csweet-office-runtime.service
 
 [Service]
 Type=notify
+RuntimeDirectory=csweet-office-status
+RuntimeDirectoryMode=0755
 User=csweet-node
 Group=csweet-node
 SupplementaryGroups=csweet-runtime

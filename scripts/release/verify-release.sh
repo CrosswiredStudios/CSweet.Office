@@ -10,7 +10,7 @@ python3 -m json.tool "$root/office-release.json" >/dev/null
 find "$root" -maxdepth 1 -name '*.spdx.json' -type f -print -quit | grep -q . || {
   echo "No SPDX SBOM was produced." >&2; exit 2;
 }
-for asset in "$root"/*.msi "$root"/*.deb "$root"/*.rpm "$root"/*.pkg; do
+for asset in "$root"/*-setup.exe "$root"/*.msi "$root"/*.deb "$root"/*.rpm "$root"/*.pkg; do
   [ -e "$asset" ] || continue
   grep -F "$(basename "$asset")" "$root/office-release.json" >/dev/null || {
     echo "Manifest does not list $(basename "$asset")" >&2; exit 2;
