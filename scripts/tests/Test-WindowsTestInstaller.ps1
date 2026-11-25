@@ -15,13 +15,32 @@ $setup = Join-Path $programs 'CSweet\Office Test Setup'
 $shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'C-Sweet Office (Windows test).lnk'
 $office = Join-Path $programs 'CSweet\Office'
 if ((Test-Path $setup) -or (Test-Path $office)) { throw 'Use a clean Windows test runner.' }
-function Invoke-Msi([string] $Action) {
+function Invoke-Msi([string] $Action, [string] $Ui = '/qn') {
     $log = [IO.Path]::GetFullPath((Join-Path $Output "msi-$Action.log"))
-    $proc = Start-Process msiexec.exe -ArgumentList "/$Action `"$($msi[0].FullName)`" /qn /norestart /l*v `"$log`"" -Wait -PassThru
+    $proc = Start-Process msiexec.exe -ArgumentList "/$Action `"$($msi[0].FullName)`" $Ui /norestart /l*v `"$log`"" -PassThru
+    if (!$proc.WaitForExit(120000)) { throw "Windows Installer did not finish. See $log" }
     if ($proc.ExitCode -ne 0) { throw "Windows Installer returned $($proc.ExitCode). See $log" }
 }
-Invoke-Msi i
+Invoke-Msi i '/qf'
 try {
+    # Exercise the same full-UI entry point as double-clicking the MSI. Cancel before any host changes.
+    Add-Type -AssemblyName UIAutomationClient
+    $root = [Windows.Automation.AutomationElement]::RootElement
+    $windowTitle = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::NameProperty, 'C-Sweet Office Setup')
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    do {
+        $window = $root.FindFirst([Windows.Automation.TreeScope]::Children, $windowTitle)
+        if (!$window) { Start-Sleep -Milliseconds 300 }
+    } until ($window -or [DateTime]::UtcNow -ge $deadline)
+    if (!$window) { throw 'Double-click installation did not open the Office setup wizard.' }
+    foreach ($name in @('Install', 'Cancel')) {
+        $condition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::NameProperty, $name)
+        $button = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $condition)
+        if (!$button -or !$button.Current.IsEnabled) { throw "Missing enabled wizard button: $name" }
+    }
+    $wizard = Get-Process -Id $window.Current.ProcessId
+    $button.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (!$wizard.WaitForExit(15000)) { throw 'Cancelling the wizard did not close it.' }
     $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
     if (!(Test-Path $shortcut) -or $link.Arguments -notlike "*$setup\Open-WindowsTestOffice.ps1*") { throw 'The Start menu launcher is missing.' }
     . (Join-Path $setup 'CSweet.OfficeRelease.ps1')
@@ -49,4 +68,4 @@ try {
     } finally { [IO.Directory]::Delete($existing.FullName, $false) }
 } finally { Invoke-Msi x }
 if ((Test-Path $setup) -or (Test-Path $shortcut)) { throw 'Test setup did not uninstall cleanly.' }
-Write-Host 'Verified Setup EXE pin, real MSI install and uninstall, Start menu launcher, and signed release support download.'
+Write-Host 'Verified Setup EXE pin, full-UI MSI launching the wizard, Cancel, Start menu launcher, signed support download, and uninstall.'

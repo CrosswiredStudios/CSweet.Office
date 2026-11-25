@@ -40,6 +40,12 @@
       <ComponentRef Id="office_release_signer.cer" /><ComponentRef Id="office_bootstrap.p7m.b64" /><ComponentRef Id="test_build.txt" /><ComponentRef Id="TestProtocol" /></ComponentGroup>
     <CustomAction Id="RemoveTestOffice" Directory="System64Folder" Execute="deferred" Impersonate="no" Return="check"
       ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File &quot;[ProgramFiles64Folder]CSweet\Office Test Setup\Prepare-WindowsTestOffice.ps1&quot; -Remove" />
+    <!-- Run the wizard in the interactive user's session, after the launcher has been installed. -->
+    <CustomAction Id="OpenOfficeWizard" Directory="System64Folder" Return="asyncNoWait"
+      ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File &quot;[TestSetup]Open-WindowsTestOffice.ps1&quot;" />
+    <InstallUISequence>
+      <Custom Action="OpenOfficeWizard" After="ExecuteAction" Condition="UILevel = 5 AND NOT Installed AND NOT CSWEET_SETUP_EXE AND NOT REMOVE" />
+    </InstallUISequence>
     <InstallExecuteSequence><Custom Action="RemoveTestOffice" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" /></InstallExecuteSequence>
   </Package>
 </Wix>

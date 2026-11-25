@@ -14,6 +14,14 @@ an Office that has already been revoked in C-Sweet and whose work may be destroy
 
 ## Windows
 
+### Remove the Windows test edition
+
+Open **Settings → Apps → Installed apps → C-Sweet Office (Windows test) → Uninstall**. Both the test Setup EXE and the MSI register this entry. If you only opened the launcher, you can uninstall immediately. If you connected the Office, drain it in Headquarters and wait for active work to reach zero first. If you are retiring the device, revoke its enrollment in Headquarters as well.
+
+The test uninstaller removes its Start menu shortcut, preparation files and matching Office payload. For a configured Office, it also calls the Office uninstaller described below. The Windows user who ran setup can still have desktop pairing state in `%LOCALAPPDATA%\CSweet\OfficeDesktop` and downloaded installer files under `%LOCALAPPDATA%\CSweet\Downloads`. Headquarters data and the Windows Hyper-V feature are outside the scope of Office removal. The Headquarters development reset affects other products and local businesses.
+
+Verified: 2026-11-24. [Test MSI](../../scripts/release/windows-test/WindowsTestSetup.wxs) · [Preparation and removal](../../scripts/release/windows-test/Prepare-WindowsTestOffice.ps1) · [Office uninstaller](../../scripts/windows/Uninstall-CSweetOffice.ps1) · [Desktop pairing state](../../src/CSweet.Office.Node/Desktop/OfficeDesktop.cs) · [Setup download cache](../../scripts/windows/OfficeSetup.cs)
+
 ### The uninstall script
 
 ```
