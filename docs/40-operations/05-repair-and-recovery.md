@@ -44,8 +44,13 @@ Each cycle, once every 30 seconds:
    thumbprint must match the response, or the cycle fails.
 4. Combine the recovered certificate with the private key and `POST
    api/offices/{officeId}/maintenance/claim`. `204 No Content` means there is nothing to do.
-5. Validate the returned handoff URI, then launch the configurator with `--uri <handoff>` and wait for it to
-   exit, logging the exit code.
+5. Validate the returned handoff URI, launch the configurator with `--uri <handoff>`, and wait for it to
+   exit. The service logs completion or the failed process's exit code.
+
+On Windows clients, an unconfigured LocalSystem account defaults to the Restricted Windows PowerShell policy.
+`MaintenanceWorker.SetDefaultScriptPolicy` supplies a process-scoped RemoteSigned default for the configurator
+and its local installer scripts when the process, user and machine scopes have no configured policy. Group
+Policy still takes precedence. A nonzero configurator exit creates a warning in the Windows Application log.
 
 Transient failures (`HttpRequestException`, `IOException`, `CryptographicException`, `JsonException`,
 `InvalidOperationException`, `Win32Exception`, `TaskCanceledException`, `ArgumentException`) are logged as a
@@ -174,4 +179,4 @@ not a convenience flag, and not something the recovery service may do on its own
 `src/CSweet.Office.Runtime.HyperV/WindowsRuntimeHostProvisioner.cs`, `README.md`, `releases/0.5.0.md`,
 `docs/20-security/06-host-privilege-model.md`, `docs/20-security/11-security-invariants.md`.
 
-Verified: 2026-10-24.
+Verified: 2026-11-24 (Windows maintenance startup and script policy).

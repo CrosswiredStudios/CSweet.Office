@@ -8,6 +8,7 @@ using CSweet.Office.Contracts.ControlPlane;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Win32;
 
 internal static class OfficeMaintenanceService
 {
@@ -38,7 +39,8 @@ internal sealed class MaintenanceWorker(MaintenanceSettings settings, ILogger<Ma
             try { await CheckAsync(stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
             catch (Exception exception) when (exception is HttpRequestException or IOException or CryptographicException or
-                JsonException or InvalidOperationException or System.ComponentModel.Win32Exception or TaskCanceledException or ArgumentException)
+                JsonException or InvalidOperationException or System.ComponentModel.Win32Exception or TaskCanceledException or ArgumentException or
+                UnauthorizedAccessException or System.Security.SecurityException)
             { logger.LogWarning("Office maintenance check could not complete ({ErrorType}). It will retry.", exception.GetType().Name); }
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
@@ -103,9 +105,32 @@ internal sealed class MaintenanceWorker(MaintenanceSettings settings, ILogger<Ma
         var start = new ProcessStartInfo(settings.ConfiguratorPath) { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
         start.ArgumentList.Add("--uri");
         start.ArgumentList.Add(handoff.LaunchUri);
+        if (OperatingSystem.IsWindows())
+        {
+            const string shellKey = @"\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell";
+            SetDefaultScriptPolicy(start,
+                Registry.GetValue("HKEY_CURRENT_USER" + shellKey, "ExecutionPolicy", null) as string,
+                Registry.GetValue("HKEY_LOCAL_MACHINE" + shellKey, "ExecutionPolicy", null) as string);
+        }
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Recovery app could not start.");
         await process.WaitForExitAsync(cancellationToken);
-        logger.LogInformation("Office maintenance request finished with exit code {ExitCode}.", process.ExitCode);
+        if (process.ExitCode != 0)
+            logger.LogWarning("The Office configurator exited with code {ExitCode} for Office {OfficeId}.", process.ExitCode, officeId);
+        else
+            logger.LogInformation("Office maintenance request completed for Office {OfficeId}.", officeId);
+    }
+
+    internal static void SetDefaultScriptPolicy(ProcessStartInfo configurator, string? userPolicy, string? machinePolicy)
+    {
+        // Windows PowerShell defaults to Restricted for an unconfigured LocalSystem account on Windows clients.
+        // Scope this default to the authenticated configurator and its children. Group Policy takes precedence.
+        const string preference = "PSExecutionPolicyPreference";
+        configurator.Environment.TryGetValue(preference, out var inherited);
+        if (Undefined(inherited) && Undefined(userPolicy) && Undefined(machinePolicy))
+            configurator.Environment[preference] = "RemoteSigned";
+
+        static bool Undefined(string? value) => string.IsNullOrWhiteSpace(value) ||
+            string.Equals(value, "Undefined", StringComparison.OrdinalIgnoreCase);
     }
 
     internal static bool ValidHandoff(string value, Guid officeId, Uri origin, string? installedCertificate = null)

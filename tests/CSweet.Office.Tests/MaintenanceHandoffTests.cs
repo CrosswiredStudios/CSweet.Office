@@ -1,7 +1,51 @@
+using System.Diagnostics;
+
 namespace CSweet.Office.Tests;
 
 public sealed class MaintenanceHandoffTests
 {
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Undefined")]
+    public async Task DefaultMaintenanceAccountCanRunTheWindowsStorageHelper(string? policy)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"))
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        start.Environment.Remove("PSExecutionPolicyPreference");
+        if (policy is not null) start.Environment["PSExecutionPolicyPreference"] = policy;
+        MaintenanceWorker.SetDefaultScriptPolicy(start, userPolicy: policy, machinePolicy: policy);
+        var resolverTest = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../scripts/tests/Test-OfficeStorage.ps1"));
+        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-File", resolverTest })
+            start.ArgumentList.Add(arg);
+        Assert.Equal("RemoteSigned", start.Environment["PSExecutionPolicyPreference"]);
+        using var process = Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var errors = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try { await process.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException) { process.Kill(entireProcessTree: true); throw; }
+        Assert.True(process.ExitCode == 0, await errors);
+        Assert.Contains("13 behavior checks passed", await output);
+    }
+
+    [Theory]
+    [InlineData("Restricted", null, null)]
+    [InlineData(null, "AllSigned", null)]
+    [InlineData(null, null, "Restricted")]
+    public void ExplicitPowerShellPoliciesSurviveMaintenanceLaunch(string? processPolicy, string? userPolicy, string? machinePolicy)
+    {
+        var start = new ProcessStartInfo();
+        const string preference = "PSExecutionPolicyPreference";
+        start.Environment.Remove(preference);
+        if (processPolicy is not null) start.Environment[preference] = processPolicy;
+        MaintenanceWorker.SetDefaultScriptPolicy(start, userPolicy, machinePolicy);
+        start.Environment.TryGetValue(preference, out var actual);
+        Assert.Equal(processPolicy, actual);
+    }
+
     [Theory]
     [InlineData("", false, true)]
     [InlineData("", true, false)]
