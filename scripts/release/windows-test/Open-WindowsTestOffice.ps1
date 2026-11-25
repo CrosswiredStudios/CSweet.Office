@@ -54,12 +54,17 @@ try {
     $primary.SetBounds(398, 276, 144, 36)
     $primary.Text = 'Install'
     $primary.FlatStyle = 'System'
-    $form.Controls.AddRange(@($product, $heading, $details, $bar, $primary, $secondary))
+    $viewLog = [Windows.Forms.Button]::new()
+    $viewLog.SetBounds(26, 276, 145, 36)
+    $viewLog.Text = 'Open setup log'
+    $viewLog.FlatStyle = 'System'
+    $viewLog.Visible = $false
+    $form.Controls.AddRange(@($product, $heading, $details, $bar, $primary, $secondary, $viewLog))
     $form.AcceptButton = $primary
     $form.CancelButton = $secondary
     $form.ActiveControl = $primary
 
-    $job = @{ Worker = $null; StatusFile = ''; ProgressFile = ''; OpenOffice = $false }
+    $job = @{ Worker = $null; StatusFile = ''; ProgressFile = ''; DiagnosticFile = ''; OpenOffice = $false }
     $phaseText = @{
         'host-preflight' = 'Checking your Windows settings.'
         'enable-hyperv' = 'Turning on Hyper-V so Office can run work securely.'
@@ -92,6 +97,8 @@ try {
         if ($primary.Text -eq 'Close') { $form.Close(); return }
         $id = [guid]::NewGuid()
         $job.StatusFile = Join-Path $PSScriptRoot ("status-{0}.txt" -f $id.ToString('N'))
+        $job.DiagnosticFile = Join-Path $PSScriptRoot ("certification-{0}.log" -f $id.ToString('N'))
+        $viewLog.Visible = $false
         $job.ProgressFile = Join-Path $env:ProgramData ("CSweet\Setup\windows-isolation-{0}.json" -f $id.ToString('N'))
         $shell = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
         $arguments = '-NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File "{0}" -JobId {1}' -f (Join-Path $PSScriptRoot 'Prepare-WindowsTestOffice.ps1'), $id
@@ -109,6 +116,10 @@ try {
         }
     })
     $secondary.add_Click({ $form.Close() })
+    $viewLog.add_Click({
+        try { Invoke-Item -LiteralPath $job.DiagnosticFile -ErrorAction Stop }
+        catch { [void][Windows.Forms.MessageBox]::Show($_.Exception.Message, $title, 'OK', 'Error') }
+    })
     $form.add_FormClosing({ param($sender, $eventArgs)
         if ($null -ne $job.Worker -and $eventArgs.CloseReason -eq 'UserClosing') { $eventArgs.Cancel = $true }
     })
@@ -127,6 +138,7 @@ try {
                 $reason = if ([IO.File]::Exists($job.StatusFile)) { [IO.File]::ReadAllText($job.StatusFile) }
                     else { 'Close any other Office setup window and try again.' }
                 Show-Result 'Setup could not finish' $reason 'Try again'
+                $viewLog.Visible = [IO.File]::Exists($job.DiagnosticFile)
             }
             return
         }

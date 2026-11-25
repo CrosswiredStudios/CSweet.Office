@@ -19,6 +19,13 @@ local log entry naming the underlying cause.
 | Linux | `journalctl -u csweet-office-node.service` and `journalctl -u csweet-office-runtime.service`. |
 | macOS | The unified log; neither daemon plist defines `StandardOutPath` or `StandardErrorPath`, so use `log show --predicate 'process == "CSweet.Office.Node"'` (and `CSweet.Office.RuntimeHost`). |
 
+If Windows preview setup fails during Hyper-V certification, choose **Open setup log**.
+The installer keeps the failed certification log with its installed setup files after cleaning
+the temporary guest files. A bundle built with the updated probe can report whether the guest's
+public connection failed during the TCP connection or during the TLS handshake.
+
+Verified: 2026-11-24. [Setup log retention](../../scripts/release/windows-test/Prepare-WindowsTestOffice.ps1) · [Setup wizard](../../scripts/release/windows-test/Open-WindowsTestOffice.ps1) · [Guest TCP and TLS probe](../../src/CSweet.Office.GuestProbe/Program.cs) · [Smoke runner](../../src/CSweet.Office.WindowsSmokeTest/Program.cs)
+
 ## Symptom → cause → check
 
 | Symptom | Likely cause | Check |

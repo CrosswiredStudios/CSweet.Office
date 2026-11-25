@@ -10,6 +10,7 @@ $office = Join-Path $programs 'CSweet\Office'
 $build = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'test-build.txt')).Trim()
 $receipt = Join-Path $office 'windows-test-build.txt'
 $statusFile = Join-Path $PSScriptRoot ("status-{0}.txt" -f $JobId.ToString('N'))
+$diagnosticFile = Join-Path $PSScriptRoot ("certification-{0}.log" -f $JobId.ToString('N'))
 $work = Join-Path $PSScriptRoot 'preparation'
 $lock = $null
 
@@ -31,6 +32,18 @@ function Remove-TestDirectory([string] $Path, [string] $Allowed) {
     if ($full -ine $Allowed) { throw 'Unexpected setup cleanup path.' }
     Assert-CSweetOfficePath $full
     if ([IO.Directory]::Exists($full)) { Remove-Item -LiteralPath $full -Recurse -Force }
+}
+function Save-CertificationLog([string] $WorkRoot, [string] $Destination) {
+    Assert-CSweetOfficePath $WorkRoot
+    $run = Get-ChildItem -LiteralPath $WorkRoot -Directory -Filter 'certification-*' |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    if (!$run) { return $false }
+    $source = Join-Path $run.FullName 'certification.log'
+    Assert-CSweetOfficePath $source
+    if (![IO.File]::Exists($source)) { return $false }
+    Assert-CSweetOfficePath $Destination
+    [IO.File]::Copy($source, $Destination)
+    return $true
 }
 
 try {
@@ -59,6 +72,7 @@ try {
         }
         Remove-TestDirectory $work (Join-Path $PSScriptRoot 'preparation')
         Get-ChildItem -LiteralPath $PSScriptRoot -File -Filter 'status-*.txt' | Remove-Item -Force
+        Get-ChildItem -LiteralPath $PSScriptRoot -File -Filter 'certification-*.log' | Remove-Item -Force
         return
     }
     if ($owned -and [IO.File]::Exists((Join-Path $office 'payload\runtime-manifest.json'))) { return }
@@ -107,7 +121,13 @@ try {
     $scripts = Join-Path $bundle 'scripts\windows'
     $result = Join-Path $work 'payload-path.txt'
     Report 'Checking that this PC can run Office workloads securely...'
-    & (Join-Path $scripts 'Initialize-CSweetWindowsIsolationTest.ps1') -PrebuiltRoot $bundle -WorkingRoot $work -SkipInstall -NoElevation -DevelopmentTools -PayloadResultPath $result -ProgressJobId $JobId
+    try {
+        & (Join-Path $scripts 'Initialize-CSweetWindowsIsolationTest.ps1') -PrebuiltRoot $bundle -WorkingRoot $work -SkipInstall -NoElevation -DevelopmentTools -PayloadResultPath $result -ProgressJobId $JobId
+    } catch {
+        try { [void](Save-CertificationLog $work $diagnosticFile) }
+        catch { Write-Warning "Office could not save the certification log. $($_.Exception.Message)" }
+        throw
+    }
     if (!(Test-Path -LiteralPath $result -PathType Leaf)) { throw 'Preparation did not finish. Check Hyper-V, restart Windows if required, and open Office again.' }
     $payload = [IO.Path]::GetFullPath([IO.File]::ReadAllText($result).Trim())
     if (!$payload.StartsWith($work + '\', [StringComparison]::OrdinalIgnoreCase) -or
@@ -120,7 +140,12 @@ try {
     [IO.Directory]::Move($ready, $office)
     Report 'Office is ready to connect to Headquarters.'
 } catch {
-    if ($lock -and !$Remove) { Report $_.Exception.Message }
+    if ($lock -and !$Remove) {
+        $message = if ([IO.File]::Exists($diagnosticFile)) {
+            'Office could not complete its checks on this PC. Open the setup log for details, then try again after resolving the issue.'
+        } else { $_.Exception.Message }
+        Report $message
+    }
     Write-Error $_ -ErrorAction Continue
     exit 1
 } finally {
