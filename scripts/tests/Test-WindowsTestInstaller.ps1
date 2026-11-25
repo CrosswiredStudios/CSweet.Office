@@ -11,8 +11,8 @@ try {
     if ($build -notmatch '^\d+\.\d+\.\d+-\d+$' -or $reader.ReadLine() -cne "$($msi[0].Name)|$($msi[0].Length)|$((Get-FileHash $msi[0].FullName).Hash)" -or !$reader.EndOfStream) { throw 'Setup does not pin this MSI.' }
 } finally { $reader.Dispose() }
 $programs = [Environment]::GetFolderPath('ProgramFiles')
-$setup = Join-Path $programs 'CSweet\Office Test Setup'
-$shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'C-Sweet Office (Windows test).lnk'
+$setup = Join-Path $programs 'CSweet\Office Setup'
+$shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'C-Sweet Office.lnk'
 $office = Join-Path $programs 'CSweet\Office'
 if ((Test-Path $setup) -or (Test-Path $office)) { throw 'Use a clean Windows test runner.' }
 function Invoke-Msi([string] $Action, [string] $Ui = '/qn') {
@@ -32,7 +32,13 @@ try {
         $window = $root.FindFirst([Windows.Automation.TreeScope]::Children, $windowTitle)
         if (!$window) { Start-Sleep -Milliseconds 300 }
     } until ($window -or [DateTime]::UtcNow -ge $deadline)
-    if (!$window) { throw 'Double-click installation did not open the Office setup wizard.' }
+    if (!$window) {
+        $root.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.Condition]::TrueCondition) |
+            ForEach-Object { Write-Host "Window: $($_.Current.Name)" }
+        Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+            Where-Object CommandLine -like '*Open-WindowsTestOffice.ps1*' | Select-Object ProcessId,SessionId | Out-Host
+        throw 'Double-click installation did not open the Office setup wizard.'
+    }
     foreach ($name in @('Install', 'Cancel')) {
         $condition = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::NameProperty, $name)
         $button = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $condition)

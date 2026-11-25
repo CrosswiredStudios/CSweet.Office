@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [Windows.Forms.Application]::EnableVisualStyles()
-$title = 'C-Sweet Office (Windows test)'
+$title = 'C-Sweet Office'
 $office = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'CSweet\Office'
 $build = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'test-build.txt')).Trim()
 $receipt = Join-Path $office 'windows-test-build.txt'
@@ -33,7 +33,7 @@ try {
 
     $product = [Windows.Forms.Label]::new()
     $product.SetBounds(24, 18, 520, 24)
-    $product.Text = 'C-Sweet Office  |  Windows test edition'
+    $product.Text = 'C-Sweet Office'
     $product.ForeColor = $accent
     $heading = [Windows.Forms.Label]::new()
     $heading.SetBounds(22, 56, 526, 52)
@@ -108,7 +108,7 @@ try {
             $worker.Dispose()
             $job.Worker = $null
             if ($code -eq 3010) {
-                Show-Result 'Restart Windows to continue' 'Save your work and restart this PC. Then open C-Sweet Office (Windows test) from Start to continue setup.' 'Close'
+                Show-Result 'Restart Windows to continue' 'Save your work and restart this PC. Then open C-Sweet Office from Start to continue setup.' 'Close'
             } elseif ($code -eq 0 -and (Test-Prepared)) {
                 Show-Result 'Ready to connect to Headquarters' 'Open Office to connect this PC to your hosted or private Headquarters and finish installing the Office services. You can also open Office later from Start.' 'Open Office'
             } else {

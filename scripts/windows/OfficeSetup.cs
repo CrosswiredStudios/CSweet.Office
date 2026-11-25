@@ -17,15 +17,13 @@ internal sealed class OfficeSetup : Form
 {
 #if WINDOWS_TEST_INSTALLER
     const string ReleasePrefix = "windows-test-";
-    const string ShortcutName = "C-Sweet Office (Windows test)";
-    const string WindowTitle = "C-Sweet Office Test Setup";
     const string MsiOptions = " CSWEET_SETUP_EXE=1";
 #else
     const string ReleasePrefix = "v";
-    const string ShortcutName = "C-Sweet Office";
-    const string WindowTitle = "C-Sweet Office Setup";
     const string MsiOptions = "";
 #endif
+    const string ShortcutName = "C-Sweet Office";
+    const string WindowTitle = "C-Sweet Office Setup";
     readonly Label message = new Label { AutoSize = false, Dock = DockStyle.Fill, Text = "Download and install C-Sweet Office on this computer." };
     readonly ProgressBar progress = new ProgressBar { Dock = DockStyle.Bottom };
     readonly Button install = new Button { Text = "Install Office", Dock = DockStyle.Bottom, Height = 40 };

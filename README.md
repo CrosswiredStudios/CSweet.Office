@@ -12,9 +12,9 @@ C-Sweet Office lets this computer run work for your team. Connect it to a Headqu
 | Ubuntu 24.04 LTS | Signed DEB for AMD64 or ARM64. Open it with your package installer. | KVM, cgroup v2 and hardware virtualization. Desktop setup needs a graphical administrator prompt. |
 | macOS | Signed, notarized PKG for Apple silicon or Intel. Open it in Finder. | A supported Virtualization.framework host and matching certified guest assets. |
 
-**Testing on Windows?** Under **Assets** on the Office release, download the EXE ending in `-test-setup.exe`. It verifies the matching MSI and opens **C-Sweet Office Setup**. You can also double-click the test MSI directly. If you have the original 0.19.0 build 4 MSI, open **C-Sweet Office (Windows test)** from Start after installation. [Office releases](https://github.com/CrosswiredStudios/CSweet.Office/releases)
+**Windows preview** Under **Assets** on the Office release, download the latest numbered EXE ending in `-setup.exe`. It verifies the matching MSI and opens **C-Sweet Office Setup**. You can also double-click the matching MSI directly. If you have the original 0.19.0 build 4 MSI, open **C-Sweet Office (Windows test)** from Start after installation. [Office releases](https://github.com/CrosswiredStudios/CSweet.Office/releases)
 
-On a fresh Windows x64 PC, choose **Install** in the setup wizard. It downloads about 7 GB and checks Hyper-V. If Windows needs to restart, reopen Office from Start afterward. Choose **Open Office** to connect to Headquarters. You can uninstall the test edition from **Settings → Apps → Installed apps**. These test installers are unsigned. [Windows test requirements](docs/60-release/07-hosted-development-bundles.md) · [Uninstall and cleanup](docs/40-operations/06-uninstall-and-removal.md)
+On a fresh Windows x64 PC, choose **Install** in the setup wizard. It downloads about 7 GB and checks Hyper-V. If Windows needs to restart, reopen Office from Start afterward. Choose **Open Office** to connect to Headquarters. You can uninstall **C-Sweet Office** from **Settings → Apps → Installed apps**. This Windows preview is unsigned. [Windows test requirements](docs/60-release/07-hosted-development-bundles.md) · [Uninstall and cleanup](docs/40-operations/06-uninstall-and-removal.md)
 
 ## Quick start with a desktop installer (0.19 and later)
 
