@@ -1,0 +1,79 @@
+name: Windows test installer
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published Office development bundle version (blank uses the project version)
+        type: string
+  pull_request:
+    paths:
+      - .github/workflows/windows-test-installer.yml
+      - scripts/release/windows-test/**
+      - scripts/tests/Test-WindowsTestInstaller.ps1
+      - scripts/windows/OfficeSetup.cs
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    outputs:
+      tag: ${{ steps.build.outputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Install WiX
+        shell: pwsh
+        run: dotnet tool install wix --version 4.0.6 --tool-path "$env:RUNNER_TEMP\wix"
+      - name: Build the Windows x64 test installer
+        id: build
+        shell: powershell
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          CERT_SHA256: ${{ vars.CSWEET_DEVELOPMENT_UPDATE_CERT_SHA256 }}
+          DOTNET_ROLL_FORWARD: Major
+        run: |
+          $version = $env:REQUESTED_VERSION
+          if (!$version) { $version = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.VersionPrefix }
+          ./scripts/release/windows-test/Build-WindowsTestInstaller.ps1 -Version $version -Revision $env:GITHUB_RUN_NUMBER -PublisherSha256 $env:CERT_SHA256 -Wix "$env:RUNNER_TEMP\wix\wix.exe" -Output artifacts/windows-test
+          "tag=windows-test-$version-$env:GITHUB_RUN_NUMBER" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: Install and remove the actual MSI on a clean runner
+        shell: powershell
+        run: ./scripts/tests/Test-WindowsTestInstaller.ps1 -Output artifacts/windows-test
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: failure()
+        with:
+          name: windows-test-installer-diagnostics
+          path: artifacts/windows-test/*.log
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-test-installer
+          path: |
+            artifacts/windows-test/*.exe
+            artifacts/windows-test/*.msi
+            artifacts/windows-test/SHA256SUMS
+          if-no-files-found: error
+  publish:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-test-installer
+          path: installers
+      - name: Publish a Windows test prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          cd installers
+          sha256sum --check SHA256SUMS
+          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --latest=false --title "C-Sweet Office for Windows (test installer ${TAG#windows-test-})" --notes-file ../scripts/release/windows-test/release-notes.md ./*.exe ./*.msi SHA256SUMS

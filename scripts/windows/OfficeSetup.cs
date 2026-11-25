@@ -15,6 +15,15 @@ using System.Windows.Forms;
 // Keep verified files locked through Windows Installer's final read of the cabinets.
 internal sealed class OfficeSetup : Form
 {
+#if WINDOWS_TEST_INSTALLER
+    const string ReleasePrefix = "windows-test-";
+    const string ShortcutName = "C-Sweet Office (Windows test)";
+    const string WindowTitle = "C-Sweet Office Test Setup";
+#else
+    const string ReleasePrefix = "v";
+    const string ShortcutName = "C-Sweet Office";
+    const string WindowTitle = "C-Sweet Office Setup";
+#endif
     readonly Label message = new Label { AutoSize = false, Dock = DockStyle.Fill, Text = "Download and install C-Sweet Office on this computer." };
     readonly ProgressBar progress = new ProgressBar { Dock = DockStyle.Bottom };
     readonly Button install = new Button { Text = "Install Office", Dock = DockStyle.Bottom, Height = 40 };
@@ -23,7 +32,10 @@ internal sealed class OfficeSetup : Form
 
     OfficeSetup()
     {
-        Text = "C-Sweet Office Setup"; ClientSize = new Size(500, 155); Padding = new Padding(20);
+        Text = WindowTitle; ClientSize = new Size(500, 155); Padding = new Padding(20);
+#if WINDOWS_TEST_INSTALLER
+        message.Text = "Install the Windows test edition on a fresh Hyper-V PC. Setup will guide you through preparing this computer and connecting to Headquarters.";
+#endif
         Font = SystemFonts.MessageBoxFont; StartPosition = FormStartPosition.CenterScreen;
         Controls.Add(message); Controls.Add(progress); Controls.Add(install);
         install.Click += async delegate { await Run(); };
@@ -64,7 +76,7 @@ internal sealed class OfficeSetup : Form
                         var temp = path + "." + Guid.NewGuid().ToString("N") + ".part";
                         try
                         {
-                            var url = "https://github.com/CrosswiredStudios/CSweet.Office/releases/download/v" + version + "/" + parts[0];
+                            var url = "https://github.com/CrosswiredStudios/CSweet.Office/releases/download/" + ReleasePrefix + version + "/" + parts[0];
                             using (var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancel.Token))
                             using (var file = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 131072, true))
                             {
@@ -96,8 +108,8 @@ internal sealed class OfficeSetup : Form
                 {
                     await Task.Run(() => proc.WaitForExit());
                     if (proc.ExitCode != 0 && proc.ExitCode != 3010) throw new InvalidOperationException("Windows Installer returned " + proc.ExitCode + ".");
-                    message.Text = proc.ExitCode == 3010 ? "Restart Windows, then open C-Sweet Office from Start." : "Installed. Open C-Sweet Office from Start.";
-                    var shortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "C-Sweet Office.lnk");
+                    message.Text = (proc.ExitCode == 3010 ? "Restart Windows, then open " : "Installed. Open ") + ShortcutName + " from Start.";
+                    var shortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), ShortcutName + ".lnk");
                     if (proc.ExitCode == 0 && File.Exists(shortcut)) Process.Start(shortcut);
                 }
             }
