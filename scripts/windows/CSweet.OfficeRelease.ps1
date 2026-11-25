@@ -296,7 +296,7 @@ function Expand-CSweetOfficeArchive([string] $Archive, [string] $Destination) {
 function Receive-CSweetOfficeAsset([object] $Asset, [string] $Destination, [int] $TimeoutSeconds = 1800, [scriptblock] $OnPart) {
     if ($Asset.name -cnotmatch '^csweet-office-([0-9]+\.[0-9]+\.[0-9]+)-(windows-support|windows-x64)\.zip$') { throw 'Office download asset name is invalid.' }
     Assert-CSweetOfficeAsset $Asset $Matches[1] $Matches[2] $true
-    if ($TimeoutSeconds -le 0 -or $TimeoutSeconds -gt 1800) { throw 'Office download timeout is invalid.' }
+    if ($TimeoutSeconds -le 0 -or $TimeoutSeconds -gt 14400) { throw 'Office download timeout is invalid.' }
     $archive = "$Destination.zip"
     $partPath = "$Destination.part-$([guid]::NewGuid().ToString('N'))"
     $ownedArchive = $false

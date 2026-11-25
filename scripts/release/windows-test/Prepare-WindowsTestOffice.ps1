@@ -33,6 +33,15 @@ try {
     $data = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'CSweet\Office'
     if ($Remove) {
         if ($owned) {
+            # The user-session page can outlive its browser and keep the prepared Node EXE open.
+            $uiNode = Join-Path $office 'payload\node\CSweet.Office.Node.exe'
+            $trayScript = [regex]::Escape((Join-Path $PSScriptRoot 'Open-WindowsTestOffice.ps1'))
+            foreach ($process in Get-CimInstance Win32_Process -Filter "Name='CSweet.Office.Node.exe' OR Name='powershell.exe'") {
+                if (($process.ExecutablePath -ieq $uiNode -and $process.CommandLine -match '\s--open-office\s*$') -or
+                    ($process.Name -ieq 'powershell.exe' -and $process.CommandLine -match ('\s-File\s+"' + $trayScript + '"\s*$'))) {
+                    Stop-Process -Id $process.ProcessId -ErrorAction SilentlyContinue
+                }
+            }
             if ($services.Count -or (Test-Path -LiteralPath $data) -or (Test-Path 'HKLM:\SOFTWARE\CSweet\Office\Storage')) {
                 & (Join-Path $office 'Uninstall-CSweetOffice.ps1') -Elevated
             }
@@ -69,7 +78,7 @@ try {
     $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($office))
     if ($drive.AvailableFreeSpace -lt 64GB) { throw 'Free at least 64 GiB on the Windows system drive, then reopen Office test setup.' }
     Report 'Downloading and checking the Windows guest bundle. This is a multi-gigabyte download.'
-    $bundle = Receive-CSweetOfficeAsset $bundles[0] (Join-Path $work 'bundle') -OnPart {
+    $bundle = Receive-CSweetOfficeAsset $bundles[0] (Join-Path $work 'bundle') -TimeoutSeconds 14400 -OnPart {
         param($Part, $Count)
         Report "Downloading and checking the Windows guest bundle (part $Part of $Count)..."
     }
