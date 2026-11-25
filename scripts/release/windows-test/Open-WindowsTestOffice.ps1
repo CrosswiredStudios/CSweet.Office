@@ -49,13 +49,11 @@ try {
     $secondary = [Windows.Forms.Button]::new()
     $secondary.SetBounds(280, 276, 108, 36)
     $secondary.Text = 'Cancel'
-    $secondary.FlatStyle = 'Flat'
+    $secondary.FlatStyle = 'System'
     $primary = [Windows.Forms.Button]::new()
     $primary.SetBounds(398, 276, 144, 36)
     $primary.Text = 'Install'
-    $primary.FlatStyle = 'Flat'
-    $primary.BackColor = $accent
-    $primary.ForeColor = [Drawing.ColorTranslator]::FromHtml('#142623')
+    $primary.FlatStyle = 'System'
     $form.Controls.AddRange(@($product, $heading, $details, $bar, $primary, $secondary))
     $form.AcceptButton = $primary
     $form.CancelButton = $secondary

@@ -45,7 +45,20 @@ try {
         if (!$button -or !$button.Current.IsEnabled) { throw "Missing enabled wizard button: $name" }
     }
     $wizard = Get-Process -Id $window.Current.ProcessId
-    $button.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    # The legacy Windows PowerShell WinForms provider can expose a native button without InvokePattern.
+    $invoke = $null
+    if ($button.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) {
+        $invoke.Invoke()
+    } else {
+        Add-Type -Namespace OfficeInstallerTest -Name NativeButton -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool PostMessage(System.IntPtr window, uint message, System.IntPtr wParam, System.IntPtr lParam);
+'@
+        $handle = [IntPtr]$button.Current.NativeWindowHandle
+        if ($handle -eq [IntPtr]::Zero -or ![OfficeInstallerTest.NativeButton]::PostMessage($handle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)) {
+            throw 'Could not click Cancel in the installed Office wizard.'
+        }
+    }
     if (!$wizard.WaitForExit(15000)) { throw 'Cancelling the wizard did not close it.' }
     $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
     if (!(Test-Path $shortcut) -or $link.Arguments -notlike "*$setup\Open-WindowsTestOffice.ps1*") { throw 'The Start menu launcher is missing.' }
