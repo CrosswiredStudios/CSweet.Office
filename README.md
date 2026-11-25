@@ -115,7 +115,7 @@ To open the desktop page directly from this checkout, run the following command 
 dotnet run --project src/CSweet.Office.Node -- --open-office
 ```
 
-While Office.Contracts 0.15.0 awaits publication, use the matching sibling contracts checkout or a NuGet feed containing the packed 0.15.0 artifact. Headquarters and Office start independently.
+The independent build restores [CSweet.Office.Contracts 0.15.0 from NuGet](https://www.nuget.org/packages/CSweet.Office.Contracts/0.15.0). Headquarters and Office start independently.
 
 ### macOS installation and development
 
