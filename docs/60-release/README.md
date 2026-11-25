@@ -10,6 +10,12 @@ tag and release automatically. The destination host performs certification and d
 before installation.
 The separate, manually dispatched production workflow packages signed installers on hardened runners.
 
+### Build installers for a platform trial
+
+In Office Actions, open **signed-release**, select **Run workflow** on `main`, and check **Build signed test installers for all platforms and keep them as workflow artifacts** (`package_only`). The signing runners need their usual platform credentials and certification evidence. When the `verify` job succeeds, download `release-windows-x64`, `release-linux-x64`, `release-linux-arm64`, `release-macos-x64`, or `release-macos-arm64` from the run. `release-metadata` contains the consolidated checksums and manifest. The publish job is skipped. The Windows development bundle has a separate workflow and release channel. Verified: 2026-11-24 against [signed-release](../../.github/workflows/release.yml) and [hosted-development-release](../../.github/workflows/hosted-release.yml).
+
+For an unpublished Windows candidate, extract the MSI and every CAB into the same directory and open the MSI. To exercise the signed Setup EXE before its public downloads exist, put those same files in `%LOCALAPPDATA%\CSweet\Downloads\<version>` and open the EXE. It verifies each cached file against its embedded digest. After publication, test Setup once more on a clean computer to cover the public download. Verified: 2026-11-24 against [OfficeSetup.Run](../../scripts/windows/OfficeSetup.cs).
+
 Production signing and certification remain restricted to hardened workflows. Hosted development
 bundles are explicitly labeled and are not represented as production-signed or CI-certified.
 
@@ -39,6 +45,11 @@ graph LR
 Certification happens before `Invoke-PlatformRelease.ps1` on the hardened runner. The script consumes the
 certified guest image, its signature, the signing certificate, and the certification evidence as protected
 environment variables and fails immediately when any of them is absent. See [03-certification.md](03-certification.md).
+
+Windows, Linux and macOS take the suite and certification times from the runner's evidence.
+`Get-OfficeReleaseCertification.ps1` also checks that its expiry matches the protected release setting.
+`ExternalPlatformIsolationBackend.VerifyCertificationEvidenceAsync` checks these values again on the Office.
+Verified: 2026-11-24.
 
 ## The two rules that shape everything here
 

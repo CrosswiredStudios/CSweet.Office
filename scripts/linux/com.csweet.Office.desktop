@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=C-Sweet Office
+Comment=Connect and manage this Office computer
+Exec=/usr/lib/csweet/office-desktop
+Icon=computer
+Terminal=false
+Categories=System;

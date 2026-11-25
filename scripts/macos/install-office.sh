@@ -14,8 +14,21 @@ mixed_use=true
 allow_development=false
 storage_volume=
 gateway_sha256=
+cpu=
+memory=
+disk=
+fresh=false
 while [ "$#" -gt 0 ]; do
+  if [ "$1" = --limits ]; then
+    [ "$#" -ge 4 ] || exit 2
+    for limit in "$2" "$3" "$4"; do
+      case "$limit" in ''|*[!0-9]*) exit 2 ;; esac
+      [ "${#limit}" -le 10 ] && [ "$limit" -gt 0 ] && [ "$limit" -le 2147483647 ] || exit 2
+    done
+    cpu=$2; memory=$3; disk=$4; shift 4; continue
+  fi
   case "$1" in
+    --fresh-only) fresh=true; shift ;;
     --gateway-sha256)
       [ "$#" -ge 2 ] && [ "${#2}" -eq 64 ] || { echo 'Expected a SHA-256 gateway fingerprint.' >&2; exit 2; }
       case "$2" in *[!0-9A-Fa-f]*) exit 2 ;; esac
@@ -67,6 +80,7 @@ if [ ! -e "$office_record" ] && [ -e /Library/Application\ Support/CSweet/Office
 fi
 if [ -f /Library/LaunchDaemons/com.csweet.office.node.plist ] ||
    [ -e "$office_install_root"/CSweet.Office.Node ]; then
+  [ "$fresh" = false ] || { echo "Office is already configured." >&2; exit 2; }
   maintenance="$office_data_root"/maintenance
   drain_state=
   [ ! -f "$maintenance/drain-state" ] || drain_state=$(tr -d '\r\n' < "$maintenance/drain-state")
@@ -114,6 +128,7 @@ if ! dscl . -read /Users/_csweetnode >/dev/null 2>&1; then
   dscl . -create /Users/_csweetnode NFSHomeDirectory /var/empty
   dscl . -create /Users/_csweetnode IsHidden 1
 fi
+install -d -o _csweetnode -g _csweet -m 0755 "/Library/Application Support/CSweet/OfficeStatus"
 node_gid=$(dscl . -read /Users/_csweetnode PrimaryGroupID | awk '{print $2}')
 if [ "$node_gid" != "$service_gid" ]; then
   echo "The existing _csweetnode identity does not belong to the protected C-Sweet group." >&2; exit 2
@@ -125,7 +140,9 @@ if [ -n "$token_file" ]; then
   rm -f -- "$token_file"
 elif [ -t 0 ]; then printf 'Enrollment token: ' >&2; stty -echo; IFS= read -r token; stty echo; printf '\n' >&2
 else IFS= read -r token; fi
-if [ "${#token}" -lt 32 ] || [ "${#token}" -gt 256 ]; then echo "Invalid enrollment token." >&2; exit 2; fi
+max_length=256
+case "$token" in office1:*) max_length=2400 ;; esac
+if [ "${#token}" -lt 32 ] || [ "${#token}" -gt "$max_length" ]; then echo "Invalid enrollment token." >&2; exit 2; fi
 
 office_save_storage
 install -d -o root -m 0755 /usr/local/sbin
@@ -164,6 +181,12 @@ chown -R _csweetnode:_csweet "$office_data_root"/artifact-media
 chmod 0770 "$office_data_root"/artifact-media
 for service in runtime node; do
   office_render_plist "$package_root/com.csweet.office.$service.plist" "/Library/LaunchDaemons/com.csweet.office.$service.plist"
+  if [ "$service" = node ] && [ -n "$cpu" ]; then
+    plist=/Library/LaunchDaemons/com.csweet.office.node.plist
+    plutil -insert EnvironmentVariables.CSweet__Office__Node__AllocatableCpuCount -string "$cpu" "$plist"
+    plutil -insert EnvironmentVariables.CSweet__Office__Node__AllocatableMemoryMb -string "$memory" "$plist"
+    plutil -insert EnvironmentVariables.CSweet__Office__Node__AllocatableDiskMb -string "$disk" "$plist"
+  fi
   chmod 0644 "/Library/LaunchDaemons/com.csweet.office.$service.plist"
 done
 launchctl bootstrap system /Library/LaunchDaemons/com.csweet.office.runtime.plist

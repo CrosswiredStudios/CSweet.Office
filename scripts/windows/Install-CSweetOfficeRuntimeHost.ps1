@@ -9,6 +9,7 @@ param(
     [string] $ControlPlaneUrl,
     [string] $ControlPlaneCertificateSha256,
     [string] $EnrollmentTokenInputPath,
+    [switch] $CallerOwnsEnrollmentInput,
     [object] $ComputePolicy,
     [int] $WorkspaceCpuCount,
     [int] $WorkspaceMemoryMiB,
@@ -885,6 +886,7 @@ if ($null -ne $ComputePolicy -and $ComputePolicy.Enabled -eq $true) {
     New-ItemProperty -Path $computeSocket -Name 'ElementName' -PropertyType String -Value 'C-Sweet Office isolated compute guest' -Force | Out-Null
 }
 if ($null -ne $existingNodeConfiguration) {
+    $existingNodeConfiguration | Add-Member -NotePropertyName PublishDesktopStatus -NotePropertyValue $true -Force
     $config.CSweet.Office.Node = $existingNodeConfiguration
 }
 [IO.File]::WriteAllText((Join-Path $versionRoot 'appsettings.json'),
@@ -900,6 +902,11 @@ New-ItemProperty -Path $serviceRegistryPath -Name 'ElementName' -PropertyType St
 [Environment]::SetEnvironmentVariable('CSWEET_HYPERV_DATA_ROOT', $hyperVDataRoot, 'Machine')
 [Environment]::SetEnvironmentVariable('CSWEET_ARTIFACT_MEDIA_ROOT', $artifactMediaRoot, 'Machine')
 
+$desktopStatus = Join-Path $env:ProgramData 'CSweet\OfficeStatus'
+$null = New-Item -ItemType Directory -Path $desktopStatus -Force
+if ((Get-Item -LiteralPath $desktopStatus).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Invalid Office status directory.' }
+& "$env:SystemRoot\System32\icacls.exe" $desktopStatus '/inheritance:r' '/grant:r' "*$nodeServiceSid`:(OI)(CI)M" '*S-1-5-32-545:(OI)(CI)RX' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-OfficeSetupStatus
+if ($LASTEXITCODE -ne 0) { throw 'Could not protect the Office status directory.' }
 $serviceName = $runtimeHostServiceName
 Write-CSweetSetupProgress -Path $ProgressPath -JobId $ProgressJobId -Workflow $ProgressWorkflow `
     -State running -PhaseKey start-service -PhaseDisplayName 'Starting the RuntimeHost service' `
@@ -955,8 +962,9 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
     $inputPath = [IO.Path]::GetFullPath($EnrollmentTokenInputPath)
     if (-not (Test-Path -LiteralPath $inputPath -PathType Leaf)) { throw 'The protected enrollment input is missing.' }
     $token = [IO.File]::ReadAllText($inputPath).Trim()
-    Remove-Item -LiteralPath $inputPath -Force
-    if ($token.Length -lt 32 -or $token.Length -gt 256) { throw 'The protected enrollment token is invalid.' }
+    if (-not $CallerOwnsEnrollmentInput) { Remove-Item -LiteralPath $inputPath -Force }
+    $maximumInput = if ($token.StartsWith("office1:")) { 2400 } else { 256 }
+    if ($token.Length -lt 32 -or $token.Length -gt $maximumInput) { throw 'The protected enrollment token is invalid.' }
     New-Item -ItemType Directory -Path $nodeDataRoot -Force | Out-Null
     $nodeTokenPath = Join-Path $nodeDataRoot 'enrollment.secret'
     [IO.File]::WriteAllText($nodeTokenPath, $token, [Text.UTF8Encoding]::new($false))
@@ -977,6 +985,7 @@ if (-not [String]::IsNullOrWhiteSpace($ControlPlaneUrl) -and
         if ($LASTEXITCODE -ne 0) { throw 'The control-plane trust file ACL could not be secured.' }
     }
     $config.CSweet.Office.Node = @{
+        PublishDesktopStatus = $true
         ControlPlaneUrl = $gatewayUri.AbsoluteUri
         ControlPlaneTrustFilePath = $controlPlaneTrustPath
         StateDirectory = $nodeDataRoot

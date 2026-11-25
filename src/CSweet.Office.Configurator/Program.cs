@@ -50,9 +50,7 @@ var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? 
 var installRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", ".."));
 if (string.Equals(Path.GetFileName(installRoot), "recovery", StringComparison.OrdinalIgnoreCase))
     installRoot = Path.GetDirectoryName(installRoot)!;
-var installedStorage = ReadInstalledStorage(installRoot);
 var architecture = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
-var existingState = ProbeExistingInstallation(installRoot, query.ContainsKey("office") && query.GetValueOrDefault("operation") == "upgrade");
 var targeted = query.TryGetValue("office", out var targetText);
 var maintenance = targeted && query.GetValueOrDefault("operation") is "repair" or "upgrade";
 if (targeted && (!Guid.TryParse(targetText, out _) ||
@@ -73,8 +71,9 @@ if (maintenance && query.GetValueOrDefault("operation") == "upgrade" && query.Ge
     }
     finally { try { File.Delete(handoffPath); } catch (IOException) { } }
 }
-
-
+// Automatic preparation verifies the selected drive and Office identity in its installed helper.
+var installedStorage = ReadInstalledStorage(installRoot);
+var existingState = ProbeExistingInstallation(installRoot, targeted && query.GetValueOrDefault("operation") == "upgrade");
 if (targeted)
 {
     if (!await MatchesInstalledOffice(installedStorage, Guid.Parse(targetText!))) return 4;

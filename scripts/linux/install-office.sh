@@ -13,8 +13,26 @@ security_profile=baseline
 mixed_use=true
 allow_development=false
 storage_volume=
+gateway_sha256=
+cpu=
+memory=
+disk=
+fresh=false
 while [ "$#" -gt 0 ]; do
+  if [ "$1" = --limits ]; then
+    [ "$#" -ge 4 ] || exit 2
+    for limit in "$2" "$3" "$4"; do
+      case "$limit" in ''|*[!0-9]*) exit 2 ;; esac
+      [ "${#limit}" -le 10 ] && [ "$limit" -gt 0 ] && [ "$limit" -le 2147483647 ] || exit 2
+    done
+    cpu=$2; memory=$3; disk=$4; shift 4; continue
+  fi
   case "$1" in
+    --fresh-only) fresh=true; shift ;;
+    --gateway-sha256)
+      [ "$#" -ge 2 ] && [ "${#2}" -eq 64 ] || exit 2
+      case "$2" in *[!0-9A-Fa-f]*) exit 2 ;; esac
+      gateway_sha256=$2; shift 2 ;;
     --storage-volume) [ "$#" -ge 2 ] || exit 2; storage_volume=$2; shift 2 ;;
     --enrollment-token-file) [ "$#" -ge 2 ] || exit 2; token_file=$2; shift 2 ;;
     --result-job-id) [ "$#" -ge 2 ] || exit 2; result_job_id=$2; shift 2 ;;
@@ -70,6 +88,7 @@ if [ ! -e "$office_record" ] && [ -e /opt/csweet/office/CSweet.Office.Node ] && 
   exit 2
 fi
 if [ -f /etc/systemd/system/csweet-office-node.service ] || [ -e "$office_install_root"/CSweet.Office.Node ]; then
+  [ "$fresh" = false ] || { echo "Office is already configured." >&2; exit 2; }
   maintenance="$office_data_root"/maintenance
   drain_state=
   [ ! -f "$maintenance/drain-state" ] || drain_state=$(tr -d '\r\n' < "$maintenance/drain-state")
@@ -96,7 +115,9 @@ if [ -n "$token_file" ]; then
   rm -f -- "$token_file"
 elif [ -t 0 ]; then printf 'Enrollment token: ' >&2; stty -echo; IFS= read -r token; stty echo; printf '\n' >&2
 else IFS= read -r token; fi
-if [ "${#token}" -lt 32 ] || [ "${#token}" -gt 256 ]; then echo "Invalid enrollment token." >&2; exit 2; fi
+max_length=256
+case "$token" in office1:*) max_length=2400 ;; esac
+if [ "${#token}" -lt 32 ] || [ "${#token}" -gt "$max_length" ]; then echo "Invalid enrollment token." >&2; exit 2; fi
 
 office_save_storage
 install -d -o root -m 0755 /usr/sbin
@@ -127,16 +148,18 @@ if [ ! -f "$office_data_root"/runtime-host.key ]; then
 fi
 chown root:csweet-runtime "$office_data_root"/runtime-host.key
 chmod 0640 "$office_data_root"/runtime-host.key
-"$office_install_root"/CSweet.Office.Node \
-  --initialize-headquarters-assignment-trust "$control_plane" \
-  "$office_data_root"/authorization/headquarters-trust.json
+set -- --initialize-headquarters-assignment-trust "$control_plane" "$office_data_root"/authorization/headquarters-trust.json
+if [ -n "$gateway_sha256" ]; then set -- "$@" "$gateway_sha256"; fi
+"$office_install_root"/CSweet.Office.Node "$@"
 chown root:root "$office_data_root"/authorization/headquarters-trust.json
 chmod 0600 "$office_data_root"/authorization/headquarters-trust.json
 install -o csweet-node -g csweet-node -m 0600 /dev/null "$office_data_root"/node/enrollment.secret
 printf '%s' "$token" > "$office_data_root"/node/enrollment.secret
 unset token
 cat > /etc/csweet/office.env <<EOF
+CSweet__Office__Node__PublishDesktopStatus=true
 CSweet__Office__Node__ControlPlaneUrl=$control_plane
+CSweet__Office__Node__ControlPlaneCertificateSha256=$gateway_sha256
 CSweet__Office__Node__StateDirectory="$office_data_root"/node
 CSweet__Office__Node__ArtifactCacheDirectory="$office_data_root"/node/artifact-cache
 CSweet__Office__Node__ArtifactMediaDirectory="$office_artifact_root"
@@ -148,6 +171,9 @@ CSweet__Office__RuntimeHost__UnixSocketPath=/run/csweet/csweet-office-runtime-v1
 CSweet__Office__RuntimeHost__Authentication__SharedKeyFilePath="$office_data_root"/runtime-host.key
 CSweet__Office__RuntimeHost__Authorization__StateDirectory="$office_data_root"/authorization
 EOF
+if [ -n "$cpu" ]; then
+  printf 'CSweet__Office__Node__AllocatableCpuCount=%s\nCSweet__Office__Node__AllocatableMemoryMb=%s\nCSweet__Office__Node__AllocatableDiskMb=%s\n' "$cpu" "$memory" "$disk" >> /etc/csweet/office.env
+fi
 chmod 0600 /etc/csweet/office.env
 cat > /etc/csweet/runtime-host.env <<EOF
 CSWEET_FIRECRACKER_DATA_ROOT="$office_data_root"/firecracker

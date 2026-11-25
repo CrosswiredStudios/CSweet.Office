@@ -1,11 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="QRCoder" />
+    <EmbeddedResource Include="Desktop/Web/*" LogicalName="OfficeDesktop.%(Filename)%(Extension)" />
     <PackageReference Include="Grpc.Net.Client" />
     <PackageReference Include="CSweet.Compute.Contracts" />
     <PackageReference Include="CSweet.Compute.Provider" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
-    <PackageReference Include="Microsoft.Extensions.Http" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\CSweet.Office.Runtime.Abstractions\CSweet.Office.Runtime.Abstractions.csproj" />

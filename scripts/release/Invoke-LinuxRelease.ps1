@@ -4,11 +4,11 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $rid = "linux-$Architecture"
 $payload = Join-Path $Output "$rid-payload"
+$certification = & (Join-Path $PSScriptRoot 'Get-OfficeReleaseCertification.ps1') -EvidencePath $env:CSWEET_CERTIFICATION_EVIDENCE -ExpectedExpiry $env:CSWEET_CERTIFICATION_VALID_UNTIL
 $arguments = @($payload, $rid, $env:CSWEET_FIRECRACKER, $env:CSWEET_JAILER, $env:CSWEET_GUEST_KERNEL,
     $env:CSWEET_GUEST_INITRD, $env:CSWEET_GUEST_IMAGE, $env:CSWEET_GUEST_IMAGE_SIGNATURE,
     $env:CSWEET_GUEST_SIGNING_CERTIFICATE, $env:CSWEET_GUEST_SIGNING_THUMBPRINT,
-    $env:CSWEET_CERTIFICATION_EVIDENCE, 'production-v1', [DateTimeOffset]::UtcNow.ToString('O'),
-    $env:CSWEET_CERTIFICATION_VALID_UNTIL)
+    $env:CSWEET_CERTIFICATION_EVIDENCE, $certification.Suite, $certification.CertifiedAt, $certification.ExpiresAt)
 & bash (Join-Path $root 'scripts\linux\new-runtime-payload.sh') @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Linux payload creation failed.' }
 & bash (Join-Path $root 'scripts\linux\new-native-packages.sh') $payload $Output $Version --format deb `

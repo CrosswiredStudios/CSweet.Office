@@ -13,6 +13,7 @@ public sealed class OfficeOptions
     public string StateDirectory { get; set; } = string.Empty;
     public string ArtifactCacheDirectory { get; set; } = string.Empty;
     public string ArtifactMediaDirectory { get; set; } = string.Empty;
+    public bool PublishDesktopStatus { get; set; }
     public string OfficeName { get; set; } = Environment.MachineName;
     public int AllocatableCpuCount { get; set; } = Math.Max(1, Environment.ProcessorCount - 1);
     public int AllocatableMemoryMb { get; set; } = 4096;

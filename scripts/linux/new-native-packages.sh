@@ -56,6 +56,9 @@ trap 'rm -rf -- "$build_root"' EXIT
 stage_package_tree() {
   destination=$1
   mkdir -p "$destination/usr/lib/csweet/office-installer" "$destination/usr/sbin"
+  mkdir -p "$destination/usr/share/applications"
+  install -m 0755 "$script_root/office-desktop.py" "$destination/usr/lib/csweet/office-desktop"
+  install -m 0644 "$script_root/com.csweet.Office.desktop" "$destination/usr/share/applications/com.csweet.Office.desktop"
   cp -a "$payload_root/." "$destination/usr/lib/csweet/office-installer/"
   install -m 0755 "$script_root/configure-office.sh" \
     "$destination/usr/sbin/csweet-configure-office"
@@ -79,7 +82,8 @@ Section: admin
 Priority: optional
 Architecture: $deb_arch
 Maintainer: C-Sweet Release Engineering
-Depends: systemd, jq, util-linux
+Depends: systemd, jq, util-linux, python3
+Recommends: pkexec, python3-gi, gir1.2-ayatanaappindicator3-0.1
 Description: C-Sweet Office enrollment payload
  Installs the signed, non-secret runtime payload. Run
  csweet-configure-office separately to enroll this machine.
@@ -151,6 +155,8 @@ fi
 %files
 %defattr(-,root,root,-)
 /usr/lib/csweet/office-installer
+/usr/lib/csweet/office-desktop
+/usr/share/applications/com.csweet.Office.desktop
 /usr/sbin/csweet-configure-office
 /usr/sbin/csweet-uninstall-office
 /usr/sbin/csweet-office-storage.sh

@@ -41,4 +41,12 @@ $assets = foreach ($definition in $definitions) {
 }
 if (@($assets).Count -eq 0) { throw 'No installer assets were found.' }
 $manifest = [ordered]@{ schemaVersion = 1; officeVersion = $Version; contractsVersion = $ContractsVersion; protocolVersion = $ProtocolVersion; assets = @($assets) }
+$setup = Join-Path $AssetDirectory "csweet-office-$Version-windows-x64-setup.exe"
+if (Test-Path -LiteralPath $setup) {
+    $manifest.windowsDesktopSetup = [ordered]@{
+        url = "https://github.com/CrosswiredStudios/CSweet.Office/releases/download/v$Version/$(Split-Path -Leaf $setup)"
+        size = (Get-Item -LiteralPath $setup).Length
+        sha256 = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
 [IO.File]::WriteAllText([IO.Path]::GetFullPath($OutputPath), ($manifest | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))

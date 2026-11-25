@@ -1,8 +1,49 @@
 # C-Sweet Office
 
-C-Sweet Office is the independently installed execution plane for C-Sweet agents. It runs the unprivileged control client (`CSweet.Office.Node`) and privileged virtualization service (`CSweet.Office.RuntimeHost`) on Windows, Linux, and macOS.
+C-Sweet Office lets this computer run work for your team. Connect it to a Headquarters hosted by C-Sweet or to one you run yourself. Headquarters assigns work, and Office runs it in hardware-isolated virtual machines.
 
-The unpublished 0.8.0 implementation adds exact-attempt shutdown reconciliation using Office.Contracts 0.9.0 and privileged Hyper-V creation recovery. Deploy Node, RuntimeHost, the digest-pinned helper and Headquarters together. See [teardown and recovery](docs/30-workloads/02-runtime-workload-lifecycle.md#12-teardown); live VM acceptance and release publication remain pending.
+## Downloads
+
+[Find an Office installer for your computer](https://c-sweet.com/download#office) · [Browse Office releases](https://github.com/CrosswiredStudios/CSweet.Office/releases)
+
+| Computer | What to look for in a production release | Host requirement |
+| --- | --- | --- |
+| Windows x64 | Windows Setup EXE starting with 0.19. It downloads and verifies the matching MSI and cabinet files. For an offline install, keep the MSI and **all** its CAB files together. | Hyper-V, supported Windows edition and administrator access. |
+| Ubuntu 24.04 LTS | Signed DEB for AMD64 or ARM64. Open it with your package installer. | KVM, cgroup v2 and hardware virtualization. Desktop setup needs a graphical administrator prompt. |
+| macOS | Signed, notarized PKG for Apple silicon or Intel. Open it in Finder. | A supported Virtualization.framework host and matching certified guest assets. |
+
+**Release availability.** On November 24, 2026, the public v0.18.0 release contained a prebuilt Windows x64 development bundle with seven archive parts and a support ZIP. The production desktop installers and the Office-first linking experience below require a newer signed release and a compatible Headquarters. The download page shows published assets for each platform. [v0.18.0 assets](https://github.com/CrosswiredStudios/CSweet.Office/releases/tag/v0.18.0) · [Development bundle instructions](docs/60-release/07-hosted-development-bundles.md)
+
+## Quick start with a desktop installer (0.19 and later)
+
+1. Install Office on the computer that will run the work. Open **C-Sweet Office** from Start, Applications or your Linux application menu. You can return using its tray or menu-bar icon on supported desktops.
+2. Choose where your Headquarters lives.
+
+   - **C-Sweet hosts my Headquarters.** Choose **C-Sweet hosts my Headquarters**, then **Continue in browser** or **Use my phone**. Sign in at **account.c-sweet.com** with the account that manages your Headquarters. Choose your workspace, match the code on both screens, and select **Link this Office**. Your workspace needs an available device slot and a reachable Office gateway.
+   - **I host my own Headquarters.** Enter the address or IP you normally use for Headquarters, including a custom port if needed. Office uses HTTPS and the certificate must cover that address. Sign in to that instance as an administrator, match the code and approve the named computer. A phone must be able to reach the private address over its network or VPN. Private pairing works without a C-Sweet account.
+   - **Headquarters already gave me a connection code.** Open **I have a connection code**. Paste the Execution Gateway address and the one-use code from Headquarters. Enter the certificate fingerprint when your administrator supplies one. After installation, compare the machine identity and approve it in Headquarters.
+3. Back on the Office computer, review the destination and CPU, memory and storage limits, allow it to run work, and choose **Install on this computer**. Approve your operating system’s installer prompt.
+4. Look for this computer in **Device health**. Check its Office ID, gateway, authenticated connection time and sharing limits. In Headquarters, verify the same Office is approved and eligible for work. A running service alone does not establish readiness.
+
+If you started an assisted installation in Headquarters, continue in that wizard. Opening C-Sweet Office on an already configured machine shows device health, including when the services have stopped. **Save diagnostic summary** exports the displayed service and connection details for troubleshooting.
+
+### What you will see
+
+The welcome screen offers both hosting choices. After setup, **Device health** shows the last connection from this computer. Open **Diagnostics and troubleshooting** to review a summary before saving it. The screenshots use an example Windows device.
+
+![Fresh Office in the Aurora theme](docs/40-operations/images/desktop-welcome.png)
+
+[View the connected Office in the Gold theme](docs/40-operations/images/desktop-connected.png)
+
+## Connect using the currently released workflow
+
+Open **Your offices → Connect a device** in a managed Headquarters, or **Agent Execution → Another machine** in private Headquarters. Obtain the gateway address and one-use code. Install a compatible package using the Windows, Ubuntu or macOS guide. A remote computer needs a gateway address it can reach. A loopback address points to the computer on which you enter it. Compare the Office fingerprint in Headquarters and approve the device.
+
+[Install on Windows](docs/40-operations/01-installation-windows.md) · [Install on Ubuntu](docs/40-operations/02-installation-linux.md) · [Install on macOS](docs/40-operations/03-installation-macos.md)
+
+## Services and permissions
+
+Office Node connects outward to Headquarters. RuntimeHost manages the virtual machines through authenticated local IPC. Windows also installs a Maintenance service for Headquarters-authorized repair and updates. The desktop launcher opens a user-session page on loopback, including before the services have been provisioned. You can close the page or quit the tray icon while work continues.
 
 On Windows, both services run under separate Windows-managed virtual accounts (`NT SERVICE\CSweet.Office.RuntimeHost` and `NT SERVICE\CSweet.Office.Node`) with protected state directories. Only the RuntimeHost virtual account is added to `Hyper-V Administrators`; the Node cannot manage Hyper-V or modify RuntimeHost state. Neither account has write access to the immutable application package. Uninstall removes the RuntimeHost membership. Because Windows grants Hyper-V administrators control over every VM on a host, use a dedicated Office machine when unrelated or higher-trust Hyper-V workloads are present. Installation is refused on domain controllers.
 
@@ -47,7 +88,7 @@ identity-preservation rules, live in [`AGENTS.md`](AGENTS.md).
 
 ## Prebuilt development releases
 
-Windows x64 and Ubuntu 24.04 x64 bundles are built by the GitHub-hosted release workflow when
+Windows x64 development bundles are built by the GitHub-hosted release workflow when
 `VersionPrefix` in `Directory.Build.props` is bumped and pushed to `main`. The workflow creates
 the matching tag and GitHub Release automatically; include `releases/<version>.md` in the push.
 They include prebuilt guest images and self-contained executables; the destination host performs
@@ -56,7 +97,10 @@ See [hosted development bundles](docs/60-release/07-hosted-development-bundles.m
 installation instructions. The guided C-Sweet Windows setup prefers these bundles and falls back
 to local source when no compatible release is available.
 
-## Development
+## Build from source
+
+Install the .NET 10 SDK. A source build verifies the host software. Installing a working Office also requires the matching signed or locally certified platform payload and guest images.
+
 
 ```powershell
 dotnet build CSweet.Office.slnx -c Release
@@ -65,7 +109,13 @@ dotnet build CSweet.Office.Independent.slnx -c Release -p:UseLocalOfficeContract
 
 The primary solution loads the sibling `CSweet.Office.Contracts` project for Visual Studio development. The independent solution intentionally excludes that project and verifies the published package boundary used by CI and releases.
 
-Install Office independently, create a one-use enrollment in C-Sweet, connect it to the gateway, verify its fingerprint, and approve it. C-Sweet AppHost does not launch Office.
+To open the desktop page directly from this checkout, run the following command in a desktop session. The page can display status and start pairing. Completing service installation uses the matching installed platform payload.
+
+```powershell
+dotnet run --project src/CSweet.Office.Node -- --open-office
+```
+
+The independent build restores [CSweet.Office.Contracts 0.15.0 from NuGet](https://www.nuget.org/packages/CSweet.Office.Contracts/0.15.0). Headquarters and Office start independently.
 
 ### macOS installation and development
 
@@ -128,7 +178,7 @@ Office is revoked and disposable work may be destroyed.
 
 ## Releases
 
-Office follows semantic versioning and has independent `vX.Y.Z` tags. GitHub Releases is the canonical immutable asset origin; c-sweet.com links to those assets. Office never self-updates. Administrators drain an office to zero active assignments before running an upgrade.
+Office follows semantic versioning and has independent `vX.Y.Z` tags. GitHub Releases is the canonical immutable asset origin; c-sweet.com links to those assets. Windows supports Headquarters-authorized updates through Maintenance. An identity-preserving upgrade requires a drained Office with zero active assignments.
 
 ## Unattended certificate lifecycle (Office 0.4.0)
 

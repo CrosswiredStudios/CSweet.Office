@@ -1,5 +1,9 @@
 # Windows installation
 
+In Office 0.19.0, install the signed desktop package and open **C-Sweet Office** from the Start menu. Choose a managed or private Headquarters, confirm the computer in your browser or on your phone, then review sharing limits and authorize installation. See the [desktop quick start](../../README.md#quick-start-with-a-desktop-installer-019-and-later) for release availability. The procedures below cover administrative and headless installation.
+
+Verified: 2026-11-24 against `CSweet.Office.Node/Desktop/OfficeDesktop.cs` (`Begin`, `Install`) and `OfficeDesktopInstaller.InstallAsync`. Signed installer acceptance on this platform is a release gate.
+
 Office 0.13.0 supports [installation drive selection](09-storage-selection.md). Locations in the
 examples below describe the system-volume defaults; the storage resolver supplies registered
 locations for installations on another volume. See `scripts/windows/CSweet.OfficeStorage.ps1`

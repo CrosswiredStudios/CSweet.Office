@@ -57,6 +57,7 @@ public sealed partial class OfficeWorker(
                         await stateStore.SaveAsync(state, stoppingToken);
                         processSession = state;
                     }
+                    Desktop.OfficeHealth.Publish(options, state, "Connecting", _activeAssignments.Count);
                     await PinRuntimeHostTrustAsync(state, stoppingToken);
                     var operational = await RefreshOperationalCertificateAsync(state, certificate, stoppingToken);
                     if (!ReferenceEquals(operational, certificate))
@@ -100,6 +101,12 @@ public sealed partial class OfficeWorker(
             token = (await Console.In.ReadLineAsync(cancellationToken))?.Trim();
         if (string.IsNullOrWhiteSpace(token))
             throw new InvalidOperationException("The enrollment token is missing.");
+        var parts = token.StartsWith("office1:", StringComparison.Ordinal) ? token.Split(':') : null;
+        if (parts != null)
+        {
+            if (parts.Length != 4 || !Desktop.OfficeDesktopInstaller.ValidToken(parts[1])) throw new InvalidDataException("Invalid protected Office link.");
+            token = parts[1];
+        }
         var providers = await inventory.ProbeAsync(cancellationToken);
         var request = new ClaimOfficeRequest(
             token ?? string.Empty, options.OfficeName, Environment.MachineName, RuntimeHostInventory.Platform(),
@@ -111,6 +118,13 @@ public sealed partial class OfficeWorker(
             options.AllocatableCpuCount, options.AllocatableMemoryMb, options.AllocatableDiskMb,
             options.MaximumConcurrentWorkloads, providers, options.SecurityPosture(),
             options.AssistedSetupSessionId);
+        if (parts != null)
+        {
+            using var key = RSA.Create();
+            key.ImportPkcs8PrivateKey(Convert.FromBase64String(parts[3]), out _);
+            request = request with { LinkProof = OfficeLinkClaimProof.Sign(request,
+                long.Parse(parts[2], System.Globalization.CultureInfo.InvariantCulture), key) };
+        }
         var client = httpClientFactory.CreateClient("control-plane");
         using var response = await client.PostAsJsonAsync("api/offices/claim", request, cancellationToken);
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -328,8 +342,9 @@ public sealed partial class OfficeWorker(
                 using var connectionLifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 using var call = client.Connect(cancellationToken: connectionLifetime.Token);
                 writer.Attach(call.RequestStream);
+                var authenticated = 0;
                 var readTask = ReadControlMessagesAsync(call.ResponseStream, writer, writerLock,
-                    client, state, connectionLifetime.Token, cancellationToken);
+                    client, state, connectionLifetime.Token, cancellationToken, () => Interlocked.Exchange(ref authenticated, 1));
                 try
                 {
                     var sendInventory = true;
@@ -358,6 +373,8 @@ public sealed partial class OfficeWorker(
                             SessionEpoch = state.SessionEpoch,
                             Heartbeat = heartbeat
                         }, cancellationToken);
+                        if (Volatile.Read(ref authenticated) != 0)
+                            Desktop.OfficeHealth.Publish(options, state, "Connected", _activeAssignments.Count);
                         if (certificates is not null && Volatile.Read(ref computeInventory)?.Result is { } result)
                         {
                             var report = SignComputeResult(state, certificates.Current, result, out var operationId);
@@ -381,6 +398,7 @@ public sealed partial class OfficeWorker(
                 }
                 finally
                 {
+                    Desktop.OfficeHealth.Publish(options, state, "Reconnecting", _activeAssignments.Count);
                     writer.Detach(call.RequestStream);
                     await connectionLifetime.CancelAsync();
                     try { await readTask; }
@@ -445,7 +463,8 @@ public sealed partial class OfficeWorker(
         OfficeGateway.OfficeGatewayClient gatewayClient,
         OfficeState state,
         CancellationToken cancellationToken,
-        CancellationToken assignmentLifetime)
+        CancellationToken assignmentLifetime,
+        Action authenticated)
     {
         using var assignmentVerificationKey = ECDsa.Create();
         var assignmentPublicKey = Convert.FromBase64String(state.AssignmentVerificationPublicKeyBase64);
@@ -468,6 +487,7 @@ public sealed partial class OfficeWorker(
                     !CryptographicOperations.FixedTimeEquals(
                         message.Hello.AssignmentVerificationPublicKey.Span, assignmentPublicKey))
                     throw new InvalidDataException("The gateway signing identity does not match the identity pinned during enrollment.");
+                authenticated();
             }
             else if (message.BodyCase == HeadquartersControlMessage.BodyOneofCase.Assignment)
             {

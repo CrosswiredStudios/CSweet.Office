@@ -23,6 +23,7 @@ param(
     [string] $ProgressWorkflow = 'packaged-installer',
     [switch] $AllowDevelopmentAssignments,
     [switch] $NonInteractive,
+    [switch] $FreshOnly,
     [switch] $Elevated
 )
 
@@ -44,6 +45,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
         $value = Get-Variable -Name $name -ValueOnly
         if ($value) { $arguments += @('-' + $name, ('"' + $value + '"')) }
     }
+    if ($FreshOnly) { $arguments += '-FreshOnly' }
     if ($NonInteractive) { $arguments += '-NonInteractive' }
     if (-not [String]::IsNullOrWhiteSpace($EnrollmentTokenInputPath)) {
         $arguments += @('-EnrollmentTokenInputPath', ('"' + $EnrollmentTokenInputPath + '"'))
@@ -64,6 +66,9 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     return
 }
 
+if ($FreshOnly -and (Get-Service -Name 'CSweet.Office.Node','CSweet.Office.RuntimeHost' -ErrorAction SilentlyContinue)) {
+    throw 'This computer already has Office services. Manage it from Headquarters.'
+}
 . (Join-Path $PSScriptRoot 'CSweet.OfficeStorage.ps1')
 $storage = Resolve-CSweetOfficeStorage -VolumeId $StorageVolumeId -InstallRoot $InstallRoot -DataRoot $DataRoot -RequiredDiskMb $AllocatableDiskMb -Interactive:(-not $NonInteractive)
 if (-not $NonInteractive) {
@@ -87,7 +92,7 @@ try {
     & (Join-Path $PSScriptRoot 'Install-CSweetOfficeRuntimeHost.ps1') -PayloadRoot $PayloadRoot `
         -StorageVolumeId $storage.VolumeId -InstallRoot $storage.InstallRoot -DataRoot $storage.DataRoot `
         -ControlPlaneUrl $ControlPlaneUrl -ControlPlaneCertificateSha256 $ControlPlaneCertificateSha256 `
-        -EnrollmentTokenInputPath $inputPath -ComputePolicy $ComputePolicy -NonInteractive:$NonInteractive `
+        -EnrollmentTokenInputPath $inputPath -CallerOwnsEnrollmentInput:$FreshOnly -ComputePolicy $ComputePolicy -NonInteractive:$NonInteractive `
         -SecurityProfile $SecurityProfile -MixedUseHost $MixedUseHost `
         -AllowDevelopmentAssignments:$AllowDevelopmentAssignments `
         -AssistedSetupSessionId $AssistedSetupSessionId -AllocatableCpuCount $AllocatableCpuCount `

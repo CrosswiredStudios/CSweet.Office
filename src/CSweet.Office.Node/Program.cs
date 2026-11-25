@@ -3,6 +3,12 @@ using CSweet.Office.Runtime.LocalRpc;
 using CSweet.Office.Runtime.Protocol;
 using CSweet.Office.Node;
 
+if (args is ["--open-office"])
+{
+    await CSweet.Office.Node.Desktop.OfficeDesktop.RunAsync();
+    return;
+}
+
 if (await ControlPlaneCertificateProbe.TryRunAsync(args) is { } probeExitCode)
 {
     Environment.ExitCode = probeExitCode;
