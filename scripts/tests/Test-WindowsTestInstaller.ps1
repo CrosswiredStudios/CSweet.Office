@@ -14,12 +14,21 @@ $programs = [Environment]::GetFolderPath('ProgramFiles')
 $setup = Join-Path $programs 'CSweet\Office Setup'
 $shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'C-Sweet Office.lnk'
 $office = Join-Path $programs 'CSweet\Office'
-if ((Test-Path $setup) -or (Test-Path $office)) { throw 'Use a clean Windows test runner.' }
+$data = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'CSweet\Office'
+if (@($setup, $office, $data | Where-Object { Test-Path -LiteralPath $_ }).Count) { throw 'Use a clean Windows test runner.' }
 function Invoke-Msi([string] $Action, [string] $Ui = '/qn') {
     $log = [IO.Path]::GetFullPath((Join-Path $Output "msi-$Action.log"))
     $proc = Start-Process msiexec.exe -ArgumentList "/$Action `"$($msi[0].FullName)`" $Ui /norestart /l*v `"$log`"" -PassThru
     if (!$proc.WaitForExit(120000)) { throw "Windows Installer did not finish. See $log" }
     if ($proc.ExitCode -ne 0) { throw "Windows Installer returned $($proc.ExitCode). See $log" }
+}
+function Invoke-OfficePreflight {
+    $job = [guid]::NewGuid()
+    $shell = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
+    $arguments = '-NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File "{0}" -CheckOnly -JobId {1}' -f "$setup\Prepare-WindowsTestOffice.ps1", $job
+    $probe = Start-Process $shell -ArgumentList $arguments -WindowStyle Hidden -PassThru -Wait
+    $status = Join-Path $setup "status-$($job.ToString('N')).txt"
+    [pscustomobject]@{ ExitCode = $probe.ExitCode; Message = Get-Content -LiteralPath $status -Raw -ErrorAction SilentlyContinue }
 }
 Invoke-Msi i '/qf'
 try {
@@ -76,15 +85,34 @@ public static extern bool PostMessage(System.IntPtr window, uint message, System
         throw 'The real release support payload does not match the installed bootstrap.'
     }
     if (Get-Service -Name 'CSweet.Office.*' -ErrorAction SilentlyContinue) { throw 'Services were registered before certification and pairing.' }
-    # Preparation must preserve an unregistered installation, including one without services.
+    $result = Invoke-OfficePreflight
+    if ($result.ExitCode -ne 0) { throw "Clean Office preflight failed: $($result.Message)" }
+    [void][IO.Directory]::CreateDirectory($data)
+    $storedFile = Join-Path $data 'fixture.txt'
+    try {
+        $result = Invoke-OfficePreflight
+        if ($result.ExitCode -ne 0 -or ![IO.Directory]::Exists($data)) {
+            throw "An empty Office data folder should be kept and allow setup: $($result.Message)"
+        }
+        [IO.File]::WriteAllText($storedFile, 'existing Office data')
+        [IO.File]::SetAttributes($storedFile, [IO.FileAttributes]::Hidden)
+        $result = Invoke-OfficePreflight
+        if ($result.ExitCode -ne 1 -or $result.Message -notlike "Earlier Office data remains at $data.*" -or
+            [IO.File]::ReadAllText($storedFile) -ne 'existing Office data') {
+            throw "Setup did not identify and preserve existing Office data: $($result.Message)"
+        }
+    } finally {
+        [IO.File]::Delete($storedFile)
+        [IO.Directory]::Delete($data, $false)
+    }
+    # Installation files still need removal even when Office has no services.
     $existing = New-Item -ItemType Directory -Path $office -ErrorAction Stop
     try {
-        $job = [guid]::NewGuid()
-        $shell = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
-        $probe = Start-Process $shell -ArgumentList ('-NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File "{0}" -JobId {1}' -f "$setup\Prepare-WindowsTestOffice.ps1", $job) -WindowStyle Hidden -PassThru -Wait
-        $reason = [IO.File]::ReadAllText((Join-Path $setup ("status-{0}.txt" -f $job.ToString('N'))))
-        if ($probe.ExitCode -ne 1 -or $reason -notlike 'An existing Office*') { throw 'Existing Office protection did not run before preparation.' }
+        $result = Invoke-OfficePreflight
+        if ($result.ExitCode -ne 1 -or $result.Message -notlike "Earlier Office installation files remain at $office.*") {
+            throw "Setup did not identify the previous installation folder: $($result.Message)"
+        }
     } finally { [IO.Directory]::Delete($existing.FullName, $false) }
 } finally { Invoke-Msi x }
 if ((Test-Path $setup) -or (Test-Path $shortcut)) { throw 'Test setup did not uninstall cleanly.' }
-Write-Host 'Verified Setup EXE pin, full-UI MSI launching the wizard, Cancel, Start menu launcher, signed support download, and uninstall.'
+Write-Host 'Verified Setup EXE pin, full-UI MSI launching the wizard, Cancel, Start menu launcher, signed support download, existing Office checks, and uninstall.'
