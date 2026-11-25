@@ -62,6 +62,20 @@ try {
     $form.ActiveControl = $primary
 
     $job = @{ Worker = $null; StatusFile = ''; ProgressFile = ''; OpenOffice = $false }
+    $phaseText = @{
+        'host-preflight' = 'Checking your Windows settings.'
+        'enable-hyperv' = 'Turning on Hyper-V so Office can run work securely.'
+        'windows-restart' = 'Windows needs to restart to finish enabling Hyper-V.'
+        'wait-existing-build' = 'Waiting for another Office setup operation to finish.'
+        'prepare-guest' = 'Preparing the secure environment where Office will run your work.'
+        'guest-cache' = 'Checking the Office files already on this PC.'
+        'publish-components' = 'Preparing the Office services.'
+        'certify-runtime' = 'Checking that this PC can run work securely. This can take several minutes.'
+        'sign-guest' = 'Recording the security checks for this PC.'
+        'package-runtime' = 'Saving the Office files on this PC.'
+        'package-complete' = 'Finishing setup.'
+        'setup-complete' = 'Finishing setup.'
+    }
     $timer = [Windows.Forms.Timer]::new()
     $timer.Interval = 750
     function Show-Result([string] $TitleText, [string] $Message, [string] $ButtonText) {
@@ -121,7 +135,8 @@ try {
         try {
             if ([IO.File]::Exists($job.ProgressFile)) {
                 $progress = [IO.File]::ReadAllText($job.ProgressFile) | ConvertFrom-Json
-                $details.Text = $progress.phaseDisplayName + [Environment]::NewLine + $progress.message
+                $description = $phaseText[[string]$progress.phaseKey]
+                $details.Text = if ($description) { $description } else { 'Preparing Office on this PC.' }
                 $bar.Style = 'Continuous'
                 $bar.Value = [Math]::Max(0, [Math]::Min(100, [int]$progress.percentComplete))
             } elseif ([IO.File]::Exists($job.StatusFile)) {

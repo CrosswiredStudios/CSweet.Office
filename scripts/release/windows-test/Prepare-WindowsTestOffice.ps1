@@ -68,7 +68,7 @@ try {
     $manifest = Read-CSweetSignedReleaseManifest ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'office-bootstrap.p7m.b64'))) (Join-Path $PSScriptRoot 'office-release-signer.cer')
     $version = $manifest.officeVersion
     if ($version -cnotmatch '^\d+\.\d+\.\d+$' -or !$build.StartsWith("windows-test-$version-") -or
-        $manifest.signing -cne 'development' -or $manifest.requiresHostCertification -ne $true) { throw 'Incompatible signed development release.' }
+        $manifest.signing -cne 'development' -or $manifest.requiresHostCertification -ne $true) { throw 'These Office files do not match this installer. Download the matching installer from the Office release.' }
     $bundles = @($manifest.assets | Where-Object name -CEQ "csweet-office-$version-windows-x64.zip")
     if ($bundles.Count -ne 1) { throw 'The signed manifest is missing the Windows bundle.' }
     Assert-CSweetOfficeAsset $bundles[0] $version 'windows-x64' $true
@@ -77,10 +77,10 @@ try {
     [IO.Directory]::CreateDirectory($work) | Out-Null
     $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($office))
     if ($drive.AvailableFreeSpace -lt 64GB) { throw 'Free at least 64 GiB on the Windows system drive, then open C-Sweet Office from Start.' }
-    Report 'Downloading and checking the Windows guest bundle. This is a multi-gigabyte download.'
+    Report 'Downloading and verifying the Office files. Keep this PC connected to the internet.'
     $bundle = Receive-CSweetOfficeAsset $bundles[0] (Join-Path $work 'bundle') -TimeoutSeconds 14400 -OnPart {
         param($Part, $Count)
-        Report "Downloading and checking the Windows guest bundle (part $Part of $Count)..."
+        Report "Downloading and verifying Office files (part $Part of $Count)..."
     }
     $scripts = Join-Path $bundle 'scripts\windows'
     $result = Join-Path $work 'payload-path.txt'
