@@ -19,7 +19,8 @@ if (args.Contains("--memory-pressure", StringComparer.Ordinal))
 }
 var internet = Environment.GetEnvironmentVariable("CSWEET_RUNTIME_NETWORK_MODE") == "public-internet";
 var ipv4Only = args.Contains("--public-internet-ipv4-only", StringComparer.Ordinal);
-var checks = internet ? await InternetChecksAsync() : new Dictionary<string, bool>(StringComparer.Ordinal)
+var internetDiagnostics = new List<string>(2);
+var checks = internet ? await InternetChecksAsync(internetDiagnostics) : new Dictionary<string, bool>(StringComparer.Ordinal)
 {
     ["linux-guest"] = OperatingSystem.IsLinux(),
     ["artifact-root"] = Path.GetFullPath(Environment.CurrentDirectory)
@@ -41,17 +42,18 @@ var report = new GuestProbeReport(
     checks.Where(check => !internet || !ipv4Only || check.Key != "publicInternetIpv6").All(check => check.Value),
     checks,
     Environment.OSVersion.VersionString,
-    DateTimeOffset.UtcNow);
+    DateTimeOffset.UtcNow,
+    internetDiagnostics.Count > 0 ? internetDiagnostics : null);
 var body = JsonSerializer.SerializeToUtf8Bytes(report);
 await PostReportAsync(body);
 return report.Passed ? 0 : 2;
 
-static async Task<Dictionary<string, bool>> InternetChecksAsync()
+static async Task<Dictionary<string, bool>> InternetChecksAsync(List<string> diagnostics)
 {
     var checks = new Dictionary<string, bool>
     {
-        ["publicInternetTcp"] = await CanConnectAsync("1.1.1.1", 443),
-        ["publicInternetIpv6"] = await CanConnectAsync("2606:4700:4700::1111", 443),
+        ["publicInternetTcp"] = await CanConnectAsync("1.1.1.1", diagnostics),
+        ["publicInternetIpv6"] = await CanConnectAsync("2606:4700:4700::1111", diagnostics),
         ["publicInternetPrivateDenied"] = !await CanOpenSocksDestinationAsync("10.0.0.1", 443) && !await CanOpenSocksDestinationAsync("169.254.169.254", 80),
         ["publicInternetHostDenied"] = true,
         ["publicInternetUdp"] = await PublicDnsAsync(),
@@ -91,22 +93,34 @@ static async Task<bool> CanOpenSocksDestinationAsync(string address, int port)
     catch (Exception e) when (e is SocketException or IOException or OperationCanceledException) { return false; }
 }
 
-static async Task<bool> CanConnectAsync(string address, int port)
+static async Task<bool> CanConnectAsync(string address, List<string> diagnostics)
 {
     var ip = System.Net.IPAddress.Parse(address);
     using var socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
     using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+    var step = "TCP connect";
     try
     {
-        await socket.ConnectAsync(new System.Net.IPEndPoint(ip, port), timeout.Token);
+        await socket.ConnectAsync(new System.Net.IPEndPoint(ip, 443), timeout.Token);
         // The guest TCP stack can accept locally before the SOCKS upstream opens.
         // Verified TLS proves bytes actually reached the public endpoint.
         using var stream = new NetworkStream(socket, ownsSocket: false);
         using var tls = new SslStream(stream);
+        step = "TLS handshake";
         await tls.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "one.one.one.one" }, timeout.Token);
         return true;
     }
-    catch (Exception e) when (e is SocketException or IOException or System.Security.Authentication.AuthenticationException or OperationCanceledException) { return false; }
+    catch (Exception e) when (e is SocketException or IOException or System.Security.Authentication.AuthenticationException or OperationCanceledException)
+    {
+        var reason = e switch
+        {
+            SocketException error => error.SocketErrorCode.ToString(),
+            OperationCanceledException => "timed out",
+            _ => e.InnerException is { } inner ? $"{e.Message} ({inner.Message})" : e.Message
+        };
+        diagnostics.Add($"[{ip}]:443 {step}: {reason}");
+        return false;
+    }
 }
 
 static async Task<bool> PublicDnsAsync()
@@ -291,7 +305,8 @@ internal sealed record GuestProbeReport(
     bool Passed,
     IReadOnlyDictionary<string, bool> Checks,
     string GuestOperatingSystem,
-    DateTimeOffset CompletedAt);
+    DateTimeOffset CompletedAt,
+    IReadOnlyList<string>? InternetDiagnostics);
 
 internal static class NativeMethods
 {

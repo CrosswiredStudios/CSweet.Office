@@ -288,6 +288,8 @@ static async Task<Dictionary<string, bool>> RunInternetSmokeAsync(
             if (first == task && !collector.Report.IsCompleted) await task;
             var report = await collector.Report.WaitAsync(timeout.Token);
             Console.WriteLine("Public internet probe: " + JsonSerializer.Serialize(report.Checks));
+            foreach (var detail in report.InternetDiagnostics?.Take(2) ?? [])
+                Console.WriteLine("Public internet diagnostic: " + new string(detail.Where(c => !char.IsControl(c)).Take(512).ToArray()));
             await task.WaitAsync(timeout.Token);
             var checks = report.Checks.ToDictionary(x => x.Key, x => x.Value);
             checks["publicInternetLeaseCleanup"] = session.InternetCleanupVerified;
@@ -721,7 +723,8 @@ internal sealed record SmokeGuestReport(
     bool Passed,
     IReadOnlyDictionary<string, bool> Checks,
     string GuestOperatingSystem,
-    DateTimeOffset CompletedAt);
+    DateTimeOffset CompletedAt,
+    IReadOnlyList<string>? InternetDiagnostics = null);
 
 internal static class SmokeJson
 {
