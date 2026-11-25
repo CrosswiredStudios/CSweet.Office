@@ -39,7 +39,10 @@ try {
         $msi = Get-Item "$Output/$name.msi"
         [IO.File]::WriteAllLines("$inputs/assets.txt", @($build, "$($msi.Name)|$($msi.Length)|$((Get-FileHash $msi.FullName).Hash)"))
         $compiler = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-        & $compiler /nologo /target:winexe /platform:x64 /optimize+ /define:WINDOWS_TEST_INSTALLER /reference:System.Net.Http.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll "/resource:$inputs/assets.txt,OfficeFiles" "/out:$Output/$name-setup.exe" "$repo/scripts/windows/OfficeSetup.cs"
+        $source = (Get-Item -LiteralPath (Join-Path $repo 'scripts\windows\OfficeSetup.cs')).FullName
+        $resource = Join-Path $inputs 'assets.txt'
+        $executable = Join-Path $Output "$name-setup.exe"
+        & $compiler /nologo /target:winexe /platform:x64 /optimize+ /define:WINDOWS_TEST_INSTALLER /reference:System.Net.Http.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll "/resource:$resource,OfficeFiles" "/out:$executable" $source
         if ($LASTEXITCODE -ne 0) { throw 'Failed to build Windows test Setup EXE.' }
         $sums = Get-ChildItem -Path "$Output/*.msi","$Output/*.exe" | ForEach-Object { "$((Get-FileHash $_.FullName).Hash.ToLowerInvariant())  $($_.Name)" }
         [IO.File]::WriteAllLines("$Output/SHA256SUMS", [string[]]$sums)

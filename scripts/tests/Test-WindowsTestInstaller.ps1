@@ -13,7 +13,8 @@ try {
 $programs = [Environment]::GetFolderPath('ProgramFiles')
 $setup = Join-Path $programs 'CSweet\Office Test Setup'
 $shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'C-Sweet Office (Windows test).lnk'
-if (Test-Path $setup) { throw 'Use a clean Windows test runner.' }
+$office = Join-Path $programs 'CSweet\Office'
+if ((Test-Path $setup) -or (Test-Path $office)) { throw 'Use a clean Windows test runner.' }
 function Invoke-Msi([string] $Action) {
     $log = [IO.Path]::GetFullPath((Join-Path $Output "msi-$Action.log"))
     $proc = Start-Process msiexec.exe -ArgumentList "/$Action `"$($msi[0].FullName)`" /qn /norestart /l*v `"$log`"" -Wait -PassThru
@@ -35,6 +36,15 @@ try {
         throw 'The real release support payload does not match the installed bootstrap.'
     }
     if (Get-Service -Name 'CSweet.Office.*' -ErrorAction SilentlyContinue) { throw 'Services were registered before certification and pairing.' }
+    # Preparation must preserve an unregistered installation, including one without services.
+    $existing = New-Item -ItemType Directory -Path $office -ErrorAction Stop
+    try {
+        $job = [guid]::NewGuid()
+        $shell = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
+        $probe = Start-Process $shell -ArgumentList ('-NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File "{0}" -JobId {1}' -f "$setup\Prepare-WindowsTestOffice.ps1", $job) -WindowStyle Hidden -PassThru -Wait
+        $reason = [IO.File]::ReadAllText((Join-Path $setup ("status-{0}.txt" -f $job.ToString('N'))))
+        if ($probe.ExitCode -ne 1 -or $reason -notlike 'An existing Office*') { throw 'Existing Office protection did not run before preparation.' }
+    } finally { [IO.Directory]::Delete($existing.FullName, $false) }
 } finally { Invoke-Msi x }
 if ((Test-Path $setup) -or (Test-Path $shortcut)) { throw 'Test setup did not uninstall cleanly.' }
 Write-Host 'Verified Setup EXE pin, real MSI install and uninstall, Start menu launcher, and signed release support download.'
