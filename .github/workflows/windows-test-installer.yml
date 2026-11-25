@@ -25,7 +25,12 @@ jobs:
           persist-credentials: false
       - name: Install WiX
         shell: pwsh
-        run: dotnet tool install wix --version 4.0.6 --tool-path "$env:RUNNER_TEMP\wix"
+        env:
+          DOTNET_ROLL_FORWARD: Major
+        run: |
+          dotnet tool install wix --version 4.0.6 --tool-path "$env:RUNNER_TEMP\wix"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP\wix\wix.exe" extension add -g WixToolset.Util.wixext/4.0.6
       - name: Build the Windows x64 test installer
         id: build
         shell: powershell
@@ -82,7 +87,7 @@ jobs:
 
           # The Setup EXE pins its matching MSI on this build-specific prerelease.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --latest=false --title "C-Sweet Office for Windows (test installer $build)" --notes-file ../scripts/release/windows-test/release-notes.md ./*.exe ./*.msi SHA256SUMS
+            gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --latest=false --title "C-Sweet Office for Windows $build (preview)" --notes-file ../scripts/release/windows-test/release-notes.md ./*.exe ./*.msi SHA256SUMS
           fi
           test "$(gh release view "$TAG" --json isDraft,isPrerelease --jq '(.isDraft == false) and .isPrerelease')" = true
 
@@ -90,7 +95,7 @@ jobs:
           asset_digest() {
             gh release view "$1" --json assets --jq ".assets[] | select(.name == \"$2\" and .state == \"uploaded\") | .digest"
           }
-          for file in csweet-office-"$build"-windows-x64-test.msi csweet-office-"$build"-windows-x64-test-setup.exe; do
+          for file in csweet-office-"$build"-windows-x64.msi csweet-office-"$build"-windows-x64-setup.exe; do
             digest="sha256:$(sha256sum "$file" | cut -d' ' -f1)"
             test "$(asset_digest "$TAG" "$file")" = "$digest"
             existing=$(asset_digest "$version_tag" "$file")

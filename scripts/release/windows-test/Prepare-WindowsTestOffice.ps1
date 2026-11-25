@@ -24,7 +24,7 @@ function Remove-TestDirectory([string] $Path, [string] $Allowed) {
 }
 
 try {
-    if ($PSScriptRoot -ine (Join-Path $programs 'CSweet\Office Test Setup')) { throw 'Run the installed copy of Office test setup.' }
+    if ($PSScriptRoot -ine (Join-Path $programs 'CSweet\Office Setup')) { throw 'Open C-Sweet Office from Start to run setup.' }
     Assert-CSweetOfficePath $PSScriptRoot
     Assert-CSweetOfficePath $office
     $lock = [IO.File]::Open((Join-Path $PSScriptRoot 'preparation.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
@@ -54,7 +54,7 @@ try {
     if ($owned -and [IO.File]::Exists((Join-Path $office 'payload\runtime-manifest.json'))) { return }
     if ((Test-Path -LiteralPath $office) -or $services.Count -or (Test-Path -LiteralPath $data) -or
         (Test-Path 'HKLM:\SOFTWARE\CSweet\Office\Storage') -or (Test-Path (Join-Path $programs 'CSweet\SatelliteOffice'))) {
-        throw 'An existing Office or its data is present. Use a fresh Windows test PC.'
+        throw 'An existing Office installation or its data was found. To keep your work safe, finish removing that Office before starting setup.'
     }
     Report 'Checking Windows and Hyper-V...'
     $feature = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -ErrorAction Stop
@@ -62,13 +62,13 @@ try {
         if ($feature.State -ne 'EnablePending') {
             Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All -NoRestart | Out-Null
         }
-        Report 'Save your work, restart Windows, then open C-Sweet Office (Windows test) from Start.'
+        Report 'Save your work, restart Windows, then open C-Sweet Office from Start.'
         exit 3010
     }
     $manifest = Read-CSweetSignedReleaseManifest ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'office-bootstrap.p7m.b64'))) (Join-Path $PSScriptRoot 'office-release-signer.cer')
     $version = $manifest.officeVersion
     if ($version -cnotmatch '^\d+\.\d+\.\d+$' -or !$build.StartsWith("windows-test-$version-") -or
-        $manifest.signing -cne 'development' -or $manifest.requiresHostCertification -ne $true) { throw 'Incompatible signed development release.' }
+        $manifest.signing -cne 'development' -or $manifest.requiresHostCertification -ne $true) { throw 'These Office files do not match this installer. Download the matching installer from the Office release.' }
     $bundles = @($manifest.assets | Where-Object name -CEQ "csweet-office-$version-windows-x64.zip")
     if ($bundles.Count -ne 1) { throw 'The signed manifest is missing the Windows bundle.' }
     Assert-CSweetOfficeAsset $bundles[0] $version 'windows-x64' $true
@@ -76,15 +76,15 @@ try {
     Remove-TestDirectory $work (Join-Path $PSScriptRoot 'preparation')
     [IO.Directory]::CreateDirectory($work) | Out-Null
     $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($office))
-    if ($drive.AvailableFreeSpace -lt 64GB) { throw 'Free at least 64 GiB on the Windows system drive, then reopen Office test setup.' }
-    Report 'Downloading and checking the Windows guest bundle. This is a multi-gigabyte download.'
+    if ($drive.AvailableFreeSpace -lt 64GB) { throw 'Free at least 64 GiB on the Windows system drive, then open C-Sweet Office from Start.' }
+    Report 'Downloading and verifying the Office files. Keep this PC connected to the internet.'
     $bundle = Receive-CSweetOfficeAsset $bundles[0] (Join-Path $work 'bundle') -TimeoutSeconds 14400 -OnPart {
         param($Part, $Count)
-        Report "Downloading and checking the Windows guest bundle (part $Part of $Count)..."
+        Report "Downloading and verifying Office files (part $Part of $Count)..."
     }
     $scripts = Join-Path $bundle 'scripts\windows'
     $result = Join-Path $work 'payload-path.txt'
-    Report 'Testing Hyper-V isolation and preparing the certified payload...'
+    Report 'Checking that this PC can run Office workloads securely...'
     & (Join-Path $scripts 'Initialize-CSweetWindowsIsolationTest.ps1') -PrebuiltRoot $bundle -WorkingRoot $work -SkipInstall -NoElevation -DevelopmentTools -PayloadResultPath $result -ProgressJobId $JobId
     if (!(Test-Path -LiteralPath $result -PathType Leaf)) { throw 'Preparation did not finish. Check Hyper-V, restart Windows if required, and open Office again.' }
     $payload = [IO.Path]::GetFullPath([IO.File]::ReadAllText($result).Trim())

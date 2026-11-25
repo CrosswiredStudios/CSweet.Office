@@ -17,13 +17,13 @@ internal sealed class OfficeSetup : Form
 {
 #if WINDOWS_TEST_INSTALLER
     const string ReleasePrefix = "windows-test-";
-    const string ShortcutName = "C-Sweet Office (Windows test)";
-    const string WindowTitle = "C-Sweet Office Test Setup";
+    const string MsiOptions = " CSWEET_SETUP_EXE=1";
 #else
     const string ReleasePrefix = "v";
+    const string MsiOptions = "";
+#endif
     const string ShortcutName = "C-Sweet Office";
     const string WindowTitle = "C-Sweet Office Setup";
-#endif
     readonly Label message = new Label { AutoSize = false, Dock = DockStyle.Fill, Text = "Download and install C-Sweet Office on this computer." };
     readonly ProgressBar progress = new ProgressBar { Dock = DockStyle.Bottom };
     readonly Button install = new Button { Text = "Install Office", Dock = DockStyle.Bottom, Height = 40 };
@@ -34,7 +34,8 @@ internal sealed class OfficeSetup : Form
     {
         Text = WindowTitle; ClientSize = new Size(500, 155); Padding = new Padding(20);
 #if WINDOWS_TEST_INSTALLER
-        message.Text = "Install the Windows test edition on a fresh Hyper-V PC. Setup will guide you through preparing this computer and connecting to Headquarters.";
+        install.Text = "Continue";
+        message.Text = "Continue to download and verify C-Sweet Office Setup. The setup wizard will show what this PC needs before you start the installation.";
 #endif
         Font = SystemFonts.MessageBoxFont; StartPosition = FormStartPosition.CenterScreen;
         Controls.Add(message); Controls.Add(progress); Controls.Add(install);
@@ -104,13 +105,19 @@ internal sealed class OfficeSetup : Form
                 }
                 if (msi == null) throw new InvalidDataException("Missing Windows installer.");
                 installing = true; message.Text = "Follow the Windows installer. Keep this window open.";
-                using (var proc = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "msiexec.exe"), "/i \"" + msi + "\"") { UseShellExecute = true }))
+                using (var proc = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "msiexec.exe"), "/i \"" + msi + "\"" + MsiOptions) { UseShellExecute = true }))
                 {
                     await Task.Run(() => proc.WaitForExit());
                     if (proc.ExitCode != 0 && proc.ExitCode != 3010) throw new InvalidOperationException("Windows Installer returned " + proc.ExitCode + ".");
                     message.Text = (proc.ExitCode == 3010 ? "Restart Windows, then open " : "Installed. Open ") + ShortcutName + " from Start.";
                     var shortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), ShortcutName + ".lnk");
-                    if (proc.ExitCode == 0 && File.Exists(shortcut)) Process.Start(shortcut);
+                    if (proc.ExitCode == 0 && File.Exists(shortcut))
+                    {
+                        Process.Start(shortcut);
+#if WINDOWS_TEST_INSTALLER
+                        installing = false; running = false; Close();
+#endif
+                    }
                 }
             }
             install.Visible = false;

@@ -11,7 +11,7 @@ $Output = [IO.Path]::GetFullPath($Output)
 [IO.Directory]::CreateDirectory($Output) | Out-Null
 $inputs = [IO.Directory]::CreateDirectory((Join-Path ([IO.Path]::GetTempPath()) ("office-test-build-" + [guid]::NewGuid().ToString('N')))).FullName
 $build = "$Version-$Revision"
-$name = "csweet-office-$build-windows-x64-test"
+$name = "csweet-office-$build-windows-x64"
 try {
     Push-Location $inputs
     try {
@@ -34,7 +34,7 @@ try {
         Assert-CSweetOfficeAsset $bundle[0] $Version 'windows-x64' $true
         [IO.File]::WriteAllText("$inputs/test-build.txt", "windows-test-$build")
         $v = [version]$Version
-        & $Wix build -arch x64 -d "Version=$($v.Major).$($v.Minor).$Revision" -o "$Output/$name.msi" WindowsTestSetup.wxs
+        & $Wix build -arch x64 -ext WixToolset.Util.wixext/4.0.6 -d "Version=$($v.Major).$($v.Minor).$Revision" -o "$Output/$name.msi" WindowsTestSetup.wxs
         if ($LASTEXITCODE -ne 0) { throw 'Failed to build Windows test MSI.' }
         $msi = Get-Item "$Output/$name.msi"
         [IO.File]::WriteAllLines("$inputs/assets.txt", @($build, "$($msi.Name)|$($msi.Length)|$((Get-FileHash $msi.FullName).Hash)"))

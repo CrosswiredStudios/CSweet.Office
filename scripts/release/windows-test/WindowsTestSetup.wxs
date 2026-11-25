@@ -1,20 +1,20 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="C-Sweet Office (Windows test)" Manufacturer="C-Sweet" Version="$(Version)"
+  <Package Name="C-Sweet Office" Manufacturer="C-Sweet" Version="$(Version)"
            UpgradeCode="63A02C27-7E53-431A-9DB7-DCC957427CC3" Scope="perMachine" InstallerVersion="500">
     <MediaTemplate EmbedCab="yes" />
-    <MajorUpgrade Disallow="yes" DisallowUpgradeErrorMessage="Remove the earlier Office test installation first."
-                  DowngradeErrorMessage="Remove the existing Office test installation first." />
+    <MajorUpgrade Disallow="yes" DisallowUpgradeErrorMessage="Uninstall the earlier version of C-Sweet Office in Settings before continuing."
+                  DowngradeErrorMessage="A newer version of C-Sweet Office is already installed." />
     <Property Id="PRODUCTIONOFFICE"><RegistrySearch Id="ProductionOffice" Root="HKLM" Key="Software\CSweet\Office" Name="ProductCode" Type="raw" /></Property>
     <Property Id="INSTALLEDOFFICE"><RegistrySearch Id="OfficeService" Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\CSweet.Office.Node" Name="ImagePath" Type="raw" /></Property>
     <Property Id="OFFICEHANDLER"><RegistrySearch Id="OfficeHandler" Root="HKLM" Key="Software\Classes\csweet-office\shell\open\command" Type="raw" /></Property>
-    <Launch Condition="Installed OR (NOT PRODUCTIONOFFICE AND NOT INSTALLEDOFFICE AND NOT OFFICEHANDLER)" Message="Use a fresh Windows test PC. An Office is already installed on this machine." />
+    <Launch Condition="Installed OR (NOT PRODUCTIONOFFICE AND NOT INSTALLEDOFFICE AND NOT OFFICEHANDLER)" Message="C-Sweet Office is already installed on this PC. Open it from Start." />
     <StandardDirectory Id="ProgramMenuFolder" />
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="Vendor" Name="CSweet">
-        <Directory Id="TestSetup" Name="Office Test Setup">
+        <Directory Id="TestSetup" Name="Office Setup">
           <Component Id="Launcher" Guid="*">
             <File Source="Open-WindowsTestOffice.ps1" KeyPath="yes" />
-            <Shortcut Id="OpenOfficeTest" Directory="ProgramMenuFolder" Name="C-Sweet Office (Windows test)"
+            <Shortcut Id="OpenOfficeTest" Directory="ProgramMenuFolder" Name="C-Sweet Office"
                       Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
                       Arguments="-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File &quot;[TestSetup]Open-WindowsTestOffice.ps1&quot;" WorkingDirectory="TestSetup" />
           </Component>
@@ -34,12 +34,18 @@
         </Directory>
       </Directory>
     </StandardDirectory>
-    <Feature Id="Desktop" Title="Windows test setup" Level="1"><ComponentGroupRef Id="SetupFiles" /></Feature>
+    <Feature Id="Desktop" Title="C-Sweet Office Setup" Level="1"><ComponentGroupRef Id="SetupFiles" /></Feature>
     <ComponentGroup Id="SetupFiles"><ComponentRef Id="Launcher" /><ComponentRef Id="Prepare_WindowsTestOffice.ps1" />
       <ComponentRef Id="CSweet.OfficeRelease.ps1" /><ComponentRef Id="CSweet.OfficeStorage.ps1" />
       <ComponentRef Id="office_release_signer.cer" /><ComponentRef Id="office_bootstrap.p7m.b64" /><ComponentRef Id="test_build.txt" /><ComponentRef Id="TestProtocol" /></ComponentGroup>
     <CustomAction Id="RemoveTestOffice" Directory="System64Folder" Execute="deferred" Impersonate="no" Return="check"
-      ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File &quot;[ProgramFiles64Folder]CSweet\Office Test Setup\Prepare-WindowsTestOffice.ps1&quot; -Remove" />
+      ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File &quot;[ProgramFiles64Folder]CSweet\Office Setup\Prepare-WindowsTestOffice.ps1&quot; -Remove" />
+    <!-- Run the wizard in the interactive user's session, after the launcher has been installed. -->
+    <Property Id="WixShellExecTarget" Value="[ProgramMenuFolder]C-Sweet Office.lnk" />
+    <CustomAction Id="OpenOfficeWizard" BinaryRef="Wix4UtilCA_X64" DllEntry="WixShellExec" Execute="immediate" Return="check" />
+    <InstallUISequence>
+      <Custom Action="OpenOfficeWizard" After="ExecuteAction" Condition="UILevel = 5 AND NOT Installed AND NOT CSWEET_SETUP_EXE AND NOT REMOVE" />
+    </InstallUISequence>
     <InstallExecuteSequence><Custom Action="RemoveTestOffice" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" /></InstallExecuteSequence>
   </Package>
 </Wix>
