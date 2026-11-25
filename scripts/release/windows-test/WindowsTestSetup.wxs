@@ -1,0 +1,45 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="C-Sweet Office (Windows test)" Manufacturer="C-Sweet" Version="$(Version)"
+           UpgradeCode="63A02C27-7E53-431A-9DB7-DCC957427CC3" Scope="perMachine" InstallerVersion="500">
+    <MediaTemplate EmbedCab="yes" />
+    <MajorUpgrade Disallow="yes" DisallowUpgradeErrorMessage="Remove the earlier Office test installation first."
+                  DowngradeErrorMessage="Remove the existing Office test installation first." />
+    <Property Id="PRODUCTIONOFFICE"><RegistrySearch Id="ProductionOffice" Root="HKLM" Key="Software\CSweet\Office" Name="ProductCode" Type="raw" /></Property>
+    <Property Id="INSTALLEDOFFICE"><RegistrySearch Id="OfficeService" Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\CSweet.Office.Node" Name="ImagePath" Type="raw" /></Property>
+    <Property Id="OFFICEHANDLER"><RegistrySearch Id="OfficeHandler" Root="HKLM" Key="Software\Classes\csweet-office\shell\open\command" Type="raw" /></Property>
+    <Launch Condition="Installed OR (NOT PRODUCTIONOFFICE AND NOT INSTALLEDOFFICE AND NOT OFFICEHANDLER)" Message="Use a fresh Windows test PC. An Office is already installed on this machine." />
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="Vendor" Name="CSweet">
+        <Directory Id="TestSetup" Name="Office Test Setup">
+          <Component Id="Launcher" Guid="*">
+            <File Source="Open-WindowsTestOffice.ps1" KeyPath="yes" />
+            <Shortcut Id="OpenOfficeTest" Directory="ProgramMenuFolder" Name="C-Sweet Office (Windows test)"
+                      Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
+                      Arguments="-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File &quot;[TestSetup]Open-WindowsTestOffice.ps1&quot;" WorkingDirectory="TestSetup" />
+          </Component>
+          <Component Id="Prepare_WindowsTestOffice.ps1" Guid="*"><File Source="Prepare-WindowsTestOffice.ps1" /></Component>
+          <Component Id="CSweet.OfficeRelease.ps1" Guid="*"><File Source="CSweet.OfficeRelease.ps1" /></Component>
+          <Component Id="CSweet.OfficeStorage.ps1" Guid="*"><File Source="CSweet.OfficeStorage.ps1" /></Component>
+          <Component Id="office_release_signer.cer" Guid="*"><File Source="office-release-signer.cer" /></Component>
+          <Component Id="office_bootstrap.p7m.b64" Guid="*"><File Source="office-bootstrap.p7m.b64" /></Component>
+          <Component Id="test_build.txt" Guid="*"><File Source="test-build.txt" /></Component>
+          <Component Id="TestProtocol" Guid="*">
+            <RegistryKey Root="HKLM" Key="Software\Classes\csweet-office">
+              <RegistryValue Type="string" Value="URL:C-Sweet Office Protocol" KeyPath="yes" />
+              <RegistryValue Name="URL Protocol" Type="string" Value="" />
+              <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[ProgramFiles64Folder]CSweet\Office\payload\configurator\CSweet.Office.Configurator.exe&quot; &quot;%1&quot;" />
+            </RegistryKey>
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Desktop" Title="Windows test setup" Level="1"><ComponentGroupRef Id="SetupFiles" /></Feature>
+    <ComponentGroup Id="SetupFiles"><ComponentRef Id="Launcher" /><ComponentRef Id="Prepare_WindowsTestOffice.ps1" />
+      <ComponentRef Id="CSweet.OfficeRelease.ps1" /><ComponentRef Id="CSweet.OfficeStorage.ps1" />
+      <ComponentRef Id="office_release_signer.cer" /><ComponentRef Id="office_bootstrap.p7m.b64" /><ComponentRef Id="test_build.txt" /><ComponentRef Id="TestProtocol" /></ComponentGroup>
+    <CustomAction Id="RemoveTestOffice" Directory="System64Folder" Execute="deferred" Impersonate="no" Return="check"
+      ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File &quot;[ProgramFiles64Folder]CSweet\Office Test Setup\Prepare-WindowsTestOffice.ps1&quot; -Remove" />
+    <InstallExecuteSequence><Custom Action="RemoveTestOffice" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" /></InstallExecuteSequence>
+  </Package>
+</Wix>
