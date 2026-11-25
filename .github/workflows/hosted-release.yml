@@ -259,3 +259,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed. Inspect the draft before retrying.' }
           gh release edit $env:RELEASE_TAG --draft=false --latest --repo $env:GITHUB_REPOSITORY
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }
+  windows-installer:
+    needs: [metadata, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Queue Windows setup for the published bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: gh workflow run windows-test-installer.yml --repo "$GITHUB_REPOSITORY" --ref main -f "version=$RELEASE_VERSION"
