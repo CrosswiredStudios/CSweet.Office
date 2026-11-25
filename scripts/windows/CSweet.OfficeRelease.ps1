@@ -293,7 +293,7 @@ function Expand-CSweetOfficeArchive([string] $Archive, [string] $Destination) {
     [IO.Compression.ZipFile]::ExtractToDirectory($Archive, $Destination)
 }
 
-function Receive-CSweetOfficeAsset([object] $Asset, [string] $Destination, [int] $TimeoutSeconds = 1800) {
+function Receive-CSweetOfficeAsset([object] $Asset, [string] $Destination, [int] $TimeoutSeconds = 1800, [scriptblock] $OnPart) {
     if ($Asset.name -cnotmatch '^csweet-office-([0-9]+\.[0-9]+\.[0-9]+)-(windows-support|windows-x64)\.zip$') { throw 'Office download asset name is invalid.' }
     Assert-CSweetOfficeAsset $Asset $Matches[1] $Matches[2] $true
     if ($TimeoutSeconds -le 0 -or $TimeoutSeconds -gt 1800) { throw 'Office download timeout is invalid.' }
@@ -306,8 +306,11 @@ function Receive-CSweetOfficeAsset([object] $Asset, [string] $Destination, [int]
         if (Test-Path -LiteralPath $Destination) { throw 'Office extraction requires a new directory.' }
         $output = [IO.File]::Open($archive, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
         $ownedArchive = $true
-        $downloads = if ($null -ne $Asset.PSObject.Properties['parts']) { @($Asset.parts) } else { @($Asset) }
+        $downloads = @(if ($null -ne $Asset.PSObject.Properties['parts']) { $Asset.parts } else { $Asset })
+        $partNumber = 0
         foreach ($download in $downloads) {
+            $partNumber++
+            if ($OnPart) { & $OnPart $partNumber $downloads.Count | Out-Null }
             $remainingSeconds = [int][Math]::Ceiling($TimeoutSeconds - $elapsed.Elapsed.TotalSeconds)
             if ($remainingSeconds -le 0) { throw 'Office release download timed out.' }
             try {

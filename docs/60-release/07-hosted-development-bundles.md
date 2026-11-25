@@ -1,5 +1,11 @@
 # GitHub-hosted development bundles
 
+## Publish a Windows test installer
+
+After the versioned development bundle is published, run **Windows test installer** from **Actions** on `main`. Supply the bundle version or accept the project version. The Windows runner builds a Setup EXE and MSI, checks the EXE's embedded MSI digest, installs the MSI, validates its Start menu shortcut and signed release support download, and removes the MSI. A successful manual run publishes both installers and their checksums as a separate `windows-test-<version>-<run number>` prerelease. The unsigned test installers use the public development publisher pin. The test PC downloads the guest and runs Hyper-V certification before opening Office for enrollment. Verified: 2026-11-24. [Workflow](../../.github/workflows/windows-test-installer.yml) · [Installer build](../../scripts/release/windows-test/Build-WindowsTestInstaller.ps1) · [Host preparation](../../scripts/release/windows-test/Prepare-WindowsTestOffice.ps1) · [Windows installation test](../../scripts/tests/Test-WindowsTestInstaller.ps1)
+
+## Prepare the development bundle
+
 For the Windows compute image, release owners supply an immutable HTTPS VHDX URL in
 `CSWEET_DEVELOPMENT_COMPUTE_IMAGE_URL` and its independently approved SHA-256 in
 `CSWEET_DEVELOPMENT_COMPUTE_IMAGE_SHA256`. Use the certified developer image containing the

@@ -30,7 +30,9 @@ try {
     if ("windows-test-$build" -cne [IO.File]::ReadAllText("$setup\test-build.txt") -or !$build.StartsWith("$version-")) { throw 'The installed manifest and downloader differ.' }
     $support = @($manifest.assets | Where-Object name -CEQ "csweet-office-$version-windows-support.zip")
     $dest = Join-Path $Output 'support'
-    $verified = Receive-CSweetOfficeAsset $support[0] $dest
+    $parts = [Collections.Generic.List[string]]::new()
+    $verified = Receive-CSweetOfficeAsset $support[0] $dest -OnPart { param($number, $count) $parts.Add("$number/$count") }
+    if (($parts -join ',') -cne '1/1') { throw 'The download did not report its part count.' }
     if (!(Test-Path "$verified\scripts\windows\Initialize-CSweetWindowsIsolationTest.ps1") -or
         (Get-FileHash "$verified\scripts\windows\office-release-signer.cer").Hash -ne (Get-FileHash "$setup\office-release-signer.cer").Hash) {
         throw 'The real release support payload does not match the installed bootstrap.'

@@ -69,7 +69,10 @@ try {
     $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($office))
     if ($drive.AvailableFreeSpace -lt 64GB) { throw 'Free at least 64 GiB on the Windows system drive, then reopen Office test setup.' }
     Report 'Downloading and checking the Windows guest bundle. This is a multi-gigabyte download.'
-    $bundle = Receive-CSweetOfficeAsset $bundles[0] (Join-Path $work 'bundle')
+    $bundle = Receive-CSweetOfficeAsset $bundles[0] (Join-Path $work 'bundle') -OnPart {
+        param($Part, $Count)
+        Report "Downloading and checking the Windows guest bundle (part $Part of $Count)..."
+    }
     $scripts = Join-Path $bundle 'scripts\windows'
     $result = Join-Path $work 'payload-path.txt'
     Report 'Testing Hyper-V isolation and preparing the certified payload...'
