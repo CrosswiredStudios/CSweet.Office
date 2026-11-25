@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([guid] $JobId = [guid]::NewGuid(), [switch] $Remove)
+param([guid] $JobId = [guid]::NewGuid(), [switch] $Remove, [switch] $CheckOnly)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'CSweet.OfficeRelease.ps1')
@@ -15,6 +15,16 @@ $lock = $null
 
 function Report([string] $Message) {
     [IO.File]::WriteAllText($statusFile, $Message)
+}
+function Test-OfficeDataPresent([string] $Path) {
+    try {
+        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    } catch [Management.Automation.ItemNotFoundException] {
+        return $false
+    }
+    Assert-CSweetOfficePath $Path
+    if (!$item.PSIsContainer) { return $true }
+    return $null -ne (Get-ChildItem -LiteralPath $Path -Force -ErrorAction Stop | Select-Object -First 1)
 }
 function Remove-TestDirectory([string] $Path, [string] $Allowed) {
     $full = [IO.Path]::GetFullPath($Path)
@@ -42,7 +52,7 @@ try {
                     Stop-Process -Id $process.ProcessId -ErrorAction SilentlyContinue
                 }
             }
-            if ($services.Count -or (Test-Path -LiteralPath $data) -or (Test-Path 'HKLM:\SOFTWARE\CSweet\Office\Storage')) {
+            if ($services.Count -or (Test-Path 'HKLM:\SOFTWARE\CSweet\Office\Storage') -or (Test-OfficeDataPresent $data)) {
                 & (Join-Path $office 'Uninstall-CSweetOffice.ps1') -Elevated
             }
             if ([IO.Directory]::Exists($office)) { Remove-TestDirectory $office (Join-Path $programs 'CSweet\Office') }
@@ -52,10 +62,22 @@ try {
         return
     }
     if ($owned -and [IO.File]::Exists((Join-Path $office 'payload\runtime-manifest.json'))) { return }
-    if ((Test-Path -LiteralPath $office) -or $services.Count -or (Test-Path -LiteralPath $data) -or
-        (Test-Path 'HKLM:\SOFTWARE\CSweet\Office\Storage') -or (Test-Path (Join-Path $programs 'CSweet\SatelliteOffice'))) {
-        throw 'An existing Office installation or its data was found. To keep your work safe, finish removing that Office before starting setup.'
+    $legacyOffice = Join-Path $programs 'CSweet\SatelliteOffice'
+    if ($services.Count) {
+        throw "An Office service is still installed: $($services[0].Name). Uninstall the earlier Office in Windows Settings, then try again."
     }
+    if (Test-Path 'HKLM:\SOFTWARE\CSweet\Office\Storage') {
+        throw 'An earlier Office still has registered storage. Uninstall that Office in Windows Settings, then try again.'
+    }
+    foreach ($installPath in @($office, $legacyOffice)) {
+        if (Test-Path -LiteralPath $installPath) {
+            throw "Earlier Office installation files remain at $installPath. Finish uninstalling the earlier Office, then try again."
+        }
+    }
+    if (Test-OfficeDataPresent $data) {
+        throw "Earlier Office data remains at $data. If the previous Office was uninstalled, back up its data before moving it and trying again."
+    }
+    if ($CheckOnly) { return }
     Report 'Checking Windows and Hyper-V...'
     $feature = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -ErrorAction Stop
     if ($feature.State -ne 'Enabled') {
@@ -104,7 +126,7 @@ try {
 } finally {
     if ($lock) {
         try {
-            if (!$Remove) { Remove-TestDirectory $work (Join-Path $PSScriptRoot 'preparation') }
+            if (!$Remove -and !$CheckOnly) { Remove-TestDirectory $work (Join-Path $PSScriptRoot 'preparation') }
         } finally {
             $lock.Dispose()
             if ($Remove) { Remove-Item -LiteralPath (Join-Path $PSScriptRoot 'preparation.lock') -ErrorAction SilentlyContinue }
