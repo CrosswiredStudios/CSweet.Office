@@ -26,6 +26,7 @@ try {
         if ($protocol -eq '1.1') {
             $compute.ComputeGuestImage = "$root/image.vhdx"
             $compute.ComputeGuestImageSignature = "$root/image.sig"
+            $compute.ComputeFeatures = @('docker', 'docker-apps-v1', 'browser-testing-v1')
         }
         & "$PSScriptRoot/../windows/New-CSweetWindowsRuntimePayload.ps1" -PrebuiltRoot $bundle @compute `
             -GuestImage "$root/image.vhdx" -GuestImageSignature "$root/image.sig" `
@@ -36,7 +37,8 @@ try {
         $manifest = Get-Content "$payload/runtime-manifest.json" -Raw | ConvertFrom-Json
         if ($protocol -eq '1.1') {
             $expected = 'sha256:' + (Get-FileHash -LiteralPath "$root/image.vhdx").Hash.ToLowerInvariant()
-            if ($manifest.computeImageDigest -cne $expected -or $manifest.computeFeatures -notcontains 'docker' -or
+            if ($manifest.computeImageDigest -cne $expected -or
+                (@($manifest.computeFeatures) -join ',') -cne 'browser-testing-v1,docker,docker-apps-v1' -or
                 $manifest.files.path -notcontains 'images/csweet-compute-guest.vhdx.sig') {
                 throw 'The separate compute image, signature or feature declaration is missing.'
             }

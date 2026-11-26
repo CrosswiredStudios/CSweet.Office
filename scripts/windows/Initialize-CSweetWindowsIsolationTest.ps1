@@ -196,7 +196,8 @@ if ($PrebuiltRoot) {
     if ($bundle.PSObject.Properties['computeImage']) {
         $computeImage = Join-Path $PrebuiltRoot 'guest\csweet-compute-guest.vhdx'
         $computeDigest = 'sha256:' + (Get-FileHash -LiteralPath $computeImage -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($computeDigest -cne $bundle.computeImage.imageDigest -or (@($bundle.computeImage.features) -join ',') -cne 'docker,docker-apps-v1') {
+        if ($computeDigest -cne $bundle.computeImage.imageDigest -or
+            (@($bundle.computeImage.features) -join ',') -cnotin @('docker,docker-apps-v1', 'docker,docker-apps-v1,browser-testing-v1')) {
             throw 'The development compute disk differs from the release profile.'
         }
     }
