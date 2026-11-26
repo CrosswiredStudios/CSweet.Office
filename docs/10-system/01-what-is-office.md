@@ -36,6 +36,20 @@ always fails closed — there is no process-level or shared-kernel-container fal
 
 The full treatment is in [20-security/](../20-security/README.md).
 
+## Reassigning Windows workspace compute
+
+Windows Office 0.19.2 can accept a machine-bound reassignment during authenticated
+maintenance. Headquarters authorizes the destination business and verifies the
+approved browser image. The installer preserves the Office identity and the
+workspace allocation. RuntimeHost archives the retired enrollment journal only
+after every physical reservation has cleared and all evidence has been acknowledged.
+The rebind keeps signed dispatch and replay validation in place (SEC-INV-07 and
+SEC-INV-08).
+
+Verified: 2026-11-25. Sources: [Configurator](../../src/CSweet.Office.Configurator/Program.cs),
+[Windows runtime installer](../../scripts/windows/Install-CSweetOfficeRuntimeHost.ps1),
+[Office workspace partition](../../src/CSweet.Office.RuntimeHost/OfficeComputePartition.cs).
+
 ## What is deliberately not in this repository
 
 > **Out of repo:** These live in the C-Sweet repository and are reached over the network or through the

@@ -19,7 +19,12 @@
       "required": ["imageDigest","features"],
       "properties": {
         "imageDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-        "features": { "const": ["docker","docker-apps-v1"] }
+        "features": {
+          "enum": [
+            ["docker","docker-apps-v1"],
+            ["docker","docker-apps-v1","browser-testing-v1"]
+          ]
+        }
       }
     },
     "schemaVersion": {

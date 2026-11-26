@@ -200,7 +200,13 @@ jobs:
           flags=$(guestfish --ro --format=vhdx -a "$disk" -i cat /etc/csweet/compute-profile)
           grep -Fxq docker-apps-v1 <<< "$flags"
           [[ "$(guestfish --ro --format=vhdx -a "$disk" -i is-file /opt/csweet/compute-guest/CSweet.Compute.Guest)" == true ]]
-          jq -n --arg digest "sha256:$IMAGE_SHA256" '{imageDigest:$digest,features:["docker","docker-apps-v1"]}' > artifacts/windows-guest/compute-image-profile.json
+          if ! grep -Fxq browser-testing-v1 <<< "$flags"; then
+            echo 'The pinned compute image does not provide browser testing.' >&2
+            exit 1
+          fi
+          jq -n --arg digest "sha256:$IMAGE_SHA256" \
+            '{imageDigest:$digest,features:["docker","docker-apps-v1","browser-testing-v1"]}' \
+            > artifacts/windows-guest/compute-image-profile.json
       - uses: actions/upload-artifact@v4
         with:
           name: windows-guest

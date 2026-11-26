@@ -8,6 +8,7 @@ param(
     [string] $DataRoot,
     [string] $EnrollmentTokenInputPath,
     [object] $ComputePolicy,
+    [string] $ComputeReassignmentPlan,
     [guid] $AssistedSetupSessionId = [guid]::Empty,
     [int] $AllocatableCpuCount = 0,
     [int] $AllocatableMemoryMb = 0,
@@ -29,6 +30,12 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($ComputeReassignmentPlan) {
+    if ($ExistingInstallationAction -ne 'upgrade' -or $null -ne $ComputePolicy -or -not $Elevated) {
+        throw 'Compute reassignment requires an identity-preserving maintenance operation.'
+    }
+    $ComputePolicy = $ComputeReassignmentPlan | ConvertFrom-Json
+}
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)

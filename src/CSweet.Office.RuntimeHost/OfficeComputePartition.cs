@@ -20,6 +20,7 @@ public sealed class OfficeComputeOptions
 {
     public bool Enabled { get; set; }
     public Guid OrganizationId { get; set; }
+    public Guid? PreviousOrganizationId { get; set; }
     public int MaximumEnvironments { get; set; }
     public int CpuCount { get; set; }
     public int MemoryMiB { get; set; }
@@ -72,12 +73,23 @@ internal sealed class OfficeComputePartition(OfficeComputeOptions policy, Platfo
             var backend = new ComputeBackend(installedBackend.Descriptor, new() { HelperExecutablePath = runtime.HelperExecutablePath,
                 HelperExecutableDigest = runtime.HelperExecutableDigest, GuestImagePath = policy.ImagePath,
                 GuestImageDigest = policy.ImageDigest, BrokerProtocolVersion = "1.0" }, clock);
-            await journal.InitializeAsync(async (id, resource, ct) =>
+            async Task<bool> ConfirmStopped(Guid id, string resource, CancellationToken ct)
             {
                 var handle = await backend.ObserveCreationAsync(id, id, WorkloadKind.ComputeEnvironment, ct);
                 return handle != null && handle.ProviderInstanceId == resource &&
                     (await backend.InspectAsync(handle, ct))?.State == IsolationWorkloadState.Stopped;
-            }, token);
+            }
+            try { await journal.InitializeAsync(ConfirmStopped, token); }
+            catch (InvalidDataException) when (OperatingSystem.IsWindows() && policy.PreviousOrganizationId is Guid previous &&
+                previous != Guid.Empty && previous != policy.OrganizationId)
+            {
+                var retired = ComputeReplayJournal.OpenForWindowsService(directory, enrollment with { OrganizationId = previous }, capacity,
+                    clock, "CSweet.Office.RuntimeHost");
+                // Headquarters completes business deletion only after provider-confirmed teardown.
+                // Reassignment must fail if the local journal still contains a physical reservation.
+                await retired.RebindRetiredEnrollmentAsync(enrollment, static (_, _) => Task.FromResult(false), token);
+                await journal.InitializeAsync(ConfirmStopped, token);
+            }
             return state = new(pin, template, backend, journal, verifier);
         }
         finally { initialization.Release(); }

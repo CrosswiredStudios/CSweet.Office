@@ -21,7 +21,8 @@ $images = "$InputRoot/guest-images"
 $guestInput = if ($WindowsOnly) { "$InputRoot/windows-guest" } else { "$images/windows-guest" }
 $computeProfile = Get-Content -Raw -LiteralPath (Join-Path $guestInput 'compute-image-profile.json') | ConvertFrom-Json
 $computeHash = (Get-FileHash -LiteralPath (Join-Path $guestInput 'csweet-compute-guest.vhdx') -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($computeProfile.imageDigest -cne "sha256:$computeHash" -or (@($computeProfile.features) -join ',') -cne 'docker,docker-apps-v1') {
+if ($computeProfile.imageDigest -cne "sha256:$computeHash" -or
+    (@($computeProfile.features) -join ',') -cnotin @('docker,docker-apps-v1', 'docker,docker-apps-v1,browser-testing-v1')) {
     throw 'The compute disk does not match its release profile.'
 }
 $profilePath = Join-Path $guestInput 'guest-image-profile.json'

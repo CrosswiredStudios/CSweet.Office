@@ -53,6 +53,7 @@ if (string.Equals(Path.GetFileName(installRoot), "recovery", StringComparison.Or
 var architecture = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
 var targeted = query.TryGetValue("office", out var targetText);
 var maintenance = targeted && query.GetValueOrDefault("operation") is "repair" or "upgrade";
+var reassignCompute = maintenance && query.GetValueOrDefault("operation") == "repair" && query.GetValueOrDefault("reassignCompute") == "true";
 if (targeted && (!Guid.TryParse(targetText, out _) ||
     !query.TryGetValue("operation", out var operation) || operation is not ("repair" or "upgrade" or "remove"))) return 2;
 if (maintenance && query.GetValueOrDefault("operation") == "upgrade" && query.GetValueOrDefault("automatic") == "true")
@@ -111,6 +112,24 @@ var progressPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFol
     "CSweet", "Setup", $"windows-isolation-{sessionId:N}.json");
 try
 {
+    var payload = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
+    string? computePlan = null;
+    if (reassignCompute)
+    {
+        using var manifest = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(payload, "runtime-manifest.json")));
+        if (!manifest.RootElement.TryGetProperty("computeImageDigest", out var digest) || digest.GetString() is not { Length: 71 } image)
+            throw new InvalidDataException("Install an Office payload with a verified browser-testing image before reassigning compute.");
+        using var planResponse = await client.PostAsJsonAsync("api/offices/local-sessions/compute-plan", new
+        {
+            assistedSetupSessionId = sessionId, setupReceipt = redemption.SetupReceipt, machineName = Environment.MachineName,
+            operatingSystem = "windows", architecture, officeVersion = version, imageDigest = image
+        });
+        if (!planResponse.IsSuccessStatusCode) throw new InvalidDataException("Headquarters did not authorize compute reassignment.");
+        using var plan = JsonDocument.Parse(await planResponse.Content.ReadAsByteArrayAsync());
+        if (!plan.RootElement.TryGetProperty("enabled", out var enabled) || enabled.ValueKind != JsonValueKind.True)
+            throw new InvalidDataException("Headquarters could not verify the compute reassignment image.");
+        computePlan = plan.RootElement.GetRawText();
+    }
     if (maintenance)
     {
         if (redemption.ExistingInstallationAction != query["operation"]) return 4;
@@ -132,7 +151,6 @@ try
         if (Run("icacls.exe", [tokenPath, "/inheritance:r", "/grant:r", "*S-1-5-18:F", "*S-1-5-32-544:F"]) != 0) return 5;
     }
     var script = Path.Combine(installRoot, "Install-CSweetOffice.ps1");
-    var payload = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
     if (!File.Exists(script) || !Directory.Exists(payload)) throw new InvalidDataException("The recovery payload is missing.");
     var arguments = new List<string>
     {
@@ -150,6 +168,7 @@ try
     if (redemption.Storage is { } storage)
         arguments.AddRange(["-StorageVolumeId", storage.VolumeId, "-InstallRoot", storage.InstallRoot, "-DataRoot", storage.DataRoot]);
     if (!maintenance) arguments.AddRange(["-EnrollmentTokenInputPath", tokenPath]);
+    if (computePlan is not null) arguments.AddRange(["-ComputeReassignmentPlan", computePlan]);
     if (!string.IsNullOrWhiteSpace(redemption.ControlPlaneCertificateSha256))
     {
         arguments.Add("-ControlPlaneCertificateSha256");

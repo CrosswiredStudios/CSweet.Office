@@ -71,7 +71,9 @@ try {
     try { & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot $windowsInput -OutputRoot "$root/reject-compute" -WindowsOnly }
     catch { $rejected = $_.Exception.Message -like '*compute disk does not match*' }
     if (!$rejected) { throw 'Packaging admitted a substituted workspace disk.' }
-    [IO.File]::WriteAllText($computeProfilePath, $computeProfile)
+    $browserProfile = $computeProfile | ConvertFrom-Json
+    $browserProfile.features += 'browser-testing-v1'
+    $browserProfile | ConvertTo-Json | Set-Content -LiteralPath $computeProfilePath -Encoding utf8
     & "$repository/scripts/release/Publish-HostedOfficeAssets.ps1" -Version $version -InputRoot "$root/input" -OutputRoot "$root/output"
     $manifest = Get-Content "$root/output/office-bootstrap.json" -Raw | ConvertFrom-Json
     if ($manifest.officeVersion -cne $version -or $manifest.assets.Count -ne 3) { throw 'Release identity or assets are wrong.' }
@@ -124,6 +126,9 @@ try {
         if ($signedManifest.officeVersion -cne $version -or $signedManifest.computeImage.imageDigest -cne
             ('sha256:' + (Get-FileHash "$windowsInput/windows-guest/csweet-compute-guest.vhdx").Hash.ToLowerInvariant())) {
             throw 'The installed publisher pin could not verify the packaged compute image digest.'
+        }
+        if (@($signedManifest.computeImage.features) -cnotcontains 'browser-testing-v1') {
+            throw 'The signed manifest lost the browser testing feature.'
         }
     } finally { $publisher.Dispose(); $rsa.Dispose() }
     $windowsManifest = Get-Content "$root/windows-only-output/office-bootstrap.json" -Raw | ConvertFrom-Json

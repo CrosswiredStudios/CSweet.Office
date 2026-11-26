@@ -9,7 +9,8 @@ After the hosted development workflow publishes the versioned bundle, it queues 
 For the Windows compute image, release owners supply an immutable HTTPS VHDX URL in
 `CSWEET_DEVELOPMENT_COMPUTE_IMAGE_URL` and its independently approved SHA-256 in
 `CSWEET_DEVELOPMENT_COMPUTE_IMAGE_SHA256`. Use the certified developer image containing the
-compute guest service and the offline Python and Node images. For multipart GitHub release inputs,
+compute guest service, offline Python and Node images, and the `browser-testing-v1` profile.
+For multipart GitHub release inputs,
 set the URL to the first `.vhdx.part001` asset and `CSWEET_DEVELOPMENT_COMPUTE_IMAGE_PARTS` to the
 part count. Each part except the last is 1 GiB. The digest always covers the complete VHDX.
 The hosted image job checks the
@@ -18,7 +19,7 @@ digest again before signing its local copy. A separate, stable development updat
 supplied in the Actions secrets `CSWEET_DEVELOPMENT_UPDATE_PFX` (base64 PKCS#12) and
 `CSWEET_DEVELOPMENT_UPDATE_PASSWORD`. Only the public certificate goes in the support and full
 bundles. Set `CSWEET_DEVELOPMENT_UPDATE_CERT_SHA256` to the lowercase SHA-256 of the
-public DER certificate. Preserve the same signer across releases. Verified: 2026-11-22.
+public DER certificate. Preserve the same signer across releases. Verified: 2026-11-26.
 [Image job](../../.github/workflows/hosted-release.yml) · [Publisher](../../scripts/release/Publish-HostedOfficeAssets.ps1) · [Windows bootstrap](../../scripts/windows/Initialize-CSweetWindowsIsolationTest.ps1)
 
 **Audience:** developers preparing a release or installing without a source checkout.

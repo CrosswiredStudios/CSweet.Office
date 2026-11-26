@@ -484,7 +484,20 @@ if ($null -ne $existingNodeService) {
     $existingConfiguration = Get-Content -LiteralPath $existingConfigurationPath -Raw | ConvertFrom-Json
     $existingCSweetConfiguration = Get-OptionalObjectProperty $existingConfiguration 'CSweet'
     $existingOfficeConfiguration = Get-OptionalObjectProperty $existingCSweetConfiguration 'Office'
-    if ($null -eq $ComputePolicy) { $ComputePolicy = Get-OptionalObjectProperty $existingOfficeConfiguration 'Compute' }
+    $installedCompute = Get-OptionalObjectProperty $existingOfficeConfiguration 'Compute'
+    if ($null -eq $ComputePolicy) { $ComputePolicy = $installedCompute }
+    $previousCompute = if ($null -ne $ComputePolicy) { Get-OptionalObjectProperty $ComputePolicy 'PreviousOrganizationId' }
+    if ($previousCompute) {
+        if ($null -eq $installedCompute -or $installedCompute.Enabled -ne $true -or
+            [guid]$installedCompute.OrganizationId -notin @([guid]$previousCompute, [guid]$ComputePolicy.OrganizationId) -or
+            [guid]$previousCompute -eq [guid]$ComputePolicy.OrganizationId -or
+            @($manifest.computeFeatures) -notcontains 'browser-testing-v1') {
+            throw 'The installed Office and signed browser-testing image do not match the reassignment plan.'
+        }
+        $installedCompute.OrganizationId = $ComputePolicy.OrganizationId
+        $installedCompute | Add-Member -NotePropertyName PreviousOrganizationId -NotePropertyValue ([guid]$previousCompute).ToString('D') -Force
+        $ComputePolicy = $installedCompute
+    }
     $existingRuntimeHostConfiguration = Get-OptionalObjectProperty $existingOfficeConfiguration 'RuntimeHost'
     if ($null -eq $existingRuntimeHostConfiguration) {
         throw 'The existing Office RuntimeHost configuration is incomplete.'
@@ -870,6 +883,8 @@ if ($null -ne $ComputePolicy -and $ComputePolicy.Enabled -eq $true) {
         MaximumEnvironments = [int]$ComputePolicy.MaximumEnvironments; ImagePath = $disk; SignaturePath = "$disk.sig"
         ImageDigest = $manifest.computeImageDigest; Features = @($manifest.computeFeatures)
     }
+    $retiredOrganization = Get-OptionalObjectProperty $ComputePolicy 'PreviousOrganizationId'
+    if ($retiredOrganization) { $config.CSweet.Office.Compute.PreviousOrganizationId = [string]$retiredOrganization }
     if ($null -eq $existingNodeConfiguration) {
         # The installer allocation is the total machine budget. Reserve compute's share before
         # advertising the balance for Office agent and builder VMs. A repair keeps that balance.
